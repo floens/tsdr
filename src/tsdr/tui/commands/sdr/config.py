@@ -1,0 +1,129 @@
+from argparse import Namespace
+from typing import Any
+
+from tsdr.core.preferences import save_device
+from tsdr.core.sdr.config import DeviceConfig, SDRConfig
+from tsdr.core.sdr.engine import get_engine
+from tsdr.core.units import parse_hz
+from tsdr.tui.commands._format import db, device_id, fields, freq_mhz, rate_msps, state, success
+from tsdr.tui.commands.base import Command, CommandParser, Completion
+from tsdr.tui.commands.sdr._utils import device_id_completions, get_focused_device_id
+
+_DEVICE_FIELDS = frozenset(DeviceConfig.__dataclass_fields__.keys())
+_GLOBAL_FIELDS = frozenset(SDRConfig.__dataclass_fields__.keys())
+
+
+class SDRConfigCommand(Command):
+    @property
+    def description(self) -> str:
+        return "Configure SDR device parameters"
+
+    def configure(self, parser: CommandParser) -> None:
+        parser.add_argument(
+            "frequency",
+            nargs="?",
+            default=None,
+            help="Center frequency with SI suffix (e.g. 100.1M, 430k)",
+        )
+        parser.add_argument("--device", dest="device_id")
+        parser.add_argument(
+            "--frequency", dest="frequency_mhz", type=float, help="Center frequency in MHz"
+        )
+        parser.add_argument("--sample-rate", type=float, help="Sample rate in MHz")
+        parser.add_argument("--gain", "--rf-gain", type=float, help="RF gain in dB (disables AGC)")
+        parser.add_argument("--agc", choices=["on", "off"], help="Client-side AGC")
+        parser.add_argument("--hw-agc", choices=["on", "off"], help="Hardware AGC")
+        parser.add_argument(
+            "--bias-t",
+            dest="bias_t",
+            choices=["on", "off"],
+            help="Antenna bias-T (RTL-SDR / Airspy / HackRF)",
+        )
+        parser.add_argument("--fft-size", type=int, help="FFT size")
+        parser.add_argument("--bandwidth", type=float, help="Channel bandwidth in kHz")
+        parser.add_argument("--fps", type=float, help="Target UI update rate")
+
+    def run(self, args: Namespace) -> str:
+        manager = get_engine()
+        did = args.device_id or get_focused_device_id()
+
+        changes: dict[str, Any] = {}
+
+        if args.frequency is not None:
+            changes["center_frequency"] = float(parse_hz(args.frequency))
+        if args.frequency_mhz is not None:
+            changes["center_frequency"] = args.frequency_mhz * 1e6
+        if args.sample_rate is not None:
+            changes["sample_rate"] = args.sample_rate * 1e6
+        if args.gain is not None:
+            changes["rf_gain"] = args.gain
+            changes["enable_agc"] = False
+        if args.agc is not None:
+            if args.agc == "on":
+                changes["enable_agc"] = True
+                changes["auto_gain"] = False
+            else:
+                changes["enable_agc"] = False
+        if args.hw_agc is not None:
+            if args.hw_agc == "on":
+                changes["auto_gain"] = True
+                changes["enable_agc"] = False
+            else:
+                changes["auto_gain"] = False
+        if args.bias_t is not None:
+            device = manager.get_device(did)
+            if not device.device.supports_bias_tee:
+                return f"bias-T not supported by {device_id(did)}"
+            changes["bias_tee"] = args.bias_t == "on"
+        if args.fft_size is not None:
+            changes["fft_size"] = args.fft_size
+        if args.bandwidth is not None:
+            changes["channel_bandwidth"] = args.bandwidth * 1_000
+        if args.fps is not None:
+            changes["target_fps"] = args.fps
+
+        if not changes:
+            return self.help_text()
+
+        device_changes = {k: v for k, v in changes.items() if k in _DEVICE_FIELDS}
+        global_changes = {k: v for k, v in changes.items() if k in _GLOBAL_FIELDS}
+
+        if device_changes:
+            manager.update_device_config(did, **device_changes)
+        if global_changes:
+            manager.update_global_config(**global_changes)
+
+        save_device(manager)
+
+        summary: dict[str, str] = {}
+        for key, value in changes.items():
+            if key == "center_frequency":
+                summary["frequency"] = freq_mhz(value, precision=2)
+            elif key == "sample_rate":
+                summary["sample_rate"] = rate_msps(value)
+            elif key == "rf_gain":
+                summary["gain"] = db(value)
+            elif key == "auto_gain":
+                summary["hw-agc"] = state("on" if value else "off")
+            elif key == "enable_agc":
+                summary["agc"] = state("on" if value else "off")
+            elif key == "bias_tee":
+                summary["bias-t"] = state("on" if value else "off")
+            elif key == "channel_bandwidth":
+                summary["bandwidth"] = f"[yellow]{value / 1000:.1f} kHz[/]"
+            else:
+                summary[key] = str(value)
+
+        return f"{success('Updated ' + device_id(did))}: {fields(summary)}"
+
+    def complete(
+        self,
+        tokens: list[str],
+        prefix: str,
+        *,
+        flag: str | None = None,
+        subcommand: str | None = None,
+    ) -> list[Completion]:
+        if flag == "--device":
+            return device_id_completions(prefix)
+        return []

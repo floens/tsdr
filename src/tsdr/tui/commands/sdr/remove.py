@@ -1,0 +1,35 @@
+from argparse import Namespace
+
+from tsdr.core.preferences import save_device
+from tsdr.core.sdr.engine import get_engine
+from tsdr.tui.commands._format import device_id, success
+from tsdr.tui.commands.base import Command, CommandParser, Completion
+from tsdr.tui.commands.sdr._utils import device_id_completions, get_focused_device_id
+
+
+class SDRRemoveCommand(Command):
+    @property
+    def description(self) -> str:
+        return "Remove an SDR device"
+
+    def configure(self, parser: CommandParser) -> None:
+        parser.add_argument("--device", dest="device_id")
+
+    def run(self, args: Namespace) -> str:
+        did = args.device_id or get_focused_device_id()
+        manager = get_engine()
+        manager.remove_device(did)
+        save_device(manager)
+        return success(f"Removed {device_id(did)}")
+
+    def complete(
+        self,
+        tokens: list[str],
+        prefix: str,
+        *,
+        flag: str | None = None,
+        subcommand: str | None = None,
+    ) -> list[Completion]:
+        if flag == "--device":
+            return device_id_completions(prefix)
+        return []

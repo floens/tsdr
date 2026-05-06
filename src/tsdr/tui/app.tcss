@@ -1,0 +1,390 @@
+/* Layout overview (three layers: default, overlay, status)
+ *
+ * Overlay-layer dock:bottom widgets each independently dock to the
+ * screen bottom — they don't stack with each other. So StatusBar and
+ * ConsoleWidget must be on SEPARATE layers to avoid overlap.
+ *
+ * Screen (vertical)
+ * ┌─────────────────────────────────────┐
+ * │ TunerWidget (auto height, ~4 rows)  │  default layer
+ * ├─────────────────────────────────────┤
+ * │ #main-container (1fr)               │  default layer
+ * │  ├─ #content / #viz-container       │
+ * │  │   SpectrumWidget, WaterfallWidget│
+ * │  │   RDSWidget, DABWidget, ADSBWidget,│
+ * │  │   TETRAWidget, DMRWidget,          │
+ * │  │   DecoderOutputWidget              │
+ * │  │   (padding-bottom: 5)            │
+ * │  └─ #sidebar (hidden by default)    │
+ * ├─────────────────────────────────────┤
+ * │ ConsoleWidget (dock: bottom)        │  overlay layer (margin-bottom: 2)
+ * │  border-top + input + border-bottom │
+ * ├─────────────────────────────────────┤
+ * │ StatusBar (1 row)                   │  status layer, dock: bottom
+ * ├─────────────────────────────────────┤
+ * │ (1 row margin-bottom on StatusBar)  │
+ * └─────────────────────────────────────┘
+ *
+ * ConsoleWidget (overlay) uses margin-bottom: 2 to leave room for
+ * StatusBar (1 row) + its margin (1 row). StatusBar (status layer,
+ * highest) paints on top of everything. #viz-container uses
+ * padding-bottom: 5 (3 console + 2 margin) to keep content clear.
+ * When the console is focused, ConsoleWidget expands (height: 12),
+ * covering more of the viz area. Kitty images use occlusion detection
+ * to avoid rendering under it.
+ */
+
+/* Custom theme variables (tmm pattern) */
+$border-muted: rgb(83, 83, 83);
+$prompt-color: rgb(255, 255, 255);
+$app-bg: ansi_default;
+
+/* Global Layout. App is created with `ansi_color=True`, which disables
+   Textual's default `ANSIToTruecolor` line filter so `ansi_default`
+   survives into the output as `\e[49m`. `self.rich_style` propagates
+   this through every segment: cells emit no bg SGR and the terminal
+   paints its own default bg. Widgets that set explicit Rich `bgcolor`
+   on segments (waterfall cells, spectrum Kitty image pixels) still
+   paint over this. */
+Screen {
+    layout: vertical;
+    layers: default overlay status;
+    background: $app-bg;
+}
+
+* {
+    background: $app-bg;
+}
+
+/* Main container - holds content and sidebar */
+#main-container {
+    width: 100%;
+    height: 1fr;
+    layout: horizontal;
+}
+
+/* Content area - left side, spectrum */
+#content {
+    width: 1fr;
+    height: 100%;
+    padding: 0;
+    scrollbar-size: 0 0;
+}
+
+/* Visualization container - holds spectrum and waterfall.
+   Bottom padding reserves space for overlay-layer widgets:
+   3 (ConsoleWidget) + 1 (StatusBar) + 1 (StatusBar margin) = 5 rows */
+#viz-container {
+    width: 100%;
+    height: 1fr;
+    padding-bottom: 5;
+}
+
+/* Sidebar - right side, docked stats */
+#sidebar {
+    dock: right;
+    width: 42;
+    height: 100%;
+    padding: 0;
+    margin-bottom: 5;
+    scrollbar-size: 0 0;
+    layout: vertical;
+    border-left: solid $border-muted;
+}
+
+/* Console widget - shell-like command area */
+ConsoleWidget {
+    dock: bottom;
+    width: 100%;
+    height: auto;
+    border-top: round $border-muted;
+    border-bottom: round $border-muted;
+    layer: overlay;
+    margin-bottom: 2;
+}
+
+ConsoleWidget.focused {
+    height: 14;
+}
+
+#console-history {
+    height: 1fr;
+    display: none;
+    scrollbar-size: 1 1;
+}
+
+ConsoleWidget.focused #console-history {
+    display: block;
+}
+
+#autocomplete-overlay {
+    display: none;
+    overlay: screen;
+    position: absolute;
+    height: auto;
+    max-height: 12;
+    width: auto;
+    min-width: 30;
+    padding: 0 1;
+    border: round $border-muted;
+}
+
+#autocomplete-overlay.visible {
+    display: block;
+}
+
+#command-input {
+    width: 1fr;
+    height: 1;
+    padding: 0;
+}
+
+/* Status bar - on its own 'status' layer (highest) so it paints
+   above the ConsoleWidget's margin-bottom region */
+StatusBar {
+    dock: bottom;
+    height: 1;
+    padding: 0 1;
+    color: $text-muted;
+    layer: status;
+    margin-bottom: 1;
+}
+
+/* Global Input styling override (tmm pattern) */
+Input {
+    border: none !important;
+    padding: 0;
+}
+
+Input:focus {
+    border: none !important;
+}
+
+/* Widget-specific styling */
+SpectrumWidget {
+    width: 1fr;
+    height: 1fr;
+}
+
+WaterfallWidget {
+    width: 1fr;
+    height: 1fr;
+}
+
+StatsWidget {
+    width: 100%;
+    height: 1fr;
+    padding: 1;
+}
+
+ConstellationWidget {
+    width: 100%;
+    height: auto;
+}
+
+PerformanceWidget {
+    width: 100%;
+    height: 1fr;
+    padding: 1;
+}
+
+TunerWidget {
+    width: 100%;
+    height: auto;
+
+    #tuner-row {
+        width: 100%;
+        height: 3;
+        align: center middle;
+    }
+
+    #tuner-mode {
+        width: 24;
+        height: 3;
+        content-align: right middle;
+        margin: 0 1;
+    }
+
+    #tuner-device {
+        width: 16;
+        height: 3;
+        content-align: right middle;
+        margin: 0 1;
+    }
+
+    #tuner-frequency {
+        width: auto;
+        margin: 0 4;
+    }
+
+    #tuner-meter {
+        width: 32;
+        height: 3;
+        margin: 0 2 0 1;
+    }
+
+    &.stopped {
+        #tuner-mode, #tuner-device, #tuner-frequency, #tuner-meter {
+            text-style: dim;
+        }
+    }
+}
+
+RDSWidget {
+    width: 100%;
+    height: auto;
+    min-height: 8;
+    padding: 0 1;
+    border: round $border-muted;
+    layout: horizontal;
+}
+
+RDSWidget Static {
+    width: 1fr;
+    height: auto;
+}
+
+RDSWidget #rds-stats {
+    width: 16;
+    min-width: 14;
+}
+
+RDSWidget #rds-main {
+    width: 24;
+    min-width: 18;
+}
+
+TETRAWidget {
+    width: 100%;
+    height: auto;
+    min-height: 9;
+    padding: 0 1;
+    border: round $border-muted;
+    layout: horizontal;
+}
+
+TETRAWidget Static {
+    width: 1fr;
+    height: auto;
+}
+
+TETRAWidget #tetra-network {
+    width: 32;
+    min-width: 18;
+    padding: 0 1;
+}
+
+TETRAWidget #tetra-slots {
+    width: 20;
+    min-width: 18;
+}
+
+TETRAWidget #tetra-calls {
+    width: 32;
+    min-width: 24;
+}
+
+TETRAWidget #tetra-quality {
+    width: 18;
+    min-width: 14;
+}
+
+DMRWidget {
+    width: 100%;
+    height: auto;
+    min-height: 8;
+    padding: 0 1;
+    border: round $border-muted;
+    layout: horizontal;
+}
+
+DMRWidget Static {
+    width: 1fr;
+    height: auto;
+}
+
+DMRWidget #dmr-repeater {
+    width: 20;
+    min-width: 16;
+    padding: 0 1;
+}
+
+DMRWidget #dmr-slots {
+    width: 28;
+    min-width: 22;
+}
+
+DMRWidget #dmr-quality {
+    width: 18;
+    min-width: 14;
+}
+
+DABWidget {
+    width: 100%;
+    height: auto;
+    min-height: 6;
+    padding: 0 1;
+    border: round $border-muted;
+    layout: horizontal;
+}
+
+DABWidget #dab-station {
+    width: 30;
+    height: auto;
+}
+
+DABWidget #dab-slide-text {
+    width: 16;
+    height: auto;
+}
+
+DABWidget #dab-slide-img {
+    width: 18;
+    height: 5;
+}
+
+DABWidget #dab-info {
+    width: 22;
+    height: auto;
+}
+
+DABWidget #dab-signal {
+    width: 24;
+    height: auto;
+}
+
+DABWidget #dab-services {
+    width: 1fr;
+    height: auto;
+    max-height: 5;
+    border: none;
+    scrollbar-size: 1 0;
+}
+
+ADSBWidget {
+    width: 100%;
+    height: 1fr;
+    min-height: 12;
+    padding: 0;
+    border: round $border-muted;
+    layout: horizontal;
+}
+
+ADSBWidget #adsb-map {
+    width: 1fr;
+    height: 100%;
+}
+
+ADSBWidget #adsb-table {
+    width: auto;
+    height: auto;
+    overflow-y: auto;
+    padding: 0 1;
+}
+
+DecoderOutputWidget {
+    width: 100%;
+    height: 12;
+    padding: 0 1;
+    border: round $border-muted;
+}

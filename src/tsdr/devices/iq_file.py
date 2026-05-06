@@ -1,0 +1,155 @@
+import io
+import logging
+import re
+import time
+from dataclasses import dataclass
+from pathlib import Path
+
+import zstandard as zstd
+
+from tsdr.core.sdr.exceptions import DeviceError
+from tsdr.core.sdr.samples_batch import SampleFormat
+from tsdr.devices.base import DeviceParams
+
+logger = logging.getLogger(__name__)
+
+
+EXTENSION_FORMAT_MAP: dict[str, SampleFormat] = {
+    ".cu8": SampleFormat.UINT8_IQ,
+    ".cf32": SampleFormat.COMPLEX64,
+    ".raw": SampleFormat.COMPLEX64,
+    ".iq": SampleFormat.COMPLEX64,
+}
+
+_SI_MULTIPLIER = {"": 1.0, "k": 1e3, "M": 1e6, "G": 1e9}
+_SR_PATTERN = re.compile(r"(?:^|[_/])sr=(\d+(?:\.\d+)?)([kMG]?)(?=[_.]|$)")
+
+
+def parse_sample_rate_from_filename(name: str) -> float | None:
+    """Extract sample rate from a filename produced by the record command.
+
+    Matches the `sr=<value><unit>` segment (e.g. `sr=250k`, `sr=2.4M`).
+    """
+    m = _SR_PATTERN.search(name)
+    if not m:
+        return None
+    return float(m.group(1)) * _SI_MULTIPLIER[m.group(2)]
+
+
+@dataclass(frozen=True)
+class IQFileParams(DeviceParams):
+    """IQ file playback parameters."""
+
+    path: str = ""
+    sample_format: SampleFormat | None = None
+
+
+class IQFileDevice:
+    """IQ file playback device.
+
+    Reads raw IQ samples from a file, looping at EOF. Throttles reads
+    to simulate real-time playback at the configured sample rate.
+    """
+
+    def __init__(self, path: Path, sample_format: SampleFormat):
+        self._path = path
+        self._sample_format = sample_format
+        self._file: io.BufferedReader | io.BytesIO | None = None
+        self._file_size = 0
+        self._sample_rate = 2.4e6
+        self._playback_time = 0.0
+        self._read_count = 0
+        self._loop_count = 0
+
+    def open(self) -> None:
+        if not self._path.exists():
+            raise DeviceError(f"File not found: {self._path}")
+        if self._path.stat().st_size == 0:
+            raise DeviceError(f"File is empty: {self._path}")
+        if self._path.name.endswith(".zst"):
+            dctx = zstd.ZstdDecompressor()
+            with open(self._path, "rb") as f:
+                raw = dctx.stream_reader(f).read()
+            self._file = io.BytesIO(raw)
+            self._file_size = len(raw)
+        else:
+            self._file = open(self._path, "rb")  # noqa: SIM115
+            self._file_size = self._path.stat().st_size
+        self._playback_time = time.monotonic()
+        logger.debug(
+            f"IQFile opened: {self._path} ({self._file_size} bytes, "
+            f"format={self._sample_format.value}, sample_rate={self._sample_rate})"
+        )
+
+    def close(self) -> None:
+        if self._file:
+            self._file.close()
+            self._file = None
+
+    def read_samples(self, count: int) -> bytes:
+        if not self._file:
+            raise DeviceError("Device not open")
+
+        # Throttle to simulate real-time playback using absolute timing.
+        # Sleep overshoot in one read self-corrects in the next, preventing
+        # cumulative drift that causes audio jitter.
+        bytes_per_sample = 8 if self._sample_format == SampleFormat.COMPLEX64 else 2
+        num_samples = count / bytes_per_sample
+        expected_duration = num_samples / self._sample_rate
+        self._playback_time += expected_duration
+        sleep_time = self._playback_time - time.monotonic()
+        if sleep_time > 0:
+            time.sleep(sleep_time)
+        elif sleep_time < -0.1:
+            # Fell too far behind (e.g. queue backpressure), reset to avoid burst
+            self._playback_time = time.monotonic()
+
+        # Read with EOF looping
+        data = b""
+        remaining = count
+        while remaining > 0:
+            chunk = self._file.read(remaining)
+            if not chunk:
+                self._loop_count += 1
+                logger.debug(f"IQFile EOF loop #{self._loop_count} at read #{self._read_count}")
+                self._file.seek(0)
+                chunk = self._file.read(remaining)
+                if not chunk:
+                    raise DeviceError("Failed to read from file after seek")
+            data += chunk
+            remaining -= len(chunk)
+
+        self._read_count += 1
+        if self._read_count <= 3 or self._read_count % 100 == 0:
+            logger.debug(
+                f"IQFile read #{self._read_count}: {count} bytes, "
+                f"sleep={sleep_time:.4f}s, rate={self._sample_rate}"
+            )
+        return data
+
+    def set_frequency(self, freq: float) -> None:
+        pass
+
+    def set_sample_rate(self, rate: float) -> None:
+        logger.debug(f"IQFile set_sample_rate: {self._sample_rate} -> {rate}")
+        self._sample_rate = rate
+
+    def set_gain(self, gain: float) -> None:
+        pass
+
+    def set_auto_gain(self, enable: bool) -> None:
+        pass
+
+    @property
+    def gain_range(self) -> tuple[float, float]:
+        return (0.0, 0.0)
+
+    @property
+    def supports_bias_tee(self) -> bool:
+        return False
+
+    def set_bias_tee(self, enable: bool) -> None:
+        pass
+
+    def get_sample_format(self) -> SampleFormat:
+        return self._sample_format
