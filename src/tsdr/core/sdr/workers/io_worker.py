@@ -146,7 +146,10 @@ class IOWorker:
 
                 with span("device_read"):
                     try:
-                        raw_bytes = device.read_samples(config.effective_buffer_size)
+                        read_bytes = (
+                            config.effective_buffer_samples * self.sample_format.bytes_per_sample
+                        )
+                        raw_bytes = device.read_samples(read_bytes)
                     except DeviceError as e:
                         logger.error(f"Device {self.device_context.device_id} read error: {e}")
                         context.emit_event(
@@ -176,7 +179,7 @@ class IOWorker:
                     raw_samples=raw_bytes,
                     sample_format=self.sample_format,
                     center_frequency=config.center_frequency,
-                    sample_rate=config.sample_rate,
+                    sample_rate=device.actual_sample_rate,
                     rf_gain=config.rf_gain,
                     timestamp=timestamp,
                 )

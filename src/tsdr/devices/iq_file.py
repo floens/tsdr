@@ -93,8 +93,7 @@ class IQFileDevice:
         # Throttle to simulate real-time playback using absolute timing.
         # Sleep overshoot in one read self-corrects in the next, preventing
         # cumulative drift that causes audio jitter.
-        bytes_per_sample = 8 if self._sample_format == SampleFormat.COMPLEX64 else 2
-        num_samples = count / bytes_per_sample
+        num_samples = count / self._sample_format.bytes_per_sample
         expected_duration = num_samples / self._sample_rate
         self._playback_time += expected_duration
         sleep_time = self._playback_time - time.monotonic()
@@ -130,9 +129,17 @@ class IQFileDevice:
     def set_frequency(self, freq: float) -> None:
         pass
 
+    @property
+    def frequency_range(self) -> tuple[float, float] | None:
+        return None
+
     def set_sample_rate(self, rate: float) -> None:
         logger.debug(f"IQFile set_sample_rate: {self._sample_rate} -> {rate}")
         self._sample_rate = rate
+
+    @property
+    def actual_sample_rate(self) -> float:
+        return self._sample_rate
 
     def set_gain(self, gain: float) -> None:
         pass

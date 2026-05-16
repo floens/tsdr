@@ -90,6 +90,7 @@ class RTLSDRDevice:
         self._device: Any = None
         self._is_open = False
         self._supports_bias_tee = False
+        self._sample_rate: float = 0.0
 
     def open(self) -> None:
         if not _HAS_RTLSDR:
@@ -169,14 +170,23 @@ class RTLSDRDevice:
         except OSError as e:
             self._on_setter_failure("set_frequency", e)
 
+    @property
+    def frequency_range(self) -> tuple[float, float] | None:
+        return None
+
     def set_sample_rate(self, rate: float) -> None:
         if self._device is None:
             return
         try:
             with _silence_stderr():
                 self._device.set_sample_rate(rate)
+                self._sample_rate = float(self._device.get_sample_rate())
         except OSError as e:
             self._on_setter_failure("set_sample_rate", e)
+
+    @property
+    def actual_sample_rate(self) -> float:
+        return self._sample_rate
 
     def set_gain(self, gain: float) -> None:
         if self._device is None:

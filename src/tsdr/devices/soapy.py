@@ -124,6 +124,7 @@ class SoapySDRDevice:
         self._is_open = False
         self._supports_bias_tee = False
         self._gain_range: tuple[float, float] = (0.0, 49.6)
+        self._sample_rate: float = 0.0
 
     def _build_args(self):
         """Build SoapySDR kwargs dict.
@@ -221,9 +222,18 @@ class SoapySDRDevice:
         if self._device:
             self._device.setFrequency(_SoapySDR.SOAPY_SDR_RX, 0, freq)
 
+    @property
+    def frequency_range(self) -> tuple[float, float] | None:
+        return None
+
     def set_sample_rate(self, rate: float) -> None:
         if self._device:
             self._device.setSampleRate(_SoapySDR.SOAPY_SDR_RX, 0, rate)
+            self._sample_rate = float(self._device.getSampleRate(_SoapySDR.SOAPY_SDR_RX, 0))
+
+    @property
+    def actual_sample_rate(self) -> float:
+        return self._sample_rate
 
     def set_gain(self, gain: float) -> None:
         if self._device:

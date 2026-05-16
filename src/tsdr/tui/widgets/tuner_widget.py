@@ -319,6 +319,12 @@ class TunerWidget(Vertical):
             if device is None:
                 return
             new_freq = device.config.center_frequency + event.direction * place_value
+            freq_range = device.device.frequency_range
+            if freq_range is not None:
+                lo, hi = freq_range
+                new_freq = max(lo, min(new_freq, hi))
+                if new_freq == device.config.center_frequency:
+                    return  # already at the bound, no-op
             engine.update_device_config(device.device_id, center_frequency=new_freq)
             with span("save_device"):
                 save_device(engine)

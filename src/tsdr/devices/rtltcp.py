@@ -75,6 +75,7 @@ class RTLTCPDevice:
         self.port = port
         self.socket: socket.socket | None = None
         self._is_open = False
+        self._sample_rate: float = 0.0
 
         # Header information (populated on connection)
         self.tuner_type: int | None = None
@@ -176,8 +177,17 @@ class RTLTCPDevice:
     def set_frequency(self, freq: float) -> None:
         self._send_command(self.CMD_SET_FREQUENCY, int(freq))
 
+    @property
+    def frequency_range(self) -> tuple[float, float] | None:
+        return None
+
     def set_sample_rate(self, rate: float) -> None:
         self._send_command(self.CMD_SET_SAMPLE_RATE, int(rate))
+        self._sample_rate = float(int(rate))
+
+    @property
+    def actual_sample_rate(self) -> float:
+        return self._sample_rate
 
     def set_gain(self, gain: float) -> None:
         """Set RF gain via CMD_SET_GAIN_INDEX (0x0d).

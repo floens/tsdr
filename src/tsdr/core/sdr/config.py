@@ -58,7 +58,7 @@ class DeviceConfigChanges(TypedDict, total=False):
     auto_gain: bool
     enable_agc: bool
     bias_tee: bool
-    buffer_size: int | None
+    buffer_samples: int | None
     target_fps: float
     queue_size: int
     channel_bandwidth: float | None
@@ -92,7 +92,7 @@ class DeviceConfig:
     auto_gain: bool = False  # Disable AGC for consistent gain control
     enable_agc: bool = False  # Client-side RF gain AGC
     bias_tee: bool = False  # Antenna-port bias-T power (driver-dependent)
-    buffer_size: int | None = None  # Bytes per read, None = auto from sample_rate/target_fps
+    buffer_samples: int | None = None  # Samples per read, None = auto from sample_rate/target_fps
     target_fps: float = 20.0  # Target UI update rate for auto buffer sizing
     queue_size: int = 15  # Max batches in sample queue
     channel_bandwidth: float | None = None  # Hz, None = demodulator default
@@ -100,12 +100,11 @@ class DeviceConfig:
     pipelines: MappingProxyType[str, PipelineConfig] = field(default=DEFAULT_PIPELINES)
 
     @property
-    def effective_buffer_size(self) -> int:
-        """Buffer size in bytes, auto-calculated if not explicitly set."""
-        if self.buffer_size is not None:
-            return self.buffer_size
-        # 2 bytes/sample (UINT8_IQ / SINT8_IQ)
-        return int(self.sample_rate / self.target_fps) * 2
+    def effective_buffer_samples(self) -> int:
+        """Sample count per device read, auto-calculated if not explicitly set."""
+        if self.buffer_samples is not None:
+            return self.buffer_samples
+        return int(self.sample_rate / self.target_fps)
 
     def with_changes(self, **kwargs: Unpack[DeviceConfigChanges]) -> DeviceConfig:
         return replace(self, **kwargs)
@@ -117,8 +116,8 @@ class DeviceConfig:
             raise ValueError(f"center_frequency must be positive, got {self.center_frequency}")
         if self.queue_size <= 0:
             raise ValueError(f"queue_size must be positive, got {self.queue_size}")
-        if self.buffer_size is not None and self.buffer_size <= 0:
-            raise ValueError(f"buffer_size must be positive, got {self.buffer_size}")
+        if self.buffer_samples is not None and self.buffer_samples <= 0:
+            raise ValueError(f"buffer_samples must be positive, got {self.buffer_samples}")
         if self.target_fps <= 0 or self.target_fps > 120:
             raise ValueError(f"target_fps must be between 1 and 120, got {self.target_fps}")
 

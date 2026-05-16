@@ -69,9 +69,17 @@ class MockSDRDevice:
     def set_frequency(self, freq: float) -> None:
         self.center_freq = freq
 
+    @property
+    def frequency_range(self) -> tuple[float, float] | None:
+        return None
+
     def set_sample_rate(self, rate: float) -> None:
         self.sample_rate = rate
         self._sample_index = 0  # reset phase
+
+    @property
+    def actual_sample_rate(self) -> float:
+        return self.sample_rate
 
     def set_gain(self, gain: float) -> None:
         pass

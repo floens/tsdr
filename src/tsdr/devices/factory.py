@@ -6,6 +6,7 @@ from tsdr.devices.mock import MockParams, MockSDRDevice
 from tsdr.devices.rtlsdr import RTLSDRDevice, RTLSDRParams
 from tsdr.devices.rtltcp import RTLTCPDevice, RTLTCPParams
 from tsdr.devices.soapy import SoapySDRDevice, SoapySDRParams
+from tsdr.devices.spyserver import SpyServerDevice, SpyServerParams
 
 
 def create_device(params: DeviceParams) -> SDRDevice:
@@ -57,6 +58,11 @@ def create_device(params: DeviceParams) -> SDRDevice:
 
         case RTLSDRParams(serial=serial, device_index=device_index):
             return RTLSDRDevice(serial=serial, device_index=device_index)
+
+        case SpyServerParams(host=host, port=port):
+            if not (1 <= port <= 65535):
+                raise ValueError(f"Port must be between 1 and 65535, got {port}")
+            return SpyServerDevice(host=host, port=port)
 
         case _:
             raise ValueError(f"Unknown device params type: {type(params).__name__}")

@@ -63,12 +63,12 @@ def run_pipeline():
         duration: float | None = None,
         timeout: float = 15.0,
         min_events: int = 1,
-        buffer_size: int | None = None,
+        buffer_samples: int | None = None,
     ) -> list[Event]:
         engine = SDREngine()
         config_kwargs: dict = {"sample_rate": sample_rate}
-        if buffer_size is not None:
-            config_kwargs["buffer_size"] = buffer_size
+        if buffer_samples is not None:
+            config_kwargs["buffer_samples"] = buffer_samples
         config = DeviceConfig(**config_kwargs)
 
         params = IQFileParams(path=iq_path)

@@ -14,6 +14,7 @@ from tsdr.devices.mock import MockParams, MockSDRDevice
 from tsdr.devices.rtlsdr import RTLSDRDevice, RTLSDRParams
 from tsdr.devices.rtltcp import RTLTCPDevice, RTLTCPParams
 from tsdr.devices.soapy import SoapySDRDevice, SoapySDRParams
+from tsdr.devices.spyserver import SpyServerDevice, SpyServerParams
 
 __all__ = [
     "EXTENSION_FORMAT_MAP",
@@ -29,5 +30,7 @@ __all__ = [
     "SDRDevice",
     "SoapySDRDevice",
     "SoapySDRParams",
+    "SpyServerDevice",
+    "SpyServerParams",
     "create_device",
 ]

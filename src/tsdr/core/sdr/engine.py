@@ -218,6 +218,18 @@ class SDREngine:
             raise SDRException(f"Device {device_id} not found")
 
         context = self.devices[device_id]
+
+        if "center_frequency" in changes:
+            freq_range = context.device.frequency_range
+            new_freq = changes["center_frequency"]
+            if freq_range is not None:
+                lo, hi = freq_range
+                if not (lo <= new_freq <= hi):
+                    raise ValueError(
+                        f"Frequency {new_freq / 1e6:.3f} MHz out of range "
+                        f"(device supports {lo / 1e6:.3f}–{hi / 1e6:.3f} MHz)"
+                    )
+
         logger.info("Device config update %s: %s", device_id, changes)
         context.update_config(**changes)
 

@@ -23,6 +23,13 @@ class SampleFormat(Enum):
     SINT8_IQ = "sint8_iq"  # 2 bytes/sample: [I, Q] as int8 (-128..127)
     COMPLEX64 = "complex64"  # 8 bytes/sample: complex64 (float32+float32)
 
+    @property
+    def bytes_per_sample(self) -> int:
+        """Bytes per IQ sample for this wire format."""
+        if self is SampleFormat.COMPLEX64:
+            return 8
+        return 2
+
 
 @dataclass(frozen=True)
 class SamplesBatch:
@@ -70,11 +77,8 @@ class SamplesBatch:
         """Number of IQ samples in this batch."""
         if self.iq_samples is not None:
             return len(self.iq_samples)
-        if self.raw_samples is not None:
-            if self.sample_format in (SampleFormat.UINT8_IQ, SampleFormat.SINT8_IQ):
-                return len(self.raw_samples) // 2
-            elif self.sample_format == SampleFormat.COMPLEX64:
-                return len(self.raw_samples) // 8
+        if self.raw_samples is not None and self.sample_format is not None:
+            return len(self.raw_samples) // self.sample_format.bytes_per_sample
         return 0
 
     @property

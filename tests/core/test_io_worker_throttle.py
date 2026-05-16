@@ -17,12 +17,21 @@ class _CountingDevice:
     def __init__(self) -> None:
         self.freq_calls: list[float] = []
         self.supports_bias_tee = False
+        self._sample_rate = 0.0
 
     def set_frequency(self, freq: float) -> None:
         self.freq_calls.append(freq)
 
+    @property
+    def frequency_range(self) -> tuple[float, float] | None:
+        return None
+
     def set_sample_rate(self, rate: float) -> None:
-        pass
+        self._sample_rate = rate
+
+    @property
+    def actual_sample_rate(self) -> float:
+        return self._sample_rate
 
     def set_gain(self, gain: float) -> None:
         pass

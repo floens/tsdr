@@ -24,7 +24,29 @@ class SDRDevice(Protocol):
 
     def set_frequency(self, freq: float) -> None: ...
 
+    @property
+    def frequency_range(self) -> tuple[float, float] | None:
+        """Tunable frequency range in Hz as (min, max).
+
+        Returns None if the device has no enforceable range (e.g. file
+        playback, mock). The engine validates `set_frequency` arguments
+        against this; the tuner widget clamps adjustments to it.
+        """
+        ...
+
     def set_sample_rate(self, rate: float) -> None: ...
+
+    @property
+    def actual_sample_rate(self) -> float:
+        """Sample rate the device is actually delivering.
+
+        Devices with discrete supported rates (e.g. RTL-SDR, SpyServer's
+        decimation) may deliver a different rate than the one requested
+        via `set_sample_rate`. The pipeline stamps `SamplesBatch.sample_rate`
+        with this value so downstream stages compute frequency axes against
+        what they actually received.
+        """
+        ...
 
     def set_gain(self, gain: float) -> None: ...
 

@@ -70,7 +70,7 @@ def save_device(engine: SDREngine) -> None:
         "sample_rate": context.config.sample_rate,
         "rf_gain": context.config.rf_gain,
         "target_fps": context.config.target_fps,
-        "buffer_size": context.config.buffer_size,
+        "buffer_samples": context.config.buffer_samples,
         "channel_bandwidth": context.config.channel_bandwidth,
         "running": context.state == DeviceState.RUNNING,
     }
@@ -167,8 +167,8 @@ def restore_device(prefs: dict[str, Any]) -> None:
         config_kwargs["sample_rate"] = float(dev["sample_rate"])
     if "rf_gain" in dev:
         config_kwargs["rf_gain"] = float(dev["rf_gain"])
-    if "buffer_size" in dev:
-        config_kwargs["buffer_size"] = int(dev["buffer_size"])
+    if "buffer_samples" in dev:
+        config_kwargs["buffer_samples"] = int(dev["buffer_samples"])
     if "target_fps" in dev:
         config_kwargs["target_fps"] = float(dev["target_fps"])
     if "channel_bandwidth" in dev:

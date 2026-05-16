@@ -13,9 +13,10 @@ from tsdr.devices import (
     RTLSDRParams,
     RTLTCPParams,
     SoapySDRParams,
+    SpyServerParams,
 )
 from tsdr.devices.iq_file import parse_sample_rate_from_filename
-from tsdr.tui.commands._format import device_id, success
+from tsdr.tui.commands._format import device_id, freq_mhz, success
 from tsdr.tui.commands.base import Command, CommandParser
 
 
@@ -30,10 +31,15 @@ class SDRAddCommand(Command):
             "--type",
             required=True,
             dest="device_type",
-            choices=["rtltcp", "rtlsdr", "mock", "iq-file", "soapy"],
+            choices=["rtltcp", "rtlsdr", "mock", "iq-file", "soapy", "spyserver"],
         )
-        parser.add_argument("--host", default="localhost", help="TCP host (for rtltcp)")
-        parser.add_argument("--port", type=int, default=1234, help="TCP port (for rtltcp)")
+        parser.add_argument("--host", default="localhost", help="TCP host (rtltcp, spyserver)")
+        parser.add_argument(
+            "--port",
+            type=int,
+            default=None,
+            help="TCP port (default: 1234 rtltcp, 5555 spyserver)",
+        )
         parser.add_argument("--path", help="File path (for iq-file)")
         parser.add_argument(
             "--format", dest="sample_format", choices=["cu8", "cf32"], help="Sample format"
@@ -49,7 +55,7 @@ class SDRAddCommand(Command):
             "--frequency", type=float, default=100.0, help="Center frequency in MHz"
         )
         parser.add_argument("--sample-rate", type=float, help="Sample rate in Hz")
-        parser.add_argument("--buffer-size", type=int, help="Bytes per read")
+        parser.add_argument("--buffer-samples", type=int, help="Samples per device read")
 
     def run(self, args: Namespace) -> str:
         manager = get_engine()
@@ -58,12 +64,16 @@ class SDRAddCommand(Command):
         config_overrides["center_frequency"] = args.frequency * 1e6
         if args.sample_rate is not None:
             config_overrides["sample_rate"] = args.sample_rate
-        if args.buffer_size is not None:
-            config_overrides["buffer_size"] = args.buffer_size
+        if args.buffer_samples is not None:
+            config_overrides["buffer_samples"] = args.buffer_samples
 
         params: DeviceParams
         if args.device_type == "rtltcp":
-            params = RTLTCPParams(host=args.host, port=args.port)
+            params = RTLTCPParams(host=args.host, port=args.port if args.port is not None else 1234)
+        elif args.device_type == "spyserver":
+            params = SpyServerParams(
+                host=args.host, port=args.port if args.port is not None else 5555
+            )
         elif args.device_type == "rtlsdr":
             params = RTLSDRParams(serial=args.serial, device_index=args.device_index)
         elif args.device_type == "mock":
@@ -84,7 +94,7 @@ class SDRAddCommand(Command):
             device_args = args.device_args
             if args.host != "localhost":
                 remote = (
-                    f"tcp://{args.host}" if args.port == 1234 else f"tcp://{args.host}:{args.port}"
+                    f"tcp://{args.host}" if args.port is None else f"tcp://{args.host}:{args.port}"
                 )
                 device_args = (
                     f"remote={remote},{device_args}" if device_args else f"remote={remote}"
@@ -104,4 +114,12 @@ class SDRAddCommand(Command):
 
         manager.add_device(args.device_id, args.device_type, params, device_config)
         save_device(manager)
-        return success(f"Added {device_id(args.device_id)} [dim]({args.device_type})[/]")
+        context = manager.devices[args.device_id]
+        freq_range = context.device.frequency_range
+        range_text = ""
+        if freq_range is not None:
+            lo, hi = freq_range
+            range_text = f", tunable {freq_mhz(lo)}–{freq_mhz(hi)}"
+        return success(
+            f"Added {device_id(args.device_id)} [dim]({args.device_type}){range_text}[/]"
+        )
