@@ -19,6 +19,7 @@ import numpy as np
 
 from tsdr.core.sdr.exceptions import DeviceError
 from tsdr.core.sdr.samples_batch import SampleFormat
+from tsdr.devices._jitter_buffer import JitterBuffer
 from tsdr.devices.base import DeviceParams
 
 logger = logging.getLogger(__name__)
@@ -88,7 +89,12 @@ class SpyServerDevice:
     rates raise `ValueError`; transport failures raise `DeviceError`.
     """
 
-    def __init__(self, host: str = "localhost", port: int = 5555) -> None:
+    def __init__(
+        self,
+        host: str = "localhost",
+        port: int = 5555,
+        network_buffer_seconds: float = 0.5,
+    ) -> None:
         self.host = host
         self.port = port
         self._socket: socket.socket | None = None
@@ -111,6 +117,14 @@ class SpyServerDevice:
         # constant for long stretches, so cache the float32 scale to skip the
         # expensive 10**x on every message.
         self._scale_cache: dict[int, np.float32] = {}
+
+        # bytes_per_sample=8: we deliver complex64.
+        # sample_rate=0 defers ring allocation until set_sample_rate().
+        self.jitter = JitterBuffer(
+            prefill_seconds=network_buffer_seconds,
+            sample_rate=0.0,
+            bytes_per_sample=8,
+        )
 
     def open(self) -> None:
         try:
@@ -135,6 +149,11 @@ class SpyServerDevice:
             self._send_setting(SETTING_IQ_DIGITAL_GAIN, 0)
             self._send_setting(SETTING_STREAMING_MODE, STREAM_MODE_IQ_ONLY)
 
+            # Clear the handshake timeout: the jitter buffer is responsible
+            # for tolerating long stalls. Without this, recv would surface
+            # the jitter we're trying to absorb.
+            self._socket.settimeout(None)
+
             self._is_open = True
             logger.info(
                 "SpyServer %s:%d connected — device_type=%d, max_sr=%d, "
@@ -153,6 +172,15 @@ class SpyServerDevice:
                 self._socket = None
             raise DeviceError(f"SpyServer connect failed ({self.host}:{self.port}): {e}")
 
+        try:
+            self.jitter.start(self._read_raw)
+        except Exception:
+            assert self._socket is not None
+            self._socket.close()
+            self._socket = None
+            self._is_open = False
+            raise
+
     def close(self) -> None:
         if self._socket:
             try:
@@ -163,11 +191,15 @@ class SpyServerDevice:
                 self._socket.shutdown(socket.SHUT_RDWR)
             except OSError as e:
                 logger.debug("SpyServer close: shutdown skipped: %s", e)
+            # Shutdown above unblocks the producer's recv; safe to join now.
+            self.jitter.stop()
             try:
                 self._socket.close()
             except OSError as e:
                 logger.debug("SpyServer close: error: %s", e)
             self._socket = None
+        else:
+            self.jitter.stop()
         self._is_open = False
         self._streaming = False
         self._recv_buf.clear()
@@ -194,6 +226,8 @@ class SpyServerDevice:
             decim = 0
         self._send_setting(SETTING_IQ_DECIMATION, decim)
         self._actual_sample_rate = float(chosen)
+        # Resize the jitter ring so capacity tracks the new bytes/second.
+        self.jitter.set_sample_rate(self._actual_sample_rate)
         logger.debug(
             "SpyServer set_sample_rate: requested=%d, chosen=%d, decim=%d",
             int(rate),
@@ -227,7 +261,23 @@ class SpyServerDevice:
     def set_bias_tee(self, enable: bool) -> None:
         pass
 
+    def set_network_buffer_seconds(self, seconds: float) -> None:
+        self.jitter.set_prefill_seconds(seconds)
+
     def read_samples(self, count: int) -> bytes:
+        # All reads flow through the jitter buffer; the producer thread
+        # calls _read_raw to drain the SpyServer message stream.
+        return self.jitter.read(count)
+
+    def _read_raw(self, count: int) -> bytes:
+        """Blocking SpyServer message-decode loop used by the jitter producer.
+
+        Returns exactly `count` bytes of complex64 IQ or raises DeviceError.
+        Side effects: enables streaming on the server on first call;
+        updates the client-sync gain cache as MSG_CLIENT_SYNC arrives.
+        recv() has no timeout in this state (set in open()); the close()
+        path uses socket.shutdown to unblock this.
+        """
         if not self._is_open or self._socket is None:
             raise DeviceError("Device not open")
 

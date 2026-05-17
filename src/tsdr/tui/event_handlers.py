@@ -18,6 +18,7 @@ from tsdr.tui.messages import (
     DeviceError,
     DeviceStateChanged,
     FFTUpdate,
+    JitterBufferUpdate,
     MemoriesChanged,
     PipelineChanged,
     PipelineError,
@@ -36,6 +37,7 @@ from tsdr.tui.widgets import (
     RDSWidget,
     SpectrumWidget,
     StatsWidget,
+    StatusBar,
     TETRAWidget,
     TunerWidget,
     WaterfallWidget,
@@ -69,6 +71,11 @@ class EventHandlerMixin(MixinBase):
         self._forward(TunerWidget, "update_stats", message.event)
         self._forward(TETRAWidget, "update_stats", message.event)
         self._forward(DMRWidget, "update_stats", message.event)
+
+    @on(JitterBufferUpdate)
+    def handle_jitter_buffer_update(self, message: JitterBufferUpdate) -> None:
+        self._forward(StatsWidget, "update_jitter_buffer", message.event)
+        self._forward(StatusBar, "update_jitter_buffer", message.event)
 
     @on(DeviceStateChanged)
     def handle_device_state_changed(self, message: DeviceStateChanged) -> None:

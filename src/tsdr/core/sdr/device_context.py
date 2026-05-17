@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from tsdr.core.sdr.datatypes import SignalInfo
-    from tsdr.core.workers import BaseWorker
+    from tsdr.core.workers import WorkerHandle
     from tsdr.devices import DeviceParams, SDRDevice
 
 
@@ -76,8 +76,8 @@ class SDRDeviceContext:
 
         self.pipelines: dict[str, ProcessingPipeline] = {}
 
-        self.io_worker: BaseWorker | None = None
-        self.pipeline_worker: BaseWorker | None = None
+        self.io_worker: WorkerHandle | None = None
+        self.pipeline_worker: WorkerHandle | None = None
 
         self.sample_queue = sample_queue
         self.control_queue = control_queue
@@ -153,13 +153,33 @@ class SDRDeviceContext:
         logger.info(f"Device {self.device_id} started successfully")
 
     def stop(self, worker_runner, timeout: float = 5.0) -> None:
-        """Stop workers and close device."""
+        """Stop workers and close device.
+
+        Ordering matters when the I/O worker is parked in a blocking
+        device read (e.g. socket.recv via the jitter buffer): plain
+        request_stop won't unblock it, so we close the device first to
+        unblock pending I/O, then join. The worker's teardown calls
+        device.close() again, which is idempotent.
+        """
         if self.state == DeviceState.STOPPED:
             return
 
         self.state = DeviceState.STOPPING
         logger.info(f"Stopping device {self.device_id}")
 
+        # Step 1: signal workers to stop iterating.
+        if self.io_worker:
+            self.io_worker.lifecycle.request_stop()
+        if self.pipeline_worker:
+            self.pipeline_worker.lifecycle.request_stop()
+
+        # Step 2: close the device so any blocking I/O returns/raises.
+        try:
+            self.device.close()
+        except Exception as e:  # noqa: BLE001 - cleanup must not fail
+            logger.warning(f"Error closing device {self.device_id}: {e}", exc_info=True)
+
+        # Step 3: join workers.
         if self.io_worker:
             logger.debug(f"Stopping I/O worker for {self.device_id}")
             try:

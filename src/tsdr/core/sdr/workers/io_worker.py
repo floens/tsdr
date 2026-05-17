@@ -3,11 +3,16 @@ import queue
 import time
 from typing import TYPE_CHECKING
 
-from tsdr.core.events.events import DeviceErrorEvent, SamplesDroppedEvent
+from tsdr.core.events.events import (
+    DeviceErrorEvent,
+    JitterBufferUpdateEvent,
+    SamplesDroppedEvent,
+)
 from tsdr.core.sdr.exceptions import DeviceError
 from tsdr.core.sdr.samples_batch import SampleFormat, SamplesBatch
 from tsdr.core.tracing import span
 from tsdr.core.workers import WorkerContext
+from tsdr.devices.base import HasJitterBuffer
 
 if TYPE_CHECKING:
     from tsdr.core.sdr.config import DeviceConfig
@@ -19,6 +24,11 @@ logger = logging.getLogger(__name__)
 # (e.g. tuner scroll) can produce 100+ config updates per second, clogging up
 # devices.
 CONFIG_APPLY_MIN_INTERVAL = 0.050
+
+# Coalesce JitterBufferUpdateEvent so the UI doesn't redraw on every tick.
+# Source-side: publish only when rebuffering flips, rebuffer_count moves,
+# or fill_fraction moves by at least this much.
+JITTER_FILL_DELTA = 0.05
 
 
 class IOWorker:
@@ -33,6 +43,10 @@ class IOWorker:
         self.sample_format: SampleFormat | None = None
         self._pending_config: DeviceConfig | None = None
         self._last_apply_ts: float = 0.0
+
+        # Last-published jitter state (rebuffering, rebuffer_count,
+        # fill_fraction) for source-side coalescing; None before first emit.
+        self._last_jitter_state: tuple[bool, int, float] | None = None
 
     def setup(self, context: WorkerContext) -> None:
         device = self.device_context.device
@@ -60,6 +74,9 @@ class IOWorker:
             if device.supports_bias_tee and config.bias_tee:
                 logger.debug("Enabling bias-T")
                 device.set_bias_tee(True)
+
+            # Apply network jitter buffer pre-fill (no-op on non-network devices).
+            device.set_network_buffer_seconds(config.network_buffer_seconds)
 
             self.sample_format = device.get_sample_format()
             logger.debug(
@@ -129,6 +146,9 @@ class IOWorker:
                         if new_config.bias_tee != config.bias_tee and device.supports_bias_tee:
                             device.set_bias_tee(new_config.bias_tee)
 
+                        if new_config.network_buffer_seconds != config.network_buffer_seconds:
+                            device.set_network_buffer_seconds(new_config.network_buffer_seconds)
+
                         config = new_config
 
                     except Exception as e:  # noqa: BLE001 - hardware config can fail in various ways
@@ -151,6 +171,11 @@ class IOWorker:
                         )
                         raw_bytes = device.read_samples(read_bytes)
                     except DeviceError as e:
+                        if not context.should_continue():
+                            # Read error after request_stop is the expected
+                            # shutdown path (device was closed to unblock
+                            # us); don't surface it as an error.
+                            continue
                         logger.error(f"Device {self.device_context.device_id} read error: {e}")
                         context.emit_event(
                             DeviceErrorEvent(
@@ -162,6 +187,8 @@ class IOWorker:
                         time.sleep(0.1)
                         continue
                     except Exception as e:  # noqa: BLE001 - catch-all for unexpected hardware errors
+                        if not context.should_continue():
+                            continue
                         error_msg = f"Unexpected read error: {e}"
                         logger.error(f"Device {self.device_context.device_id}: {error_msg}")
                         context.emit_event(
@@ -204,6 +231,46 @@ class IOWorker:
                         )
 
                 self.device_context.total_samples_read += batch.sample_count
+
+                self._maybe_publish_jitter_state(context)
+
+    def _maybe_publish_jitter_state(self, context: WorkerContext) -> None:
+        """Publish a JitterBufferUpdateEvent if the buffer state has shifted.
+
+        Coalesces 20 Hz device-loop ticks into UI events that fire only on
+        meaningful change: rebuffering edge, rebuffer count, or ≥5% fill
+        delta. Devices without a `jitter` attribute (USB/file/mock) emit
+        nothing.
+        """
+        device = self.device_context.device
+        if not isinstance(device, HasJitterBuffer):
+            return
+        jitter = device.jitter
+
+        rebuffering = bool(jitter.rebuffering)
+        rebuffer_count = int(jitter.rebuffer_count)
+        fill_fraction = float(jitter.fill_fraction)
+
+        last = self._last_jitter_state
+        if last is not None and (
+            last[0] == rebuffering
+            and last[1] == rebuffer_count
+            and abs(fill_fraction - last[2]) < JITTER_FILL_DELTA
+        ):
+            return
+        self._last_jitter_state = (rebuffering, rebuffer_count, fill_fraction)
+
+        context.emit_event(
+            JitterBufferUpdateEvent(
+                source_id=context.worker_id,
+                device_id=self.device_context.device_id,
+                target_seconds=float(jitter.target_seconds),
+                fill_seconds=float(jitter.fill_seconds),
+                fill_fraction=fill_fraction,
+                rebuffer_count=rebuffer_count,
+                rebuffering=rebuffering,
+            )
+        )
 
     def teardown(self, context: WorkerContext) -> None:
         try:

@@ -56,6 +56,12 @@ class SDRAddCommand(Command):
         )
         parser.add_argument("--sample-rate", type=float, help="Sample rate in Hz")
         parser.add_argument("--buffer-samples", type=int, help="Samples per device read")
+        parser.add_argument(
+            "--network-buffer",
+            dest="network_buffer_seconds",
+            type=float,
+            help="Jitter buffer pre-fill, seconds (rtltcp/spyserver, default 0.5)",
+        )
 
     def run(self, args: Namespace) -> str:
         manager = get_engine()
@@ -66,6 +72,8 @@ class SDRAddCommand(Command):
             config_overrides["sample_rate"] = args.sample_rate
         if args.buffer_samples is not None:
             config_overrides["buffer_samples"] = args.buffer_samples
+        if args.network_buffer_seconds is not None:
+            config_overrides["network_buffer_seconds"] = args.network_buffer_seconds
 
         params: DeviceParams
         if args.device_type == "rtltcp":

@@ -63,6 +63,7 @@ class DeviceConfigChanges(TypedDict, total=False):
     queue_size: int
     channel_bandwidth: float | None
     calculate_constellation: bool
+    network_buffer_seconds: float
     pipelines: MappingProxyType[str, PipelineConfig]
 
 
@@ -97,6 +98,10 @@ class DeviceConfig:
     queue_size: int = 15  # Max batches in sample queue
     channel_bandwidth: float | None = None  # Hz, None = demodulator default
     calculate_constellation: bool = False  # Enable constellation point collection from decoders
+    # Pre-fill watermark for network-source jitter buffers (rtltcp, spyserver).
+    # No-op for USB/file/mock devices. Lower → less latency, less jitter
+    # tolerance; higher → more latency, more tolerance.
+    network_buffer_seconds: float = 0.5
     pipelines: MappingProxyType[str, PipelineConfig] = field(default=DEFAULT_PIPELINES)
 
     @property
@@ -120,6 +125,10 @@ class DeviceConfig:
             raise ValueError(f"buffer_samples must be positive, got {self.buffer_samples}")
         if self.target_fps <= 0 or self.target_fps > 120:
             raise ValueError(f"target_fps must be between 1 and 120, got {self.target_fps}")
+        if not 0.05 <= self.network_buffer_seconds <= 5.0:
+            raise ValueError(
+                f"network_buffer_seconds must be 0.05–5.0, got {self.network_buffer_seconds}"
+            )
 
 
 @dataclass(frozen=True)

@@ -15,6 +15,7 @@ from tsdr.core.events.events import (
     DeviceErrorEvent,
     DeviceStateChangedEvent,
     FFTUpdateEvent,
+    JitterBufferUpdateEvent,
     MemoriesChangedEvent,
     PipelineChangedEvent,
     PipelineErrorEvent,
@@ -53,6 +54,14 @@ class StatsUpdate(Message):
     """Wrapper for StatsUpdateEvent."""
 
     def __init__(self, event: StatsUpdateEvent) -> None:
+        super().__init__()
+        self.event = event
+
+
+class JitterBufferUpdate(Message):
+    """Wrapper for JitterBufferUpdateEvent (consumed by stats + status bar)."""
+
+    def __init__(self, event: JitterBufferUpdateEvent) -> None:
         super().__init__()
         self.event = event
 

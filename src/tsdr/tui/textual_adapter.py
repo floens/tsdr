@@ -13,6 +13,7 @@ from tsdr.core.events.events import (
     DeviceStateChangedEvent,
     Event,
     FFTUpdateEvent,
+    JitterBufferUpdateEvent,
     MemoriesChangedEvent,
     PipelineChangedEvent,
     PipelineErrorEvent,
@@ -31,6 +32,7 @@ from tsdr.tui.messages import (
     DeviceError,
     DeviceStateChanged,
     FFTUpdate,
+    JitterBufferUpdate,
     MemoriesChanged,
     PipelineChanged,
     PipelineError,
@@ -78,6 +80,9 @@ class TextualEventAdapter:
         self._subscriptions.append(self.event_bus.subscribe(FFTUpdateEvent, self._on_fft_update))
         self._subscriptions.append(
             self.event_bus.subscribe(StatsUpdateEvent, self._on_stats_update)
+        )
+        self._subscriptions.append(
+            self.event_bus.subscribe(JitterBufferUpdateEvent, self._on_jitter_buffer_update)
         )
         self._subscriptions.append(
             self.event_bus.subscribe(PipelineErrorEvent, self._on_pipeline_error)
@@ -147,6 +152,11 @@ class TextualEventAdapter:
         if not isinstance(event, StatsUpdateEvent):
             return
         self.app.post_message(StatsUpdate(event))
+
+    def _on_jitter_buffer_update(self, event: Event) -> None:
+        if not isinstance(event, JitterBufferUpdateEvent):
+            return
+        self.app.post_message(JitterBufferUpdate(event))
 
     def _on_pipeline_error(self, event: Event) -> None:
         if not isinstance(event, PipelineErrorEvent):

@@ -2,7 +2,11 @@ import logging
 
 from textual.widgets import Static
 
-from tsdr.core.events.events import SignalInfoEvent, StatsUpdateEvent
+from tsdr.core.events.events import (
+    JitterBufferUpdateEvent,
+    SignalInfoEvent,
+    StatsUpdateEvent,
+)
 from tsdr.core.sdr.datatypes import SignalInfo
 from tsdr.core.sdr.engine import get_engine
 
@@ -17,6 +21,7 @@ class StatsWidget(Static):
         self.current_event: StatsUpdateEvent | None = None
         self._signal_info: SignalInfo | None = None
         self._device_id: str | None = None
+        self._jitter: JitterBufferUpdateEvent | None = None
 
     def on_mount(self) -> None:
         self._read_config()
@@ -26,6 +31,9 @@ class StatsWidget(Static):
         device = engine.get_focused_device()
         if device is None:
             return
+        if device.device_id != self._device_id:
+            # Focus shifted; stale jitter state belongs to the old device.
+            self._jitter = None
         self._device_id = device.device_id
 
     def update_stats(self, event: StatsUpdateEvent) -> None:
@@ -34,6 +42,13 @@ class StatsWidget(Static):
 
     def update_signal_info(self, event: SignalInfoEvent) -> None:
         self._signal_info = event.signal_info
+        self._update()
+
+    def update_jitter_buffer(self, event: JitterBufferUpdateEvent) -> None:
+        # Only display state for the focused device.
+        if self._device_id is not None and event.device_id != self._device_id:
+            return
+        self._jitter = event
         self._update()
 
     def update_config(self) -> None:
@@ -117,5 +132,30 @@ class StatsWidget(Static):
 
         lines.append(f"  Size:          {event.queue_size:>4} / {event.queue_capacity:>4}")
         lines.append(f"  Utilization:   [{util_color}]{queue_util:>7.1f}[/{util_color}] %")
+
+        # Network jitter buffer (only for network-source devices).
+        if self._jitter is not None and self._jitter.target_seconds > 0:
+            lines.append("[bold cyan]Network:[/bold cyan]")
+            lines.append(f"  Buffer Target: [white]{self._jitter.target_seconds:>5.2f}[/white] s")
+            pct = self._jitter.fill_fraction * 100
+            if self._jitter.rebuffering or pct < 10:
+                fill_color = "red"
+            elif pct < 50:
+                fill_color = "yellow"
+            else:
+                fill_color = "green"
+            lines.append(
+                f"  Fill:          [{fill_color}]{self._jitter.fill_seconds:>5.2f}[/{fill_color}] s"
+                f"  ([{fill_color}]{pct:>3.0f}%[/{fill_color}])"
+            )
+            if self._jitter.rebuffering:
+                rb_color = "red"
+            elif self._jitter.rebuffer_count > 0:
+                rb_color = "yellow"
+            else:
+                rb_color = "green"
+            lines.append(
+                f"  Rebuffers:     [{rb_color}]{self._jitter.rebuffer_count:>4}[/{rb_color}]"
+            )
 
         return lines

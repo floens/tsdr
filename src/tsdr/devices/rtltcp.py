@@ -5,6 +5,7 @@ from dataclasses import dataclass
 
 from tsdr.core.sdr.exceptions import DeviceError
 from tsdr.core.sdr.samples_batch import SampleFormat
+from tsdr.devices._jitter_buffer import JitterBuffer
 from tsdr.devices.base import DeviceParams
 
 logger = logging.getLogger(__name__)
@@ -70,7 +71,12 @@ class RTLTCPDevice:
         6: "R828D",
     }
 
-    def __init__(self, host: str = "localhost", port: int = 1234):
+    def __init__(
+        self,
+        host: str = "localhost",
+        port: int = 1234,
+        network_buffer_seconds: float = 0.5,
+    ):
         self.host = host
         self.port = port
         self.socket: socket.socket | None = None
@@ -80,6 +86,13 @@ class RTLTCPDevice:
         # Header information (populated on connection)
         self.tuner_type: int | None = None
         self.gain_count: int | None = None
+
+        # sample_rate=0 defers ring allocation until set_sample_rate().
+        self.jitter = JitterBuffer(
+            prefill_seconds=network_buffer_seconds,
+            sample_rate=0.0,
+            bytes_per_sample=2,
+        )
 
     def open(self) -> None:
         try:
@@ -104,6 +117,11 @@ class RTLTCPDevice:
             self.tuner_type = struct.unpack(">I", header[4:8])[0]
             self.gain_count = struct.unpack(">I", header[8:12])[0]
 
+            # Clear the handshake timeout: the jitter buffer is responsible
+            # for tolerating long stalls, and a recv timeout would surface
+            # the very jitter we're trying to absorb.
+            self.socket.settimeout(None)
+
             # Log header information
             tuner_name = self.get_tuner_name()
             logger.info(
@@ -120,20 +138,31 @@ class RTLTCPDevice:
         except OSError as e:
             if self.socket:
                 self.socket.close()
+                self.socket = None
             raise DeviceError(f"Failed to connect to rtltcp at {self.host}:{self.port}: {e}")
+
+        try:
+            self.jitter.start(self._read_raw)
+        except Exception:
+            assert self.socket is not None
+            self.socket.close()
+            self.socket = None
+            self._is_open = False
+            raise
 
     def close(self) -> None:
         """Disconnect from rtltcp server.
 
-        Calls shutdown(SHUT_RDWR) before close() so the kernel sends a FIN
-        instead of an RST when there's buffered IQ data on the receive side
-        (rtltcp streams at multi-MB/s, so the RX buffer is rarely empty).
+        Ordering: shutdown → jitter.stop → close. The producer thread is
+        blocked in socket.recv; shutdown unblocks it so jitter.stop's
+        join can complete before the socket fd is freed.
         """
         if self.socket:
             try:
                 self.socket.shutdown(socket.SHUT_RDWR)
             except OSError as e:
                 logger.debug(f"Shutdown skipped for {self.host}:{self.port}: {e}")
+            self.jitter.stop()
             try:
                 self.socket.close()
             except OSError as e:
@@ -143,6 +172,8 @@ class RTLTCPDevice:
                 self._is_open = False
                 self.tuner_type = None
                 self.gain_count = None
+        else:
+            self.jitter.stop()
 
     def _send_command(self, command: int, parameter: int) -> None:
         if not self.socket:
@@ -157,20 +188,27 @@ class RTLTCPDevice:
             raise DeviceError(f"Failed to send command: {e}")
 
     def read_samples(self, count: int) -> bytes:
-        if not self.socket:
-            raise DeviceError("Device not open")
+        return self.jitter.read(count)
 
+    def _read_raw(self, count: int) -> bytes:
+        """Blocking socket read used by the jitter buffer's producer thread.
+
+        Returns exactly `count` bytes or raises DeviceError. recv() has no
+        timeout in this state (set in open()), so this blocks indefinitely
+        on a stalled connection — that's correct: the close() path uses
+        socket.shutdown to unblock the producer when shutting down.
+        """
+        sock = self.socket
+        if sock is None:
+            raise DeviceError("Device not open")
         try:
             data = b""
             while len(data) < count:
-                chunk = self.socket.recv(count - len(data))
+                chunk = sock.recv(count - len(data))
                 if not chunk:
                     raise DeviceError("Connection closed by server")
                 data += chunk
             return data
-
-        except TimeoutError:
-            raise DeviceError("Timeout reading samples")
         except OSError as e:
             raise DeviceError(f"Socket error reading samples: {e}")
 
@@ -184,6 +222,8 @@ class RTLTCPDevice:
     def set_sample_rate(self, rate: float) -> None:
         self._send_command(self.CMD_SET_SAMPLE_RATE, int(rate))
         self._sample_rate = float(int(rate))
+        # Resize the jitter ring so capacity tracks the new bytes/second.
+        self.jitter.set_sample_rate(self._sample_rate)
 
     @property
     def actual_sample_rate(self) -> float:
@@ -231,6 +271,9 @@ class RTLTCPDevice:
     def set_bias_tee(self, enable: bool) -> None:
         self._send_command(self.CMD_SET_BIAS_TEE, 1 if enable else 0)
         logger.debug("RTL-TCP: bias-T %s", "on" if enable else "off")
+
+    def set_network_buffer_seconds(self, seconds: float) -> None:
+        self.jitter.set_prefill_seconds(seconds)
 
     def get_tuner_name(self) -> str | None:
         if self.tuner_type is None:

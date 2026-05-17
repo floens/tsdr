@@ -42,6 +42,12 @@ class SDRConfigCommand(Command):
         parser.add_argument("--fft-size", type=int, help="FFT size")
         parser.add_argument("--bandwidth", type=float, help="Channel bandwidth in kHz")
         parser.add_argument("--fps", type=float, help="Target UI update rate")
+        parser.add_argument(
+            "--network-buffer",
+            dest="network_buffer_seconds",
+            type=float,
+            help="Jitter buffer pre-fill, seconds (rtltcp/spyserver)",
+        )
 
     def run(self, args: Namespace) -> str:
         manager = get_engine()
@@ -81,6 +87,14 @@ class SDRConfigCommand(Command):
             changes["channel_bandwidth"] = args.bandwidth * 1_000
         if args.fps is not None:
             changes["target_fps"] = args.fps
+        if args.network_buffer_seconds is not None:
+            context = manager.get_device(did)
+            if context.device_type not in ("rtltcp", "spyserver"):
+                return (
+                    f"--network-buffer is not applicable to "
+                    f"{device_id(did)} ({context.device_type})"
+                )
+            changes["network_buffer_seconds"] = args.network_buffer_seconds
 
         if not changes:
             return self.help_text()
@@ -111,6 +125,8 @@ class SDRConfigCommand(Command):
                 summary["bias-t"] = state("on" if value else "off")
             elif key == "channel_bandwidth":
                 summary["bandwidth"] = f"[yellow]{value / 1000:.1f} kHz[/]"
+            elif key == "network_buffer_seconds":
+                summary["network-buffer"] = f"[yellow]{value:.2f} s[/]"
             else:
                 summary[key] = str(value)
 

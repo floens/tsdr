@@ -1,7 +1,8 @@
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Protocol, runtime_checkable
 
 from tsdr.core.sdr.samples_batch import SampleFormat
+from tsdr.devices._jitter_buffer import JitterBuffer
 
 
 @dataclass(frozen=True)
@@ -81,3 +82,24 @@ class SDRDevice(Protocol):
         on RTL-SDR hardware; there is no read-back.
         """
         ...
+
+    def set_network_buffer_seconds(self, seconds: float) -> None:
+        """Adjust the network jitter buffer pre-fill watermark.
+
+        Implemented by network-transport devices (rtltcp, spyserver) to
+        decouple bursty TCP arrivals from steady downstream consumption.
+        No-op for USB/file/mock devices.
+        """
+        ...
+
+
+@runtime_checkable
+class HasJitterBuffer(Protocol):
+    """Optional capability: device exposes its jitter buffer for state reads.
+
+    Implemented by network-transport devices. The I/O worker checks
+    `isinstance(device, HasJitterBuffer)` to decide whether to publish
+    JitterBufferUpdateEvent.
+    """
+
+    jitter: JitterBuffer

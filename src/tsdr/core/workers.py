@@ -140,28 +140,34 @@ class WorkerRunner:
     def stop_worker(self, worker_id: str, timeout: float = 5.0) -> bool:
         """Stop a worker gracefully with timeout.
 
-        Returns True if the worker stopped within the timeout, False otherwise
-        (thread abandoned; teardown already ran).
+        Returns True if the worker stopped within the timeout, False
+        otherwise. In both cases the worker is deregistered: leaving a
+        timed-out handle in the dict would block any future `start_worker`
+        for the same id (the only mechanism to recover would be to restart
+        the app). If the orphaned thread eventually exits on its own, the
+        self-deregister in `_worker_wrapper` is a no-op.
         """
         with self._lock:
-            if worker_id not in self._workers:
-                raise KeyError(f"Worker {worker_id} not found")
-            handle = self._workers[worker_id]
+            handle = self._workers.get(worker_id)
+        if handle is None:
+            # Already self-deregistered on thread exit, or never started.
+            return True
 
         logger.info(f"Stopping worker {worker_id} (timeout={timeout}s)")
         handle.lifecycle.request_stop()
         handle.thread.join(timeout=timeout)
 
+        with self._lock:
+            self._workers.pop(worker_id, None)
+
         if handle.thread.is_alive():
             logger.warning(
                 f"Worker {worker_id} did not stop within {timeout}s "
-                "(thread abandoned but teardown completed)"
+                "(thread abandoned, registration freed for retry)"
             )
             return False
 
         logger.info(f"Worker {worker_id} stopped gracefully")
-        with self._lock:
-            del self._workers[worker_id]
         return True
 
     def stop_all_workers(self, timeout: float = 5.0) -> None:
@@ -187,4 +193,8 @@ class WorkerRunner:
             except Exception:
                 logger.error(f"Worker {context.worker_id} error in teardown", exc_info=True)
             context.lifecycle.mark_stopped()
+            # Self-deregister so a future start_worker can reuse the slot
+            # even when nobody calls stop_worker (e.g. setup failed).
+            with self._lock:
+                self._workers.pop(context.worker_id, None)
             logger.info(f"Worker {context.worker_id} thread exiting")

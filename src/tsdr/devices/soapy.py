@@ -257,6 +257,10 @@ class SoapySDRDevice:
             self._device.writeSetting("biastee", "true" if enable else "false")
             logger.debug("SoapySDR: bias-T %s", "on" if enable else "off")
 
+    def set_network_buffer_seconds(self, seconds: float) -> None:
+        # Soapy handles its own buffering; no client-side jitter buffer.
+        pass
+
     def get_sample_format(self) -> SampleFormat:
         return SampleFormat.SINT8_IQ
 

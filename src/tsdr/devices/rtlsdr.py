@@ -222,6 +222,10 @@ class RTLSDRDevice:
                 self._device.set_bias_tee(enable)
             logger.debug("RTL-SDR: bias-T %s", "on" if enable else "off")
 
+    def set_network_buffer_seconds(self, seconds: float) -> None:
+        # USB-paced device: no jitter buffer.
+        pass
+
     def get_sample_format(self) -> SampleFormat:
         return SampleFormat.UINT8_IQ
 

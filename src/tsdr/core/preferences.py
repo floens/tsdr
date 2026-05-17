@@ -71,6 +71,7 @@ def save_device(engine: SDREngine) -> None:
         "rf_gain": context.config.rf_gain,
         "target_fps": context.config.target_fps,
         "buffer_samples": context.config.buffer_samples,
+        "network_buffer_seconds": context.config.network_buffer_seconds,
         "channel_bandwidth": context.config.channel_bandwidth,
         "running": context.state == DeviceState.RUNNING,
     }
@@ -171,6 +172,8 @@ def restore_device(prefs: dict[str, Any]) -> None:
         config_kwargs["buffer_samples"] = int(dev["buffer_samples"])
     if "target_fps" in dev:
         config_kwargs["target_fps"] = float(dev["target_fps"])
+    if "network_buffer_seconds" in dev:
+        config_kwargs["network_buffer_seconds"] = float(dev["network_buffer_seconds"])
     if "channel_bandwidth" in dev:
         config_kwargs["channel_bandwidth"] = float(dev["channel_bandwidth"])
 

@@ -33,6 +33,22 @@ class SamplesDroppedEvent(Event):
     count: int
 
 
+@dataclass(frozen=True)
+class JitterBufferUpdateEvent(Event):
+    """Per-device jitter-buffer state, published by the I/O worker.
+
+    Only emitted for devices that own a JitterBuffer (rtltcp, spyserver).
+    Coalesced source-side so consumers don't see uninformative deltas.
+    """
+
+    device_id: str
+    target_seconds: float
+    fill_seconds: float
+    fill_fraction: float  # 0.0–1.0; fill_seconds / target_seconds
+    rebuffer_count: int
+    rebuffering: bool
+
+
 # Visualization Events
 
 

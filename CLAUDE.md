@@ -55,6 +55,29 @@ Queue-based communication between workers (queues live on `SDRDeviceContext`):
 - `pipeline_control_queue`: Main thread → Pipeline worker (`DeviceConfig`/`SDRConfig` → stages get `on_config_change()`)
 - `audio_queue`: Pipeline → Audio worker (`AudioBatch` payloads)
 
+## Pipeline Pacing
+
+Wall-clock pacers (where Python schedules "the next read") must advance
+by absolute slots, not by actual return time:
+
+```python
+self._next_ts += period
+if time.monotonic() < self._next_ts:
+    time.sleep(self._next_ts - time.monotonic())
+if time.monotonic() > self._next_ts + RESET_THRESHOLD:
+    self._next_ts = time.monotonic()
+```
+
+`max(self._next_ts, time.monotonic()) + period` bakes `time.sleep` slop
+into every next deadline and compounds it indefinitely, enough to starve
+downstream consumers. Absolute scheduling self-corrects: a long sleep in
+cycle N is offset by a shorter sleep in cycle N+1. The reset escape
+handles cases where the pacer was paused much longer than one cycle
+(e.g. rebuffer wait).
+
+Min-interval throttles (`now - last >= interval`) are unrelated and don't
+compound slop. Use them freely for event rate-limiting.
+
 ## UI and Event System
 
 Textual app with custom widgets: SpectrumWidget, StatsWidget, TunerWidget, StatusBar.

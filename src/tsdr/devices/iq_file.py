@@ -158,5 +158,8 @@ class IQFileDevice:
     def set_bias_tee(self, enable: bool) -> None:
         pass
 
+    def set_network_buffer_seconds(self, seconds: float) -> None:
+        pass
+
     def get_sample_format(self) -> SampleFormat:
         return self._sample_format
