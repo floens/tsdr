@@ -15,12 +15,23 @@ from tsdr.tui._mixin_base import MixinBase
 from tsdr.tui.console import ConsoleWidget, TerminalInput
 from tsdr.tui.widgets import SpectrumWidget, WaterfallWidget
 
+_DEMOD_CHORD_MODES = {
+    "w": "WFM",
+    "n": "NFM",
+    "a": "AM",
+    "u": "USB",
+    "l": "LSB",
+    "c": "CW",
+    "o": "OFF",
+}
+
 
 class KeyboardMixin(MixinBase):
     """Handles keyboard shortcuts for autocomplete and frequency/bandwidth tuning."""
 
     _pending_delete: Memory | None = None
     _pending_delete_timer: Timer | None = None
+    _pending_demod_timer: Timer | None = None
 
     def on_key(self, event: events.Key) -> None:
         spectrum = self.query_one(SpectrumWidget)
@@ -80,6 +91,17 @@ class KeyboardMixin(MixinBase):
                     self._confirm_pending_delete()
                 else:
                     self._cancel_pending_delete()
+                event.prevent_default()
+                event.stop()
+                return
+
+            if self._pending_demod_timer is not None:
+                mode = _DEMOD_CHORD_MODES.get(event.key)
+                self._clear_demod_chord()
+                if mode is not None:
+                    self._apply_demod_chord(mode)
+                else:
+                    self.show_status("Demod: cancelled")
                 event.prevent_default()
                 event.stop()
                 return
@@ -211,6 +233,13 @@ class KeyboardMixin(MixinBase):
                 event.stop()
             elif event.key == "space":
                 self._toggle_device_running()
+                event.prevent_default()
+                event.stop()
+            elif event.key == "d":
+                self._pending_demod_timer = self.set_timer(2.0, self._cancel_demod_chord)
+                self.show_status(
+                    "Demod: [b]w[/]fm [b]n[/]fm [b]a[/]m [b]u[/]sb [b]l[/]sb [b]c[/]w [b]o[/]ff"
+                )
                 event.prevent_default()
                 event.stop()
 
@@ -433,3 +462,39 @@ class KeyboardMixin(MixinBase):
         if self._pending_delete_timer is not None:
             self._pending_delete_timer.stop()
             self._pending_delete_timer = None
+
+    def _apply_demod_chord(self, mode: str) -> None:
+        engine = get_engine()
+        device = engine.get_focused_device()
+        if device is None:
+            self._show_error("No device focused")
+            return
+
+        if mode == "OFF":
+            engine.stop_audio_output(device.device_id)
+            engine.remove_pipeline(device.device_id, "audio")
+            save_device(engine)
+            self.show_status("Demod: off")
+            return
+
+        if device.state != DeviceState.RUNNING:
+            self._show_error("Device must be running")
+            return
+
+        try:
+            engine.set_audio_demod(device.device_id, mode)
+        except SDRException as e:
+            self._show_error(str(e))
+            return
+
+        save_device(engine)
+        self.show_status(f"Demod: {mode}")
+
+    def _cancel_demod_chord(self) -> None:
+        self._clear_demod_chord()
+        self.show_status("Demod: cancelled")
+
+    def _clear_demod_chord(self) -> None:
+        if self._pending_demod_timer is not None:
+            self._pending_demod_timer.stop()
+            self._pending_demod_timer = None
