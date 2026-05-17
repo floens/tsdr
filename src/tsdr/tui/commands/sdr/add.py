@@ -6,6 +6,7 @@ from tsdr.core.sdr.config import DeviceConfig
 from tsdr.core.sdr.engine import get_engine
 from tsdr.core.sdr.exceptions import ConfigurationError
 from tsdr.core.sdr.samples_batch import SampleFormat
+from tsdr.core.units import parse_hz
 from tsdr.devices import (
     DeviceParams,
     IQFileParams,
@@ -52,9 +53,11 @@ class SDRAddCommand(Command):
             "--device-index", type=int, default=0, help="USB device index (for rtlsdr)"
         )
         parser.add_argument(
-            "--frequency", type=float, default=100.0, help="Center frequency in MHz"
+            "--frequency",
+            default="100M",
+            help="Center frequency with SI suffix (e.g. 100.1M, 430k)",
         )
-        parser.add_argument("--sample-rate", type=float, help="Sample rate in Hz")
+        parser.add_argument("--sample-rate", help="Sample rate with SI suffix (e.g. 2.4M, 250k)")
         parser.add_argument("--buffer-samples", type=int, help="Samples per device read")
         parser.add_argument(
             "--network-buffer",
@@ -67,9 +70,9 @@ class SDRAddCommand(Command):
         manager = get_engine()
 
         config_overrides: dict[str, object] = {}
-        config_overrides["center_frequency"] = args.frequency * 1e6
+        config_overrides["center_frequency"] = float(parse_hz(args.frequency))
         if args.sample_rate is not None:
-            config_overrides["sample_rate"] = args.sample_rate
+            config_overrides["sample_rate"] = float(parse_hz(args.sample_rate))
         if args.buffer_samples is not None:
             config_overrides["buffer_samples"] = args.buffer_samples
         if args.network_buffer_seconds is not None:

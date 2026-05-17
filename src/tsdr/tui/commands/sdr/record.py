@@ -9,6 +9,7 @@ from pathlib import Path
 from tsdr.core.sdr.config import PipelineConfig, StageType
 from tsdr.core.sdr.engine import SDREngine, get_engine
 from tsdr.core.sdr.exceptions import ConfigurationError, SDRException
+from tsdr.core.units import parse_hz
 from tsdr.tui.commands._format import device_id, safe, success
 from tsdr.tui.commands.base import Command, CommandParser, Completion
 from tsdr.tui.commands.sdr._utils import device_id_completions, get_focused_device_id
@@ -78,7 +79,9 @@ class SDRRecordCommand(Command):
             raise SDRException(f"Already recording on {did} - stop it first with 'record stop'.")
 
         device_rate = device.config.sample_rate
-        target_rate = args.sample_rate if args.sample_rate is not None else int(device_rate)
+        target_rate = (
+            parse_hz(args.sample_rate) if args.sample_rate is not None else int(device_rate)
+        )
         if target_rate > device_rate:
             raise ConfigurationError(
                 f"Target rate {target_rate} Hz exceeds device rate {int(device_rate)} Hz - "
@@ -153,9 +156,8 @@ def _add_common(parser: CommandParser) -> None:
     parser.add_argument(
         "--sr",
         dest="sample_rate",
-        type=int,
         default=None,
-        help="Target output sample rate in Hz (default: device rate)",
+        help="Target output sample rate with SI suffix (e.g. 250k, 1.2M; default: device rate)",
     )
     parser.add_argument(
         "--device",

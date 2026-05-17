@@ -24,7 +24,9 @@ class MemoryCommand(Command):
         add_p.add_argument("frequency", help="Frequency with optional SI suffix (k/M/G/Hz)")
         add_p.add_argument("name", help="Memory name")
         add_p.add_argument("--mode", default="NFM", help="Demod mode")
-        add_p.add_argument("--bw", type=int, default=12500, help="Bandwidth in Hz")
+        add_p.add_argument(
+            "--bw", default="12.5k", help="Bandwidth with SI suffix (e.g. 12.5k, 200k)"
+        )
         add_p.add_argument("--tags", default="", help="Comma-separated tags")
         add_p.add_argument("--color", default=None, help="Color hex (e.g. #ff0000)")
 
@@ -68,7 +70,7 @@ class MemoryCommand(Command):
             frequency=frequency,
             name=args.name,
             mode=mode,
-            bandwidth=args.bw,
+            bandwidth=parse_hz(args.bw),
             tags=tags,
             color=args.color,
         )

@@ -27,9 +27,11 @@ class SDRConfigCommand(Command):
         )
         parser.add_argument("--device", dest="device_id")
         parser.add_argument(
-            "--frequency", dest="frequency_mhz", type=float, help="Center frequency in MHz"
+            "--frequency",
+            dest="frequency_flag",
+            help="Center frequency with SI suffix (e.g. 100.1M, 430k)",
         )
-        parser.add_argument("--sample-rate", type=float, help="Sample rate in MHz")
+        parser.add_argument("--sample-rate", help="Sample rate with SI suffix (e.g. 2.4M, 250k)")
         parser.add_argument("--gain", "--rf-gain", type=float, help="RF gain in dB (disables AGC)")
         parser.add_argument("--agc", choices=["on", "off"], help="Client-side AGC")
         parser.add_argument("--hw-agc", choices=["on", "off"], help="Hardware AGC")
@@ -40,7 +42,9 @@ class SDRConfigCommand(Command):
             help="Antenna bias-T (RTL-SDR / Airspy / HackRF)",
         )
         parser.add_argument("--fft-size", type=int, help="FFT size")
-        parser.add_argument("--bandwidth", type=float, help="Channel bandwidth in kHz")
+        parser.add_argument(
+            "--bandwidth", help="Channel bandwidth with SI suffix (e.g. 200k, 1.5M)"
+        )
         parser.add_argument("--fps", type=float, help="Target UI update rate")
         parser.add_argument(
             "--network-buffer",
@@ -57,10 +61,10 @@ class SDRConfigCommand(Command):
 
         if args.frequency is not None:
             changes["center_frequency"] = float(parse_hz(args.frequency))
-        if args.frequency_mhz is not None:
-            changes["center_frequency"] = args.frequency_mhz * 1e6
+        if args.frequency_flag is not None:
+            changes["center_frequency"] = float(parse_hz(args.frequency_flag))
         if args.sample_rate is not None:
-            changes["sample_rate"] = args.sample_rate * 1e6
+            changes["sample_rate"] = float(parse_hz(args.sample_rate))
         if args.gain is not None:
             changes["rf_gain"] = args.gain
             changes["enable_agc"] = False
@@ -84,7 +88,7 @@ class SDRConfigCommand(Command):
         if args.fft_size is not None:
             changes["fft_size"] = args.fft_size
         if args.bandwidth is not None:
-            changes["channel_bandwidth"] = args.bandwidth * 1_000
+            changes["channel_bandwidth"] = float(parse_hz(args.bandwidth))
         if args.fps is not None:
             changes["target_fps"] = args.fps
         if args.network_buffer_seconds is not None:
