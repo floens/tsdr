@@ -1,9 +1,12 @@
 import sys
 import time
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
+from tsdr.core import storage
+from tsdr.core.devices import init_device_store
 from tsdr.core.events.events import Event
 from tsdr.core.sdr.config import DeviceConfig, PipelineConfig, StageType
 from tsdr.core.sdr.engine import SDREngine
@@ -44,6 +47,13 @@ def _block_audio_output(monkeypatch: pytest.MonkeyPatch) -> None:
         query_devices=lambda *a, **kw: [],
     )
     monkeypatch.setitem(sys.modules, "sounddevice", fake_sd)
+
+
+@pytest.fixture(autouse=True)
+def _isolate_storage(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Redirect storage to a tmp dir and init the device store so save_device works."""
+    monkeypatch.setattr(storage, "config_dir", lambda: tmp_path)
+    init_device_store()
 
 
 @pytest.fixture

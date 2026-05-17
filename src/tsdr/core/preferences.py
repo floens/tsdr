@@ -6,13 +6,33 @@ from typing import TYPE_CHECKING, Any
 
 from tsdr.core import storage
 from tsdr.core.bandplans import get_bandplan_store
+from tsdr.core.devices import PersistedDevice, get_device_store
 from tsdr.core.sdr.config import DeviceConfig
-from tsdr.core.sdr.device_context import DeviceState
 from tsdr.core.sdr.engine import get_engine
-from tsdr.devices import DeviceParams, RTLSDRParams, RTLTCPParams, SoapySDRParams
+from tsdr.core.sdr.samples_batch import SampleFormat
+from tsdr.devices import (
+    DeviceParams,
+    IQFileParams,
+    MockParams,
+    RTLSDRParams,
+    RTLTCPParams,
+    SoapySDRParams,
+    SpyServerParams,
+)
 from tsdr.radio.registry import DEMODULATORS
 
+_DEVICE_CONFIG_FIELDS = (
+    "center_frequency",
+    "sample_rate",
+    "rf_gain",
+    "buffer_samples",
+    "target_fps",
+    "network_buffer_seconds",
+    "channel_bandwidth",
+)
+
 if TYPE_CHECKING:
+    from tsdr.core.sdr.device_context import SDRDeviceContext
     from tsdr.core.sdr.engine import SDREngine
     from tsdr.tui.state import UIState
 
@@ -55,44 +75,49 @@ def restore_engine_config(prefs: dict[str, Any]) -> None:
         get_engine().update_global_config(audio_volume=float(engine_prefs["audio_volume"]))
 
 
-def save_device(engine: SDREngine) -> None:
-    """Save first device state by inspecting the engine."""
-    if not engine.devices:
-        return
+def _persist_params(params: DeviceParams) -> dict[str, Any]:
+    result = dataclasses.asdict(params)
+    fmt = result.get("sample_format")
+    if isinstance(fmt, SampleFormat):
+        result["sample_format"] = fmt.value
+    return result
 
-    context = next(iter(engine.devices.values()))
 
-    device_dict: dict[str, Any] = {
+def _build_persisted_device(context: SDRDeviceContext) -> PersistedDevice:
+    fields: dict[str, Any] = {
         "id": context.device_id,
         "type": context.device_type,
-        **dataclasses.asdict(context.params),
-        "frequency": context.config.center_frequency / 1e6,
+        **_persist_params(context.params),
+        "center_frequency": context.config.center_frequency,
         "sample_rate": context.config.sample_rate,
         "rf_gain": context.config.rf_gain,
         "target_fps": context.config.target_fps,
         "buffer_samples": context.config.buffer_samples,
         "network_buffer_seconds": context.config.network_buffer_seconds,
         "channel_bandwidth": context.config.channel_bandwidth,
-        "running": context.state == DeviceState.RUNNING,
     }
 
     audio_config = context.config.pipelines.get("audio")
     if audio_config and audio_config.demod_mode:
-        device_dict["demod_mode"] = audio_config.demod_mode
+        fields["demod_mode"] = audio_config.demod_mode
         if audio_config.frequency_offset != 0.0:
-            device_dict["demod_offset"] = audio_config.frequency_offset
+            fields["demod_offset"] = audio_config.frequency_offset
         if audio_config.squelch_enabled:
-            device_dict["squelch_enabled"] = True
+            fields["squelch_enabled"] = True
         if audio_config.squelch_threshold_db != -50.0:
-            device_dict["squelch_threshold_db"] = audio_config.squelch_threshold_db
+            fields["squelch_threshold_db"] = audio_config.squelch_threshold_db
         if audio_config.squelch_hang_ms != 100.0:
-            device_dict["squelch_hang_ms"] = audio_config.squelch_hang_ms
+            fields["squelch_hang_ms"] = audio_config.squelch_hang_ms
         if audio_config.fm_deviation_hz is not None:
-            device_dict["fm_deviation_hz"] = audio_config.fm_deviation_hz
+            fields["fm_deviation_hz"] = audio_config.fm_deviation_hz
 
-    prefs = load_preferences()
-    prefs["device"] = {k: v for k, v in device_dict.items() if v is not None}
-    save_preferences(prefs)
+    return PersistedDevice(**{k: v for k, v in fields.items() if v is not None})
+
+
+def save_device(engine: SDREngine) -> None:
+    """Snapshot every device in the engine plus the focused id."""
+    devices = [_build_persisted_device(ctx) for ctx in engine.devices.values()]
+    get_device_store().snapshot(devices=devices, focused=engine.focused_device)
 
 
 def save_bandplan(filename: str | None) -> None:
@@ -127,92 +152,90 @@ def restore_ui_state(ui_state: UIState, prefs: dict[str, Any]) -> None:
         ui_state.active_panel = str(ui["active_panel"])
 
 
-def restore_device(prefs: dict[str, Any]) -> None:
-    """Restore a saved device using engine methods directly."""
-    dev = prefs.get("device")
-    if not dev:
+def _build_params(device: PersistedDevice) -> DeviceParams | None:
+    if device.type == "rtltcp":
+        return RTLTCPParams(host=device.host or "localhost", port=device.port or 1234)
+    if device.type == "spyserver":
+        return SpyServerParams(host=device.host or "localhost", port=device.port or 5555)
+    if device.type == "rtlsdr":
+        return RTLSDRParams(serial=device.serial or "", device_index=device.device_index or 0)
+    if device.type == "soapy":
+        return SoapySDRParams(
+            driver=device.driver or "",
+            serial=device.serial or "",
+            antenna=device.antenna or "",
+            device_args=device.device_args or "",
+        )
+    if device.type == "iq-file":
+        if not device.path:
+            logger.warning("Skipping iq-file device %s: missing path", device.id)
+            return None
+        fmt = SampleFormat(device.sample_format) if device.sample_format else None
+        return IQFileParams(path=device.path, sample_format=fmt)
+    if device.type == "mock":
+        return MockParams(
+            signal_freq_offset=device.signal_freq_offset
+            if device.signal_freq_offset is not None
+            else 10e3,
+            noise_level=device.noise_level if device.noise_level is not None else 0.1,
+        )
+    logger.info("Skipping restore for unknown device type %s", device.type)
+    return None
+
+
+def _build_device_config(device: PersistedDevice) -> DeviceConfig | None:
+    persisted = device.model_dump(exclude_none=True)
+    kwargs = {k: persisted[k] for k in _DEVICE_CONFIG_FIELDS if k in persisted}
+    return DeviceConfig(**kwargs) if kwargs else None
+
+
+def _restore_audio_pipeline(engine: SDREngine, device: PersistedDevice) -> None:
+    if not device.demod_mode or device.demod_mode not in DEMODULATORS:
         return
-
-    engine = get_engine()
-    device_id = dev.get("id", "rtl0")
-    device_type = dev.get("type", "rtltcp")
-
-    # Build typed params
-    params: DeviceParams
-    if device_type == "rtltcp":
-        params = RTLTCPParams(
-            host=dev.get("host", "localhost"),
-            port=int(dev.get("port", 1234)),
-        )
-    elif device_type == "rtlsdr":
-        params = RTLSDRParams(
-            serial=dev.get("serial", ""),
-            device_index=int(dev.get("device_index", 0)),
-        )
-    elif device_type == "soapy":
-        params = SoapySDRParams(
-            driver=dev.get("driver", ""),
-            serial=dev.get("serial", ""),
-            antenna=dev.get("antenna", ""),
-            device_args=dev.get("device_args", ""),
-        )
-    else:
-        logger.info("Skipping restore for device type %s", device_type)
-        return
-
-    # Build config from saved values
-    config_kwargs: dict[str, Any] = {}
-    if "frequency" in dev:
-        config_kwargs["center_frequency"] = float(dev["frequency"]) * 1e6
-    if "sample_rate" in dev:
-        config_kwargs["sample_rate"] = float(dev["sample_rate"])
-    if "rf_gain" in dev:
-        config_kwargs["rf_gain"] = float(dev["rf_gain"])
-    if "buffer_samples" in dev:
-        config_kwargs["buffer_samples"] = int(dev["buffer_samples"])
-    if "target_fps" in dev:
-        config_kwargs["target_fps"] = float(dev["target_fps"])
-    if "network_buffer_seconds" in dev:
-        config_kwargs["network_buffer_seconds"] = float(dev["network_buffer_seconds"])
-    if "channel_bandwidth" in dev:
-        config_kwargs["channel_bandwidth"] = float(dev["channel_bandwidth"])
-
-    config = DeviceConfig(**config_kwargs) if config_kwargs else None
-
-    should_run = bool(dev.get("running", False))
-
     try:
-        engine.add_device(device_id, device_type, params, config)
-        if should_run:
-            engine.start_device(device_id)
-        logger.info("Restored device %s (%s, running=%s)", device_id, device_type, should_run)
-    except (OSError, ConnectionError, ValueError) as e:
-        logger.warning("Failed to restore device %s: %s", device_id, e)
-        return
-
-    demod_mode = dev.get("demod_mode")
-    if not demod_mode or demod_mode not in DEMODULATORS:
-        return
-
-    try:
-        demod_offset = float(dev.get("demod_offset", 0.0))
-        fm_deviation_hz = float(dev["fm_deviation_hz"]) if "fm_deviation_hz" in dev else None
-        engine.set_audio_demod(device_id, demod_mode, demod_offset, fm_deviation_hz)
-        logger.info("Restored demod %s for %s", demod_mode, device_id)
+        engine.set_audio_demod(
+            device.id,
+            device.demod_mode,
+            device.demod_offset or 0.0,
+            device.fm_deviation_hz,
+        )
+        logger.info("Restored demod %s for %s", device.demod_mode, device.id)
     except (KeyError, ValueError, OSError) as e:
-        logger.warning("Failed to restore demod for %s: %s", device_id, e)
+        logger.warning("Failed to restore demod for %s: %s", device.id, e)
         return
 
     squelch_kwargs: dict[str, Any] = {}
-    if "squelch_enabled" in dev:
-        squelch_kwargs["enabled"] = bool(dev["squelch_enabled"])
-    if "squelch_threshold_db" in dev:
-        squelch_kwargs["threshold_db"] = float(dev["squelch_threshold_db"])
-    if "squelch_hang_ms" in dev:
-        squelch_kwargs["hang_ms"] = float(dev["squelch_hang_ms"])
+    if device.squelch_enabled is not None:
+        squelch_kwargs["enabled"] = device.squelch_enabled
+    if device.squelch_threshold_db is not None:
+        squelch_kwargs["threshold_db"] = device.squelch_threshold_db
+    if device.squelch_hang_ms is not None:
+        squelch_kwargs["hang_ms"] = device.squelch_hang_ms
     if squelch_kwargs:
         try:
-            engine.update_squelch(device_id, "audio", **squelch_kwargs)
-            logger.info("Restored squelch for %s: %s", device_id, squelch_kwargs)
+            engine.update_squelch(device.id, "audio", **squelch_kwargs)
+            logger.info("Restored squelch for %s: %s", device.id, squelch_kwargs)
         except (KeyError, ValueError, OSError) as e:
-            logger.warning("Failed to restore squelch for %s: %s", device_id, e)
+            logger.warning("Failed to restore squelch for %s: %s", device.id, e)
+
+
+def restore_devices() -> None:
+    """Restore every persisted device into the engine in STOPPED state, then apply focus."""
+    store = get_device_store()
+    engine = get_engine()
+
+    for device in store.all():
+        params = _build_params(device)
+        if params is None:
+            continue
+        config = _build_device_config(device)
+        try:
+            engine.add_device(device.id, device.type, params, config)
+            logger.info("Restored device %s (%s)", device.id, device.type)
+        except (OSError, ConnectionError, ValueError) as e:
+            logger.warning("Failed to restore device %s: %s", device.id, e)
+            continue
+        _restore_audio_pipeline(engine, device)
+
+    if store.focused_id and store.focused_id in engine.devices:
+        engine.set_focused_device(store.focused_id)

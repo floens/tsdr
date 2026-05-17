@@ -8,12 +8,13 @@ from textual.containers import Container, Vertical
 import tsdr.tui.commands  # noqa: F401  # trigger command self-registration
 import tsdr.tui.tty  # noqa: F401  # install APC-aware XTermParser
 from tsdr.core.bandplans import get_bandplan_store, init_bandplan_store
+from tsdr.core.devices import init_device_store
 from tsdr.core.events.events import BandplanChangedEvent, MemoriesChangedEvent
 from tsdr.core.memories import get_memory_store, init_memory_store
 from tsdr.core.preferences import (
     load_preferences,
     restore_bandplan,
-    restore_device,
+    restore_devices,
     restore_engine_config,
     restore_ui_state,
     save_device,
@@ -84,6 +85,7 @@ class TSDRApp(App[None], KeyboardMixin, CommandInputMixin, EventHandlerMixin):
             restore_engine_config(self._saved_prefs)
             init_memory_store()
             init_bandplan_store()
+            init_device_store()
             restore_bandplan(self._saved_prefs)
 
             self.event_adapter = TextualEventAdapter(self, sdr_engine.event_bus)
@@ -104,8 +106,7 @@ class TSDRApp(App[None], KeyboardMixin, CommandInputMixin, EventHandlerMixin):
             self.startup_commands = startup_commands or []
             self._startup_index = 0
 
-            if not self.startup_commands and "device" in self._saved_prefs:
-                self.call_after_refresh(self._restore_saved_device)
+            self.call_after_refresh(self._restore_saved_devices)
 
     def compose(self) -> ComposeResult:
         with span("compose"):
@@ -150,7 +151,6 @@ class TSDRApp(App[None], KeyboardMixin, CommandInputMixin, EventHandlerMixin):
                 self._notify_image_mode_changed()
 
             if self.startup_commands:
-                # CLI -e commands take precedence over saved device
                 self.call_after_refresh(self._run_startup_commands)
 
         log_stats(phase="mounted")
@@ -166,8 +166,8 @@ class TSDRApp(App[None], KeyboardMixin, CommandInputMixin, EventHandlerMixin):
     def _force_refresh_all(self):
         self.screen.refresh()
 
-    def _restore_saved_device(self) -> None:
-        restore_device(self._saved_prefs)
+    def _restore_saved_devices(self) -> None:
+        restore_devices()
 
     def _toggle_panel(self, panel: str) -> None:
         """Toggle a side panel, ensuring mutual exclusivity."""
