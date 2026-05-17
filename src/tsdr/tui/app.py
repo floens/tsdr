@@ -7,6 +7,7 @@ from textual.containers import Container, Vertical
 
 import tsdr.tui.commands  # noqa: F401  # trigger command self-registration
 import tsdr.tui.tty  # noqa: F401  # install APC-aware XTermParser
+from tsdr.core.band_stack import init_band_stack
 from tsdr.core.bandplans import get_bandplan_store, init_bandplan_store
 from tsdr.core.devices import init_device_store
 from tsdr.core.events.events import BandplanChangedEvent, MemoriesChangedEvent
@@ -16,17 +17,21 @@ from tsdr.core.preferences import (
     restore_bandplan,
     restore_devices,
     restore_engine_config,
+    restore_tuning_state,
     restore_ui_state,
     save_device,
 )
 from tsdr.core.sdr.engine import SDREngine, get_engine
 from tsdr.core.tracing import log_stats, span
+from tsdr.core.tuning import flush_band_stack_writeback, subscribe_band_stack_writeback
+from tsdr.core.tuning_state import init_tuning_state
 from tsdr.tui.commands.registry import MenuItem
 from tsdr.tui.console import CommandInputMixin
 from tsdr.tui.event_handlers import EventHandlerMixin
 from tsdr.tui.keyboard import KeyboardMixin
 from tsdr.tui.state import UIState
 from tsdr.tui.textual_adapter import TextualEventAdapter
+from tsdr.tui.tuning_mixin import TuningMixin
 from tsdr.tui.widgets import (
     ADSBWidget,
     ConsoleWidget,
@@ -56,7 +61,7 @@ def get_app() -> TSDRApp:
     return _active_app
 
 
-class TSDRApp(App[None], KeyboardMixin, CommandInputMixin, EventHandlerMixin):
+class TSDRApp(App[None], KeyboardMixin, TuningMixin, CommandInputMixin, EventHandlerMixin):
     """A Textual console application"""
 
     BINDINGS = [
@@ -76,6 +81,7 @@ class TSDRApp(App[None], KeyboardMixin, CommandInputMixin, EventHandlerMixin):
             self._pending_oob_escapes: list[str] = []
 
             self.ui_state = UIState()
+            self._latest_fft_by_device = {}
 
             # Restore saved preferences
             self._saved_prefs = load_preferences()
@@ -84,9 +90,13 @@ class TSDRApp(App[None], KeyboardMixin, CommandInputMixin, EventHandlerMixin):
             sdr_engine = SDREngine()
             restore_engine_config(self._saved_prefs)
             init_memory_store()
+            init_band_stack()
             init_bandplan_store()
             init_device_store()
             restore_bandplan(self._saved_prefs)
+            tuning_state = init_tuning_state()
+            restore_tuning_state(tuning_state, self._saved_prefs)
+            subscribe_band_stack_writeback(sdr_engine)
 
             self.event_adapter = TextualEventAdapter(self, sdr_engine.event_bus)
 
@@ -234,6 +244,11 @@ class TSDRApp(App[None], KeyboardMixin, CommandInputMixin, EventHandlerMixin):
             save_device(get_engine())
         except Exception as e:
             logger.error(f"Error saving device state: {e}", exc_info=True)
+
+        try:
+            flush_band_stack_writeback()
+        except Exception as e:
+            logger.error(f"Error flushing band-stack writeback: {e}", exc_info=True)
 
         logger.debug("Shutting down SDR manager")
         try:

@@ -12,6 +12,7 @@ from tsdr.tui.console.widget import ConsoleWidget
 from tsdr.tui.messages import (
     AudioOutputError,
     BandplanChanged,
+    BandStackChanged,
     ConfigChanged,
     ConstellationUpdate,
     DecoderOutput,
@@ -26,6 +27,7 @@ from tsdr.tui.messages import (
     SamplesDropped,
     SignalInfoUpdate,
     StatsUpdate,
+    TuningStateChanged,
 )
 from tsdr.tui.widgets import (
     ADSBWidget,
@@ -221,6 +223,14 @@ class EventHandlerMixin(MixinBase):
     @on(BandplanChanged)
     def handle_bandplan_changed(self, message: BandplanChanged) -> None:
         self._forward(SpectrumWidget, "update_bandplan", message.event)
+
+    @on(BandStackChanged)
+    def handle_band_stack_changed(self, message: BandStackChanged) -> None:
+        self._forward(TunerWidget, "update_config")
+
+    @on(TuningStateChanged)
+    def handle_tuning_state_changed(self, message: TuningStateChanged) -> None:
+        self._forward(TunerWidget, "update_config")
 
     @on(ConstellationUpdate)
     def handle_constellation_update(self, message: ConstellationUpdate) -> None:

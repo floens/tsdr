@@ -6,6 +6,7 @@ from tsdr.core.events.bus import EventBus
 from tsdr.core.events.events import (
     AudioOutputErrorEvent,
     BandplanChangedEvent,
+    BandStackChangedEvent,
     ConfigChangedEvent,
     ConstellationUpdateEvent,
     DecoderOutputEvent,
@@ -21,11 +22,13 @@ from tsdr.core.events.events import (
     SamplesDroppedEvent,
     SignalInfoEvent,
     StatsUpdateEvent,
+    TuningStateChangedEvent,
 )
 from tsdr.core.events.subscription import Subscription
 from tsdr.tui.messages import (
     AudioOutputError,
     BandplanChanged,
+    BandStackChanged,
     ConfigChanged,
     ConstellationUpdate,
     DecoderOutput,
@@ -40,6 +43,7 @@ from tsdr.tui.messages import (
     SamplesDropped,
     SignalInfoUpdate,
     StatsUpdate,
+    TuningStateChanged,
 )
 
 if TYPE_CHECKING:
@@ -114,6 +118,12 @@ class TextualEventAdapter:
         )
         self._subscriptions.append(
             self.event_bus.subscribe(RecordingFinishedEvent, self._on_recording_finished)
+        )
+        self._subscriptions.append(
+            self.event_bus.subscribe(BandStackChangedEvent, self._on_band_stack_changed)
+        )
+        self._subscriptions.append(
+            self.event_bus.subscribe(TuningStateChangedEvent, self._on_tuning_state_changed)
         )
 
         logger.info(f"Textual event adapter started ({len(self._subscriptions)} subscriptions)")
@@ -230,3 +240,13 @@ class TextualEventAdapter:
         if not isinstance(event, RecordingFinishedEvent):
             return
         self.app.post_message(RecordingFinished(event))
+
+    def _on_band_stack_changed(self, event: Event) -> None:
+        if not isinstance(event, BandStackChangedEvent):
+            return
+        self.app.post_message(BandStackChanged(event))
+
+    def _on_tuning_state_changed(self, event: Event) -> None:
+        if not isinstance(event, TuningStateChangedEvent):
+            return
+        self.app.post_message(TuningStateChanged(event))

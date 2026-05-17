@@ -9,6 +9,7 @@ from textual.message import Message
 from tsdr.core.events.events import (
     AudioOutputErrorEvent,
     BandplanChangedEvent,
+    BandStackChangedEvent,
     ConfigChangedEvent,
     ConstellationUpdateEvent,
     DecoderOutputEvent,
@@ -23,6 +24,7 @@ from tsdr.core.events.events import (
     SamplesDroppedEvent,
     SignalInfoEvent,
     StatsUpdateEvent,
+    TuningStateChangedEvent,
 )
 
 
@@ -150,5 +152,21 @@ class RecordingFinished(Message):
     """Wrapper for RecordingFinishedEvent."""
 
     def __init__(self, event: RecordingFinishedEvent) -> None:
+        super().__init__()
+        self.event = event
+
+
+class BandStackChanged(Message):
+    """Wrapper for BandStackChangedEvent."""
+
+    def __init__(self, event: BandStackChangedEvent) -> None:
+        super().__init__()
+        self.event = event
+
+
+class TuningStateChanged(Message):
+    """Wrapper for TuningStateChangedEvent."""
+
+    def __init__(self, event: TuningStateChangedEvent) -> None:
         super().__init__()
         self.event = event

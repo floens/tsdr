@@ -1,6 +1,6 @@
 import logging
 from dataclasses import dataclass
-from math import ceil, floor, log10
+from math import ceil, floor
 
 import numpy as np
 from rich.segment import Segment
@@ -12,13 +12,18 @@ from textual.timer import Timer
 from textual.widget import Widget
 
 from tsdr.core.bandplans import Bandplan, band_type_color, contrast_fg
-from tsdr.core.events.events import BandplanChangedEvent, FFTUpdateEvent, MemoriesChangedEvent
+from tsdr.core.events.events import (
+    BandplanChangedEvent,
+    FFTUpdateEvent,
+    MemoriesChangedEvent,
+)
 from tsdr.core.memories import Memory, get_memory_store, memory_color, recall_memory
 from tsdr.core.preferences import save_device, save_ui_state
 from tsdr.core.sdr.device_context import DeviceState
 from tsdr.core.sdr.engine import get_engine
 from tsdr.core.sdr.exceptions import SDRException
 from tsdr.core.tracing import traced
+from tsdr.core.tuning import save_previous_tune_state
 from tsdr.core.units import format_hz
 from tsdr.tui.inline_edit import InlineEditBuffer
 from tsdr.tui.state import UIState
@@ -704,8 +709,11 @@ class SpectrumWidget(ImageModeMixin, Widget):
                     event.stop()
                     return
 
-        step = 10 ** max(0, floor(log10(freq)) - 5)
-        freq = round(freq / step) * step
+        # Snap to the pixel grid so click and scroll agree on a column.
+        pixel_hz = (freq_max - freq_min) / w if w > 0 else 1.0
+        snap = max(pixel_hz, 1.0)
+        freq = round(freq / snap) * snap
+        save_previous_tune_state(device)
         engine.update_device_config(device.device_id, center_frequency=freq)
         save_device(engine)
         event.stop()
@@ -735,11 +743,16 @@ class SpectrumWidget(ImageModeMixin, Widget):
         device = engine.get_focused_device()
         if device is None:
             return
+        # Pixel-relative step: visible span / display width × 2 (2 pixels per notch).
+        # Falls back to 1 Hz minimum so we never lose visible motion.
+        sample_rate = device.config.sample_rate
+        visible_span = sample_rate / self._ui_state.zoom
+        w = self.size.width
+        pixel_hz = visible_span / w if w > 0 else 1.0
+        step = max(pixel_hz * 2, 1.0)
         freq = device.config.center_frequency
-        # Step by an order of magnitude that fits the frequency.
-        # e.g. 145.12 MHz -> 1 kHz, 1.2 GHz -> 10 kHz
-        step = 10 ** max(0, floor(log10(freq)) - 4)
         new_freq = freq + direction * step
+        new_freq = round(new_freq / step) * step
         engine.update_device_config(device.device_id, center_frequency=new_freq)
         save_device(engine)
 

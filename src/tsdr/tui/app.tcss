@@ -195,11 +195,27 @@ TunerWidget {
     #tuner-row {
         width: 100%;
         height: 3;
-        align: center middle;
+        layout: horizontal;
+    }
+
+    #tuner-left {
+        width: 1fr;
+        min-width: 52;
+        height: 3;
+        layout: horizontal;
+        align: right middle;
+    }
+
+    #tuner-right {
+        width: 1fr;
+        min-width: 35;
+        height: 3;
+        layout: horizontal;
+        align: left middle;
     }
 
     #tuner-mode {
-        width: 24;
+        width: 16;
         height: 3;
         content-align: right middle;
         margin: 0 1;
@@ -207,6 +223,13 @@ TunerWidget {
 
     #tuner-device {
         width: 16;
+        height: 3;
+        content-align: right middle;
+        margin: 0 1;
+    }
+
+    #tuner-state {
+        width: 14;
         height: 3;
         content-align: right middle;
         margin: 0 1;
@@ -224,7 +247,7 @@ TunerWidget {
     }
 
     &.stopped {
-        #tuner-mode, #tuner-device, #tuner-frequency, #tuner-meter {
+        #tuner-mode, #tuner-device, #tuner-state, #tuner-frequency, #tuner-meter {
             text-style: dim;
         }
     }

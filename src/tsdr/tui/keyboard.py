@@ -112,19 +112,67 @@ class KeyboardMixin(MixinBase):
                 event.prevent_default()
                 event.stop()
             elif event.key == "left":
-                self._move_center_frequency(-1)
+                self._tune(-1)
                 event.prevent_default()
                 event.stop()
             elif event.key == "right":
-                self._move_center_frequency(1)
+                self._tune(1)
+                event.prevent_default()
+                event.stop()
+            elif event.key == "shift+left":
+                self._tune(-1, coarse=True)
+                event.prevent_default()
+                event.stop()
+            elif event.key == "shift+right":
+                self._tune(1, coarse=True)
+                event.prevent_default()
+                event.stop()
+            elif event.key in ("alt+left", "ctrl+left"):
+                self._tune(-1, fine=True)
+                event.prevent_default()
+                event.stop()
+            elif event.key in ("alt+right", "ctrl+right"):
+                self._tune(1, fine=True)
                 event.prevent_default()
                 event.stop()
             elif event.key == "up":
-                self._adjust_bandwidth(1)
+                self._adjust_channel_bandwidth(1)
                 event.prevent_default()
                 event.stop()
             elif event.key == "down":
-                self._adjust_bandwidth(-1)
+                self._adjust_channel_bandwidth(-1)
+                event.prevent_default()
+                event.stop()
+            elif event.key in ("alt+up", "ctrl+up"):
+                self._adjust_channel_bandwidth(1, fine=True)
+                event.prevent_default()
+                event.stop()
+            elif event.key in ("alt+down", "ctrl+down"):
+                self._adjust_channel_bandwidth(-1, fine=True)
+                event.prevent_default()
+                event.stop()
+            elif event.key == "left_square_bracket":
+                self._jump_target(-1)
+                event.prevent_default()
+                event.stop()
+            elif event.key == "right_square_bracket":
+                self._jump_target(1)
+                event.prevent_default()
+                event.stop()
+            elif event.key in ("1", "2", "3", "4", "5", "6", "7", "8", "9"):
+                self._recall_band(int(event.key))
+                event.prevent_default()
+                event.stop()
+            elif event.key == "0":
+                self._swap_ab()
+                event.prevent_default()
+                event.stop()
+            elif event.key == "s":
+                self._cycle_step(True)
+                event.prevent_default()
+                event.stop()
+            elif event.key == "S":
+                self._cycle_step(False)
                 event.prevent_default()
                 event.stop()
             elif event.key == "g":
@@ -159,12 +207,12 @@ class KeyboardMixin(MixinBase):
                 self._adjust_volume(-1)
                 event.prevent_default()
                 event.stop()
-            elif event.key == "S":
+            elif event.key == "ctrl+s":
                 self._toggle_panel("stats")
                 save_ui_state(self.ui_state)
                 event.prevent_default()
                 event.stop()
-            elif event.key == "P":
+            elif event.key == "ctrl+p":
                 self._toggle_panel("performance")
                 save_ui_state(self.ui_state)
                 event.prevent_default()
@@ -265,41 +313,6 @@ class KeyboardMixin(MixinBase):
             return
 
         save_device(engine)
-
-    def _move_center_frequency(self, direction: int) -> None:
-        by = direction * 100000
-
-        engine = get_engine()
-        device = engine.get_focused_device()
-        if device is None:
-            return
-        center_frequency = device.config.center_frequency + by
-
-        engine.update_device_config(device.device_id, center_frequency=center_frequency)
-        save_device(engine)
-
-        self.show_status(f"Moving center frequency: {center_frequency}")
-
-    def _adjust_bandwidth(self, direction: int) -> None:
-        """Adjust channel bandwidth by step size."""
-        engine = get_engine()
-        device = engine.get_focused_device()
-        if device is None:
-            return
-
-        demod_info = device.active_demod_info
-        if demod_info is None:
-            self._show_error("No active channel")
-            return
-
-        current_bw = demod_info.channel_bandwidth
-        step = 1_000
-        new_bandwidth = current_bw + (direction * step)
-        new_bandwidth = max(0, min(new_bandwidth, 1_000_000))
-
-        engine.update_device_config(device.device_id, channel_bandwidth=new_bandwidth)
-        save_device(engine)
-        self.show_status(f"Bandwidth: {new_bandwidth / 1000:.1f} kHz")
 
     def _adjust_gain(self, direction: int) -> None:
         engine = get_engine()
@@ -488,6 +501,7 @@ class KeyboardMixin(MixinBase):
             return
 
         save_device(engine)
+        self.notify_demod_changed()
         self.show_status(f"Demod: {mode}")
 
     def _cancel_demod_chord(self) -> None:

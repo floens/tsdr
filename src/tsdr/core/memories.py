@@ -10,6 +10,8 @@ from tsdr.core.preferences import save_device
 from tsdr.core.sdr.device_context import DeviceState
 from tsdr.core.sdr.engine import get_engine
 from tsdr.core.sdr.exceptions import SDRException
+from tsdr.core.tuning import save_previous_tune_state
+from tsdr.core.tuning_state import get_tuning_state
 from tsdr.radio.registry import DEMODULATORS
 
 logger = logging.getLogger(__name__)
@@ -173,8 +175,16 @@ def recall_memory(memory: Memory, device_id: str) -> None:
     if context.state != DeviceState.RUNNING:
         raise SDRException(f"Device {device_id} must be running")
 
+    ts = get_tuning_state()
+    ts.step = None  # context change → reset step ladder to auto
+    save_previous_tune_state(context)
+
     if memory.mode in DEMODULATORS and memory.mode != context.active_mode:
         engine.set_audio_demod(device_id, memory.mode)
 
-    engine.update_device_config(device_id, center_frequency=float(memory.frequency))
+    engine.update_device_config(
+        device_id,
+        center_frequency=float(memory.frequency),
+        channel_bandwidth=int(memory.bandwidth),
+    )
     save_device(engine)

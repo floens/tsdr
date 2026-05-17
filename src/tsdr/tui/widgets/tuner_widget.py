@@ -15,12 +15,16 @@ from textual.renderables.digits import DIGITS, DIGITS3X3, DIGITS3X3_BOLD
 from textual.widgets import Digits as DigitsWidget
 from textual.widgets import Static
 
+from tsdr.core.band_stack import get_band_stack
 from tsdr.core.events.events import DeviceStateChangedEvent, SignalInfoEvent, StatsUpdateEvent
 from tsdr.core.preferences import save_device
 from tsdr.core.sdr.datatypes import SignalInfo
 from tsdr.core.sdr.device_context import DeviceState
 from tsdr.core.sdr.engine import get_engine
 from tsdr.core.tracing import span
+from tsdr.core.tuning import resolve_auto_step
+from tsdr.core.tuning_state import get_tuning_state
+from tsdr.core.units import format_hz
 from tsdr.tui.widgets.snr_widget import SNRWidget
 
 Half = Literal["top", "bottom"]
@@ -227,10 +231,13 @@ class TunerWidget(Vertical):
 
     def compose(self) -> ComposeResult:
         with Horizontal(id="tuner-row"):
-            yield Static("", id="tuner-mode")
-            yield Static("", id="tuner-device")
+            with Horizontal(id="tuner-left"):
+                yield Static("", id="tuner-mode")
+                yield Static("", id="tuner-device")
+                yield Static("", id="tuner-state")
             yield HoverableDigits("---.---.--- Hz", id="tuner-frequency")
-            yield SNRWidget(id="tuner-meter")
+            with Horizontal(id="tuner-right"):
+                yield SNRWidget(id="tuner-meter")
 
     def on_mount(self) -> None:
         self._read_config()
@@ -282,6 +289,29 @@ class TunerWidget(Vertical):
             meter = self.query_one("#tuner-meter", SNRWidget)
             meter.update_quality(demod_info.quality_label, demod_info.quality)
             meter.update_squelch(demod_info.squelch_threshold_db, demod_info.squelch_open)
+
+        self._render_state_column(device.active_mode, float(config.center_frequency))
+
+    def _render_state_column(self, mode: str, freq_hz: float) -> None:
+        ts = get_tuning_state()
+        if ts.step is None:
+            value = resolve_auto_step(mode, freq_hz)
+            label = "auto"
+        else:
+            value = ts.step
+            label = "step"
+        step_value = format_hz(value, decimals=1, long_suffix=True)
+        step_line = f"[bold]{step_value}[/bold] [dim]{label}[/dim]"
+
+        band_line = "[dim]—[/dim]"
+        reg_line = ""
+        if ts.current_band_key is not None:
+            stack = get_band_stack().get_by_key(ts.current_band_key)
+            if stack is not None:
+                band_line = f"[bold]{stack.band.name}[/bold] [dim]band[/dim]"
+                reg_line = f"[bold]{stack.current_idx + 1}/3[/bold] [dim]reg[/dim]"
+
+        self.query_one("#tuner-state", Static).update(f"{step_line}\n{band_line}\n{reg_line}")
 
     def update_config(self) -> None:
         self._read_config()

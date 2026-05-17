@@ -231,3 +231,20 @@ class BandplanChangedEvent(Event):
     """Emitted when the active bandplan changes (loaded, cleared, swapped)."""
 
     bandplan: object | None = None  # Bandplan | None - object to avoid circular import
+
+
+# Band-stack and tuning-state events
+
+
+@dataclass(frozen=True)
+class BandStackChangedEvent(Event):
+    """Emitted when a band-stack register or current_idx changes."""
+
+    band_stack: object | None = None  # BandStackStore - object to avoid circular import
+
+
+@dataclass(frozen=True)
+class TuningStateChangedEvent(Event):
+    """Emitted when step, previous-tune-state, or current band key changes."""
+
+    state: object | None = None  # TuningState - object to avoid circular import

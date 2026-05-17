@@ -38,13 +38,12 @@ def compute_fft(
         fft_result = np.fft.fftshift(np.fft.fft(windowed))
 
     # |X|^2 directly avoids the sqrt inside np.abs.
-    power = fft_result.real**2 + fft_result.imag**2
+    power: np.ndarray = (fft_result.real**2 + fft_result.imag**2).astype(np.float32, copy=False)
     power *= inv_norm_sq
-
-    # Floor before log10 to avoid log(0).
-    power_db: np.ndarray = 10.0 * np.log10(power + 1e-10)
-
-    return power_db.astype(np.float32)
+    power += 1e-10  # floor before log10 to avoid log(0)
+    np.log10(power, out=power)
+    power *= 10.0
+    return power
 
 
 def compute_statistics(
@@ -107,6 +106,63 @@ def compute_statistics(
         dynamic_range=peak_power - noise_floor,
         channel_snr=channel_snr,
     )
+
+
+def find_peaks(
+    spectrum_db: np.ndarray,
+    center_frequency: float,
+    sample_rate: float,
+    *,
+    threshold_db_above_median: float = 10.0,
+    cluster_bins: int = 5,
+    max_peaks: int = 32,
+) -> tuple[tuple[float, float], ...]:
+    """Return spectrum peaks as ((freq_hz, power_db), ...) ascending by freq.
+
+    A bin qualifies as a peak when it is strictly greater than its two
+    neighbours and at least `threshold_db_above_median` above the median power
+    floor. Closely-spaced peaks (within `cluster_bins` of a stronger one) are
+    suppressed. Only the strongest `max_peaks` survive.
+    """
+    n_bins = len(spectrum_db)
+    if n_bins < 3:
+        return ()
+
+    threshold = float(np.median(spectrum_db)) + threshold_db_above_median
+
+    interior = spectrum_db[1:-1]
+    left = spectrum_db[:-2]
+    right = spectrum_db[2:]
+    mask = (interior > left) & (interior > right) & (interior > threshold)
+    candidate_bins = np.flatnonzero(mask) + 1
+    if candidate_bins.size == 0:
+        return ()
+
+    candidate_powers = spectrum_db[candidate_bins]
+
+    # Cluster suppression: walk strongest-first, drop any candidate within
+    # cluster_bins of an already-accepted one.
+    order = np.argsort(candidate_powers)[::-1]
+    accepted_bins: list[int] = []
+    for idx in order:
+        b = int(candidate_bins[idx])
+        if all(abs(b - kept) > cluster_bins for kept in accepted_bins):
+            accepted_bins.append(b)
+            if len(accepted_bins) >= max_peaks:
+                break
+
+    center_bin = n_bins // 2
+    freq_resolution = sample_rate / n_bins
+
+    peaks = [
+        (
+            center_frequency + (b - center_bin) * freq_resolution,
+            float(spectrum_db[b]),
+        )
+        for b in accepted_bins
+    ]
+    peaks.sort(key=lambda p: p[0])
+    return tuple(peaks)
 
 
 def apply_dc_offset_correction(iq_samples: np.ndarray) -> np.ndarray:

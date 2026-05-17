@@ -34,6 +34,7 @@ _DEVICE_CONFIG_FIELDS = (
 if TYPE_CHECKING:
     from tsdr.core.sdr.device_context import SDRDeviceContext
     from tsdr.core.sdr.engine import SDREngine
+    from tsdr.core.tuning_state import TuningState
     from tsdr.tui.state import UIState
 
 logger = logging.getLogger(__name__)
@@ -136,6 +137,42 @@ def restore_bandplan(prefs: dict[str, Any]) -> None:
     if not filename:
         return
     get_bandplan_store().set_active(filename)
+
+
+def save_tuning_state(state: TuningState) -> None:
+    prefs = load_preferences()
+    tuning: dict[str, Any] = {}
+    if state.step is not None:
+        tuning["step"] = float(state.step)
+    if state.previous is not None:
+        freq, mode, bw = state.previous
+        tuning["previous"] = {
+            "frequency": float(freq),
+            "mode": str(mode),
+            "bandwidth": float(bw),
+        }
+    if state.current_band_key is not None:
+        tuning["current_band_key"] = int(state.current_band_key)
+    if tuning:
+        prefs["tuning"] = tuning
+    else:
+        prefs.pop("tuning", None)
+    save_preferences(prefs)
+
+
+def restore_tuning_state(state: TuningState, prefs: dict[str, Any]) -> None:
+    tuning = prefs.get("tuning", {})
+    if "step" in tuning:
+        state.step = float(tuning["step"])
+    prev = tuning.get("previous")
+    if isinstance(prev, dict) and {"frequency", "mode", "bandwidth"} <= prev.keys():
+        state.previous = (
+            float(prev["frequency"]),
+            str(prev["mode"]),
+            float(prev["bandwidth"]),
+        )
+    if "current_band_key" in tuning:
+        state.current_band_key = int(tuning["current_band_key"])
 
 
 def restore_ui_state(ui_state: UIState, prefs: dict[str, Any]) -> None:
