@@ -19,6 +19,7 @@ from tsdr.devices import (
 from tsdr.devices.iq_file import parse_sample_rate_from_filename
 from tsdr.tui.commands._format import device_id, freq_mhz, success
 from tsdr.tui.commands.base import Command, CommandParser
+from tsdr.tui.commands.sdr._utils import parse_endpoint
 
 
 class SDRAddCommand(Command):
@@ -34,7 +35,11 @@ class SDRAddCommand(Command):
             dest="device_type",
             choices=["rtltcp", "rtlsdr", "mock", "iq-file", "soapy", "spyserver"],
         )
-        parser.add_argument("--host", default="localhost", help="TCP host (rtltcp, spyserver)")
+        parser.add_argument(
+            "--host",
+            default="localhost",
+            help="TCP host, host:port, or sdr://host:port (rtltcp, spyserver)",
+        )
         parser.add_argument(
             "--port",
             type=int,
@@ -68,6 +73,12 @@ class SDRAddCommand(Command):
 
     def run(self, args: Namespace) -> str:
         manager = get_engine()
+
+        # Accept `host:port` or `sdr://host:port` shorthand in --host.
+        # Explicit --port wins over an embedded one.
+        args.host, embedded_port = parse_endpoint(args.host)
+        if embedded_port is not None and args.port is None:
+            args.port = embedded_port
 
         config_overrides: dict[str, object] = {}
         config_overrides["center_frequency"] = float(parse_hz(args.frequency))

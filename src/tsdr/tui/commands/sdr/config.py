@@ -22,7 +22,11 @@ from tsdr.tui.commands._format import (
     success,
 )
 from tsdr.tui.commands.base import Command, CommandParser, Completion
-from tsdr.tui.commands.sdr._utils import device_id_completions, get_focused_device_id
+from tsdr.tui.commands.sdr._utils import (
+    device_id_completions,
+    get_focused_device_id,
+    parse_endpoint,
+)
 
 _DEVICE_FIELDS = frozenset(DeviceConfig.__dataclass_fields__.keys())
 _GLOBAL_FIELDS = frozenset(SDRConfig.__dataclass_fields__.keys())
@@ -114,7 +118,10 @@ class SDRConfigCommand(Command):
         )
         parser.add_argument(
             "--host",
-            help="Reconnect to a different host (rtltcp/spyserver). Auto-restarts.",
+            help=(
+                "Reconnect to a different host (rtltcp/spyserver). "
+                "Accepts host, host:port, or sdr://host:port. Auto-restarts."
+            ),
         )
         parser.add_argument(
             "--port",
@@ -129,15 +136,15 @@ class SDRConfigCommand(Command):
         if args.frequency == "show":
             return self._show_config(manager, did)
 
-        # Allow `--host host:port` as a shorthand for `--host host --port port`.
-        # Explicit `--port` wins over the embedded one.
-        if args.host is not None and ":" in args.host:
-            host_part, _, port_part = args.host.rpartition(":")
-            if not port_part.isdigit():
-                return error(f"invalid port in --host {args.host!r}")
-            args.host = host_part
-            if args.port is None:
-                args.port = int(port_part)
+        # Accept `host:port` or `sdr://host:port` shorthand in --host.
+        # Explicit --port wins over an embedded one.
+        if args.host is not None:
+            try:
+                args.host, embedded_port = parse_endpoint(args.host)
+            except ValueError as exc:
+                return error(str(exc))
+            if embedded_port is not None and args.port is None:
+                args.port = embedded_port
 
         endpoint_error = self._apply_endpoint(manager, did, args)
         if endpoint_error is not None:
