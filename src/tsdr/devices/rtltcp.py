@@ -18,6 +18,9 @@ class RTLTCPParams(DeviceParams):
     host: str = "localhost"
     port: int = 1234
 
+    def describe(self) -> str:
+        return f"{self.host}:{self.port}"
+
 
 class RTLTCPDevice:
     """RTL-SDR device via rtltcp network protocol.

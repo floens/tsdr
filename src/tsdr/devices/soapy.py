@@ -103,6 +103,9 @@ class SoapySDRParams(DeviceParams):
     antenna: str = ""
     device_args: str = ""
 
+    def describe(self) -> str:
+        return self.serial or self.driver or self.device_args
+
 
 class SoapySDRDevice:
     """SDR device via SoapySDR.

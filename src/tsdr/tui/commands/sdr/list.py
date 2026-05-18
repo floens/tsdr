@@ -21,13 +21,16 @@ class SDRListCommand(Command):
             marker = "[bold yellow]*[/]" if dev["focused"] else " "
             mode = dev["mode"]
             mode_md = f"[green]{mode}[/]" if mode and mode != "OFF" else f"[dim]{mode}[/]"
+            desc = dev["description"]
+            desc_md = f" | [dim]{desc}[/]" if desc else ""
             lines.append(
                 f"{marker} {device_id(dev['id'])}: "
                 f"[dim]{dev['type']}[/] | "
                 f"{state(dev['state'].lower())} | "
-                f"{freq_mhz(dev['frequency'], precision=2)} | "
+                f"{freq_mhz(dev['frequency'], precision=2, width=10)} | "
                 f"{rate_msps(dev['sample_rate'])} | "
                 f"{mode_md}"
+                f"{desc_md}"
             )
 
         return "\n".join(lines)

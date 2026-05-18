@@ -111,6 +111,9 @@ class SpyServerParams(DeviceParams):
     host: str = "localhost"
     port: int = 5555
 
+    def describe(self) -> str:
+        return f"{self.host}:{self.port}"
+
 
 @dataclass(frozen=True)
 class _DeviceInfo:

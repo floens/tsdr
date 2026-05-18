@@ -75,6 +75,9 @@ class RTLSDRParams(DeviceParams):
     serial: str = ""
     device_index: int = 0
 
+    def describe(self) -> str:
+        return self.serial or f"index:{self.device_index}"
+
 
 class RTLSDRDevice:
     """RTL-SDR device via the pyrtlsdr library (direct USB access).

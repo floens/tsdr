@@ -54,6 +54,9 @@ class IQFileParams(DeviceParams):
     path: str = ""
     sample_format: SampleFormat | None = None
 
+    def describe(self) -> str:
+        return Path(self.path).name
+
 
 class IQFileDevice:
     """IQ file playback device.

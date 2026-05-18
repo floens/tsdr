@@ -325,6 +325,7 @@ class SDREngine:
                     "sample_rate": context.config.sample_rate,
                     "mode": context.active_mode,
                     "focused": device_id == self.focused_device,
+                    "description": context.params.describe(),
                 }
             )
 

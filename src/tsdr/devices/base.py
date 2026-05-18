@@ -11,7 +11,8 @@ GainUnit = Literal["dB", "index"]
 class DeviceParams:
     """Base class for device-specific parameters."""
 
-    pass
+    def describe(self) -> str:
+        return ""
 
 
 @runtime_checkable

@@ -40,8 +40,9 @@ def device_id(did: str) -> str:
     return f"[bold cyan]{did}[/]"
 
 
-def freq_mhz(hz: float, *, precision: int = 3) -> str:
-    return f"[cyan]{hz / 1e6:.{precision}f} MHz[/]"
+def freq_mhz(hz: float, *, precision: int = 3, width: int = 0) -> str:
+    text = f"{hz / 1e6:.{precision}f} MHz"
+    return f"[cyan]{text:>{width}}[/]"
 
 
 def rate_msps(hz: float, *, precision: int = 2) -> str:
