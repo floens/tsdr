@@ -153,6 +153,39 @@ class SDREngine:
         if self.focused_device == device_id:
             self.focused_device = next(iter(self.devices.keys()), None)
 
+    def reconfigure_device_params(self, device_id: str, params: DeviceParams) -> None:
+        """Swap the underlying SDRDevice with one built from new params.
+
+        Keeps device_config, pipelines, audio routing, and focus intact.
+        Requires the device to be STOPPED — caller is responsible for stopping
+        and restarting around the call if needed.
+
+        The new params must be the same concrete type as the existing ones
+        (e.g. RTLTCPParams → RTLTCPParams); cross-type reconfiguration is not
+        supported.
+        """
+        if device_id not in self.devices:
+            raise SDRException(f"Device {device_id} not found")
+
+        context = self.devices[device_id]
+        if context.state != DeviceState.STOPPED:
+            raise SDRException(f"Device {device_id} must be stopped to reconfigure params")
+        if type(params) is not type(context.params):
+            raise SDRException(
+                f"Cannot reconfigure {device_id}: param type mismatch "
+                f"({type(context.params).__name__} → {type(params).__name__})"
+            )
+
+        try:
+            new_device = create_device(params)
+        except Exception as e:  # noqa: BLE001 - device constructors raise opaque driver errors
+            raise ConfigurationError(f"Failed to recreate device {device_id}: {e}") from e
+
+        context.params = params
+        context.device = new_device
+
+        self.event_bus.publish(ConfigChangedEvent(device_id=device_id, source_id="engine"))
+
     def start_device(self, device_id: str) -> None:
         """Start a device.
 

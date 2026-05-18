@@ -101,6 +101,10 @@ class MockSDRDevice:
     def set_bias_tee(self, enable: bool) -> None:
         pass
 
+    @property
+    def supports_gain_control(self) -> bool:
+        return True
+
     def set_network_buffer_seconds(self, seconds: float) -> None:
         pass
 

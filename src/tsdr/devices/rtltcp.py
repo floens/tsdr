@@ -154,8 +154,9 @@ class RTLTCPDevice:
         """Half-close the socket to unblock the producer's recv.
 
         Safe to call from any thread; no resources freed. The producer
-        thread is blocked in socket.recv with no timeout (set in open());
-        shutdown is the only way to wake it from outside its own thread.
+        thread (started in open()) is blocked in socket.recv with no
+        timeout — shutdown is the only way to wake it from outside its
+        own thread.
         """
         sock = self.socket
         if sock is not None:
@@ -285,6 +286,10 @@ class RTLTCPDevice:
     def set_bias_tee(self, enable: bool) -> None:
         self._send_command(self.CMD_SET_BIAS_TEE, 1 if enable else 0)
         logger.debug("RTL-TCP: bias-T %s", "on" if enable else "off")
+
+    @property
+    def supports_gain_control(self) -> bool:
+        return True
 
     def set_network_buffer_seconds(self, seconds: float) -> None:
         self.jitter.set_prefill_seconds(seconds)

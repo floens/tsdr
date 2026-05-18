@@ -261,6 +261,10 @@ class SoapySDRDevice:
             self._device.writeSetting("biastee", "true" if enable else "false")
             logger.debug("SoapySDR: bias-T %s", "on" if enable else "off")
 
+    @property
+    def supports_gain_control(self) -> bool:
+        return True
+
     def set_network_buffer_seconds(self, seconds: float) -> None:
         # Soapy handles its own buffering; no client-side jitter buffer.
         pass

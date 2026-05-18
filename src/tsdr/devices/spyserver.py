@@ -2,18 +2,20 @@
 
 SpyServer is the streaming IQ protocol of the Airspy ecosystem. It exposes an
 SDR (Airspy R2, AirspyHF+, RTL-SDR) over a TCP socket using a documented binary
-protocol. Designed for thick clients that do their own DSP — the perfect fit
-for TSDR's "remote antenna + ADC" use case.
+protocol. Designed for thick clients that do their own DSP.
 
 The device negotiates INT16 IQ samples on the wire and converts to complex64
 internally, applying SpyServer's per-message digital-gain compensation
 (`mflags` field in the message-type word).
 """
 
+from __future__ import annotations
+
 import logging
 import socket
 import struct
 from dataclasses import dataclass
+from enum import IntEnum
 
 import numpy as np
 
@@ -26,37 +28,63 @@ logger = logging.getLogger(__name__)
 
 
 PROTO_VERSION = (2 << 24) | (0 << 16) | 1700  # 0x020006A4
+APP_NAME = "tsdr"
 
-# Commands (client → server)
-CMD_HELLO = 0
-CMD_SET_SETTING = 2
-CMD_PING = 3
-
-# Settings
-SETTING_STREAMING_MODE = 0
-SETTING_STREAMING_ENABLED = 1
-SETTING_GAIN = 2
-SETTING_IQ_FORMAT = 100
-SETTING_IQ_FREQUENCY = 101
-SETTING_IQ_DECIMATION = 102
-SETTING_IQ_DIGITAL_GAIN = 103
-
-# Stream modes
 STREAM_MODE_IQ_ONLY = 1
 
-# IQ wire formats
-FORMAT_UINT8 = 1
-FORMAT_INT16 = 2
-FORMAT_INT24 = 3
-FORMAT_FLOAT = 4
-FORMAT_DINT4 = 5
 
-# Message types (server → client). Upper 16 bits of the MessageType word carry
-# `mflags`, which for IQ messages is digital-gain compensation in dB.
-MSG_DEVICE_INFO = 0
-MSG_CLIENT_SYNC = 1
-MSG_PONG = 2
-MSG_INT16_IQ = 101
+class Command(IntEnum):
+    """Client → server command types."""
+
+    HELLO = 0
+    SET_SETTING = 2
+    PING = 3
+
+
+class Setting(IntEnum):
+    """SET_SETTING parameter IDs."""
+
+    STREAMING_MODE = 0
+    STREAMING_ENABLED = 1
+    GAIN = 2
+    IQ_FORMAT = 100
+    IQ_FREQUENCY = 101
+    IQ_DECIMATION = 102
+    IQ_DIGITAL_GAIN = 103
+
+
+class MsgType(IntEnum):
+    """Server → client message types. Upper 16 bits of the MessageType word
+    carry `mflags`, which for IQ messages is digital-gain compensation in dB."""
+
+    DEVICE_INFO = 0
+    CLIENT_SYNC = 1
+    PONG = 2
+    UINT8_IQ = 100
+    INT16_IQ = 101
+    FLOAT_IQ = 103
+
+
+class IqFormat(IntEnum):
+    """IQ wire format identifiers."""
+
+    DEFAULT = 0
+    UINT8 = 1
+    INT16 = 2
+    INT24 = 3
+    FLOAT = 4
+    DINT4 = 5
+
+
+class DeviceType(IntEnum):
+    """SpyServer DeviceType enum values, cross-checked SDR++ and
+    miweber67/spyserver_client. Used for log readability."""
+
+    INVALID = 0
+    AIRSPY_ONE = 1
+    AIRSPY_HF = 2
+    RTLSDR = 3
+
 
 # DEVICE_INFO body is 12 × uint32 = 48 bytes
 _DEVICE_INFO_LAYOUT = "<12I"
@@ -66,8 +94,13 @@ _CLIENT_SYNC_LAYOUT = "<9I"
 _MSG_HEADER_LAYOUT = "<IIIII"
 _MSG_HEADER_SIZE = 20
 
-# Identifying string sent in HELLO
-APP_NAME = "tsdr"
+
+def _enum_name(cls: type[IntEnum], value: int) -> str:
+    """Enum member name for `value`, or `UNKNOWN(value)` if not a member."""
+    try:
+        return cls(value).name
+    except ValueError:
+        return f"UNKNOWN({value})"
 
 
 @dataclass(frozen=True)
@@ -76,6 +109,170 @@ class SpyServerParams(DeviceParams):
 
     host: str = "localhost"
     port: int = 5555
+
+
+@dataclass(frozen=True)
+class _DeviceInfo:
+    """Parsed DEVICE_INFO message body. No derivation — pure view of the wire."""
+
+    device_type: int
+    serial: int
+    max_sample_rate: int
+    max_bandwidth: int
+    decimation_stage_count: int
+    gain_stage_count: int
+    max_gain_index: int
+    min_freq: int
+    max_freq: int
+    resolution: int
+    min_iq_decimation: int
+    forced_iq_format: int
+
+    @classmethod
+    def from_bytes(cls, body: bytes) -> _DeviceInfo:
+        if len(body) < struct.calcsize(_DEVICE_INFO_LAYOUT):
+            raise DeviceError(f"DEVICE_INFO too short: {len(body)} bytes")
+        return cls(*struct.unpack(_DEVICE_INFO_LAYOUT, body[:48]))
+
+
+@dataclass(frozen=True)
+class _ClientSync:
+    """Parsed CLIENT_SYNC message body."""
+
+    can_control: bool
+    current_gain: int
+    device_center_freq: int
+    iq_center_freq: int
+    fft_center_freq: int
+    min_iq_freq: int
+    max_iq_freq: int
+    min_fft_freq: int
+    max_fft_freq: int
+
+    @classmethod
+    def from_bytes(cls, body: bytes) -> _ClientSync | None:
+        # Returns None on short body — server can send partial sync mid-stream;
+        # callers log a warning and skip.
+        if len(body) < struct.calcsize(_CLIENT_SYNC_LAYOUT):
+            return None
+        fields = struct.unpack(_CLIENT_SYNC_LAYOUT, body[:36])
+        return cls(bool(fields[0]), *fields[1:])
+
+
+class _SpyServerCodec:
+    """Frame, send, receive, and decode SpyServer protocol bytes.
+
+    Owns the socket and the recv buffer; converts between bytes and structured
+    messages but holds no device-level state. Not thread-safe: the device
+    assumes send_* runs on the main thread and recv_/decode_iq on the producer
+    thread (current TSDR usage), so no internal lock.
+    """
+
+    def __init__(self, sock: socket.socket) -> None:
+        self._sock = sock
+        self._recv_buf = bytearray()
+        # mflags-to-scale cache: mflags usually stays put for many messages,
+        # so the float32 scale is reused; 10**(x/20) is expensive enough to
+        # matter at audio rates. Only one divisor is used per session, so
+        # keying solely on mflags is safe.
+        self._scale_cache: dict[int, np.float32] = {}
+
+    def set_recv_timeout(self, t: float | None) -> None:
+        self._sock.settimeout(t)
+
+    def send_command(self, cmd_type: Command, body: bytes) -> None:
+        header = struct.pack("<II", cmd_type, len(body))
+        try:
+            self._sock.sendall(header + body)
+        except OSError as e:
+            raise DeviceError(f"SpyServer send failed: {e}")
+
+    def send_hello(self) -> None:
+        body = struct.pack("<I", PROTO_VERSION) + APP_NAME.encode("utf-8")
+        self.send_command(Command.HELLO, body)
+        logger.debug(
+            "SpyServer → HELLO proto=0x%08x (%d.%d.%d) app=%s",
+            PROTO_VERSION,
+            (PROTO_VERSION >> 24) & 0xFF,
+            (PROTO_VERSION >> 16) & 0xFF,
+            PROTO_VERSION & 0xFFFF,
+            APP_NAME,
+        )
+
+    def send_setting(self, setting: Setting, value: int) -> None:
+        body = struct.pack("<II", setting, value & 0xFFFFFFFF)
+        self.send_command(Command.SET_SETTING, body)
+        # IQ_FORMAT value is itself an IqFormat — decode it for readability.
+        val_str = _enum_name(IqFormat, value) if setting is Setting.IQ_FORMAT else str(value)
+        logger.debug("SpyServer → SET_SETTING %s = %s", setting.name, val_str)
+
+    def recv_message(self) -> tuple[int, int, bytes]:
+        header = self._recv_exact(_MSG_HEADER_SIZE)
+        _proto_id, msg_type_word, _stream_type, _seq, body_size = struct.unpack(
+            _MSG_HEADER_LAYOUT, header
+        )
+        msg_type = msg_type_word & 0xFFFF
+        mflags = (msg_type_word >> 16) & 0xFFFF
+        body = self._recv_exact(body_size) if body_size else b""
+        return msg_type, mflags, body
+
+    def decode_iq(self, msg_type: int, mflags: int, body: bytes) -> bytes:
+        """Convert an IQ message body to packed complex64 bytes."""
+        if msg_type == MsgType.INT16_IQ:
+            scale = self._mflags_scale(mflags, 32768.0)
+            ints = np.frombuffer(body, dtype="<i2")
+            if ints.size % 2:
+                ints = ints[:-1]
+            return (ints.astype(np.float32) * scale).view(np.complex64).tobytes()
+        if msg_type == MsgType.UINT8_IQ:
+            scale = self._mflags_scale(mflags, 128.0)
+            u8 = np.frombuffer(body, dtype=np.uint8)
+            if u8.size % 2:
+                u8 = u8[:-1]
+            return ((u8.astype(np.float32) - 128.0) * scale).view(np.complex64).tobytes()
+        if msg_type == MsgType.FLOAT_IQ:
+            # Wire format is already float32 IQ pairs; mflags still applies.
+            scale = self._mflags_scale(mflags, 1.0)
+            floats = np.frombuffer(body, dtype="<f4")
+            if floats.size % 2:
+                floats = floats[:-1]
+            return (floats * scale).view(np.complex64).tobytes()
+        raise DeviceError(f"decode_iq: unsupported msg_type={msg_type}")
+
+    def shutdown(self) -> None:
+        """Half-close the socket to unblock a blocked recv on another thread."""
+        try:
+            self._sock.shutdown(socket.SHUT_RDWR)
+        except OSError as e:
+            logger.debug("SpyServer codec: shutdown skipped: %s", e)
+
+    def close(self) -> None:
+        try:
+            self._sock.close()
+        except OSError as e:
+            logger.debug("SpyServer codec: close error: %s", e)
+
+    def _recv_exact(self, n: int) -> bytes:
+        while len(self._recv_buf) < n:
+            try:
+                chunk = self._sock.recv(max(4096, n - len(self._recv_buf)))
+            except OSError as e:
+                raise DeviceError(f"SpyServer recv failed: {e}")
+            if not chunk:
+                raise DeviceError("SpyServer connection closed by server")
+            self._recv_buf.extend(chunk)
+        out = bytes(self._recv_buf[:n])
+        del self._recv_buf[:n]
+        return out
+
+    def _mflags_scale(self, mflags: int, divisor: float) -> np.float32:
+        # Per-message digital-gain compensation:
+        # float = (sample / divisor) / 10^(mflags/20).
+        scale = self._scale_cache.get(mflags)
+        if scale is None:
+            scale = np.float32(1.0 / (divisor * (10.0 ** (mflags / 20.0))))
+            self._scale_cache[mflags] = scale
+        return scale
 
 
 class SpyServerDevice:
@@ -97,28 +294,47 @@ class SpyServerDevice:
     ) -> None:
         self.host = host
         self.port = port
-        self._socket: socket.socket | None = None
-        self._is_open = False
 
-        # Populated by open() from DEVICE_INFO + CLIENT_SYNC
+        # Lifecycle. `_codec is not None` is the source of truth for "is open".
+        self._codec: _SpyServerCodec | None = None
+        self._streaming = False
+
+        # Device-reported caps (set in _apply_device_info)
         self._device_type: int = 0
         self._max_sample_rate: int = 0
-        self._decimation_stage_count: int = 0
+        # `MinimumIQDecimation` from DEVICE_INFO: lowest decimation stage the
+        # server is willing to deliver. Non-zero when the operator has set
+        # `maximum_bandwidth` in spyserver.config (common for AirspyHF+ public
+        # servers); decimation values below this are silently refused and
+        # streaming never starts. Must clamp `IQ_DECIMATION` >= this.
+        self._min_iq_decim: int = 0
+        # `ForcedIQFormat` from DEVICE_INFO: if non-zero, the server overrides
+        # `SETTING_IQ_FORMAT` and sends this format regardless of what the
+        # client requests. We must honor it or the IQ message-type stream is
+        # one we can't decode (UINT8_IQ=100, FLOAT_IQ=103 vs INT16_IQ=101).
+        self._iq_format: int = IqFormat.INT16
         self._max_gain_index: int = 0
-        self._freq_range: tuple[float, float] | None = None
         self._supported_rates: list[int] = []
 
-        # Mutable state
+        # Operator-facing state (may change mid-stream via CLIENT_SYNC)
+        self._freq_range: tuple[float, float] | None = None
+        # CLIENT_SYNC reports whether this client may issue SET_SETTING (gain).
+        # The server can flip this mid-stream if another client takes control.
+        self._can_control: bool = False
         self._actual_sample_rate: float = 0.0
-        self._streaming = False
-        self._recv_buf = bytearray()
-        self._iq_buf = bytearray()
-        # mflags is per-message dB gain compensation; the value usually stays
-        # constant for long stretches, so cache the float32 scale to skip the
-        # expensive 10**x on every message.
-        self._scale_cache: dict[int, np.float32] = {}
 
-        # bytes_per_sample=8: we deliver complex64.
+        # read_raw accumulator — variable-size server messages → fixed-size reads.
+        self._iq_buf = bytearray()
+
+        # Logging state. `_last_mflags is None` doubles as "first IQ not seen yet".
+        # `_seen_unknown` is bounded by the set of distinct unknown msg types
+        # the server actually emits (in practice 0 or 1) — used to warn once.
+        self._last_mflags: int | None = None
+        self._seen_unknown: set[int] = set()
+        # Last CLIENT_SYNC applied; used to log INFO only on change since the
+        # server can emit identical sync messages periodically.
+        self._last_client_sync: _ClientSync | None = None
+
         # sample_rate=0 defers ring allocation until set_sample_rate().
         self.jitter = JitterBuffer(
             prefill_seconds=network_buffer_seconds,
@@ -127,108 +343,108 @@ class SpyServerDevice:
         )
 
     def open(self) -> None:
+        sock: socket.socket | None = None
         try:
-            self._socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            self._socket.settimeout(10.0)
-            self._socket.connect((self.host, self.port))
-            self._send_handshake()
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(10.0)
+            sock.connect((self.host, self.port))
+            self._codec = _SpyServerCodec(sock)
+            self._codec.send_hello()
 
             got_device_info = False
             got_client_sync = False
             while not (got_device_info and got_client_sync):
-                msg_type, _mflags, body = self._recv_message()
-                if msg_type == MSG_DEVICE_INFO:
-                    self._parse_device_info(body)
+                msg_type, _mflags, body = self._codec.recv_message()
+                if msg_type == MsgType.DEVICE_INFO:
+                    self._apply_device_info(_DeviceInfo.from_bytes(body))
                     got_device_info = True
-                elif msg_type == MSG_CLIENT_SYNC:
-                    self._parse_client_sync(body)
+                elif msg_type == MsgType.CLIENT_SYNC:
+                    sync = _ClientSync.from_bytes(body)
+                    if sync is not None:
+                        self._apply_client_sync(sync)
+                    else:
+                        logger.warning(
+                            "SpyServer CLIENT_SYNC too short during handshake: %d bytes",
+                            len(body),
+                        )
                     got_client_sync = True
 
-            # Initial settings the user can't override
-            self._send_setting(SETTING_IQ_FORMAT, FORMAT_INT16)
-            self._send_setting(SETTING_IQ_DIGITAL_GAIN, 0)
-            self._send_setting(SETTING_STREAMING_MODE, STREAM_MODE_IQ_ONLY)
+            # Initial settings the user can't override. If the server set
+            # `ForcedIQFormat` we must use it — sending a different format is
+            # accepted but ignored, and the server then emits IQ messages with
+            # a message-type we wouldn't recognise.
+            self._codec.send_setting(Setting.IQ_FORMAT, self._iq_format)
+            self._codec.send_setting(Setting.IQ_DIGITAL_GAIN, 0)
+            self._codec.send_setting(Setting.STREAMING_MODE, STREAM_MODE_IQ_ONLY)
 
             # Clear the handshake timeout: the jitter buffer is responsible
             # for tolerating long stalls. Without this, recv would surface
             # the jitter we're trying to absorb.
-            self._socket.settimeout(None)
+            self._codec.set_recv_timeout(None)
 
-            self._is_open = True
             logger.info(
-                "SpyServer %s:%d connected — device_type=%d, max_sr=%d, "
-                "decim_stages=%d, freq_range=%s, max_gain=%d",
+                "SpyServer %s:%d ready (device=%s, iq_format=%s)",
                 self.host,
                 self.port,
-                self._device_type,
-                self._max_sample_rate,
-                self._decimation_stage_count,
-                self._freq_range,
-                self._max_gain_index,
+                _enum_name(DeviceType, self._device_type),
+                _enum_name(IqFormat, self._iq_format),
             )
         except (OSError, struct.error) as e:
-            if self._socket:
-                self._socket.close()
-                self._socket = None
+            if self._codec is not None:
+                self._codec.close()
+                self._codec = None
+            elif sock is not None:
+                sock.close()
             raise DeviceError(f"SpyServer connect failed ({self.host}:{self.port}): {e}")
 
         try:
             self.jitter.start(self._read_raw)
         except Exception:
-            assert self._socket is not None
-            self._socket.close()
-            self._socket = None
-            self._is_open = False
+            self.close()
             raise
 
     def interrupt(self) -> None:
-        """Half-close the socket to unblock the producer's recv.
+        """Half-close the codec socket to unblock the producer's recv.
 
         Safe to call from any thread; no resources freed. The producer
         is blocked in a no-timeout recv (see open()); shutdown is the
         only wake mechanism from outside its own thread.
         """
-        sock = self._socket
-        if sock is not None:
-            try:
-                sock.shutdown(socket.SHUT_RDWR)
-            except OSError as e:
-                logger.debug("SpyServer interrupt: shutdown skipped: %s", e)
+        codec = self._codec
+        if codec is not None:
+            codec.shutdown()
 
     def close(self) -> None:
-        if self._socket:
+        codec = self._codec
+        self._codec = None
+        if codec is not None:
             try:
-                self._send_setting(SETTING_STREAMING_ENABLED, 0)
+                codec.send_setting(Setting.STREAMING_ENABLED, 0)
             except (OSError, DeviceError) as e:
                 logger.debug("SpyServer close: streaming-off send failed: %s", e)
-            try:
-                self._socket.shutdown(socket.SHUT_RDWR)
-            except OSError as e:
-                logger.debug("SpyServer close: shutdown skipped: %s", e)
             # Shutdown is idempotent — interrupt() may have already done it.
-            self.jitter.stop()
-            try:
-                self._socket.close()
-            except OSError as e:
-                logger.debug("SpyServer close: error: %s", e)
-            self._socket = None
-        else:
-            self.jitter.stop()
-        self._is_open = False
+            # Either way, the producer is now unblocked and jitter.stop joins.
+            codec.shutdown()
+        self.jitter.stop()
+        if codec is not None:
+            codec.close()
         self._streaming = False
-        self._recv_buf.clear()
         self._iq_buf.clear()
-        self._scale_cache.clear()
+        self._seen_unknown.clear()
+        self._last_mflags = None
+        self._last_client_sync = None
 
     def set_frequency(self, freq: float) -> None:
-        self._send_setting(SETTING_IQ_FREQUENCY, int(freq))
+        if self._codec is None:
+            raise DeviceError("Device not open")
+        self._codec.send_setting(Setting.IQ_FREQUENCY, int(freq))
 
     @property
     def frequency_range(self) -> tuple[float, float] | None:
         return self._freq_range
 
     def set_sample_rate(self, rate: float) -> None:
-        if not self._supported_rates:
+        if self._codec is None:
             raise DeviceError("Device not open; cannot set sample rate")
         # Pick nearest within 1% tolerance
         chosen = min(self._supported_rates, key=lambda r: abs(r - rate))
@@ -236,9 +452,9 @@ class SpyServerDevice:
             valid = ", ".join(str(r) for r in sorted(self._supported_rates))
             raise ValueError(f"SpyServer rate {int(rate)} not supported; valid: {valid}")
         decim = self._max_sample_rate.bit_length() - chosen.bit_length()
-        if decim < 0:
-            decim = 0
-        self._send_setting(SETTING_IQ_DECIMATION, decim)
+        # Server silently refuses decim below MinimumIQDecimation.
+        decim = max(decim, self._min_iq_decim)
+        self._codec.send_setting(Setting.IQ_DECIMATION, decim)
         self._actual_sample_rate = float(chosen)
         # Resize the jitter ring so capacity tracks the new bytes/second.
         self.jitter.set_sample_rate(self._actual_sample_rate)
@@ -254,8 +470,10 @@ class SpyServerDevice:
         return self._actual_sample_rate
 
     def set_gain(self, gain: float) -> None:
+        if not self._can_control or self._codec is None:
+            return
         idx = max(0, min(int(gain), self._max_gain_index))
-        self._send_setting(SETTING_GAIN, idx)
+        self._codec.send_setting(Setting.GAIN, idx)
 
     def set_auto_gain(self, enable: bool) -> None:
         # SpyServer doesn't expose hardware AGC; TSDR's client-side AGC takes over.
@@ -275,146 +493,148 @@ class SpyServerDevice:
     def set_bias_tee(self, enable: bool) -> None:
         pass
 
+    @property
+    def supports_gain_control(self) -> bool:
+        return self._can_control
+
     def set_network_buffer_seconds(self, seconds: float) -> None:
         self.jitter.set_prefill_seconds(seconds)
 
     def read_samples(self, count: int) -> bytes:
-        # All reads flow through the jitter buffer; the producer thread
-        # calls _read_raw to drain the SpyServer message stream.
         return self.jitter.read(count)
+
+    def __str__(self) -> str:
+        status = "connected" if self._codec is not None else "disconnected"
+        return f"SpyServerDevice({self.host}:{self.port}, {status})"
 
     def _read_raw(self, count: int) -> bytes:
         """Blocking SpyServer message-decode loop used by the jitter producer.
 
         Returns exactly `count` bytes of complex64 IQ or raises DeviceError.
         Side effects: enables streaming on the server on first call;
-        updates the client-sync gain cache as MSG_CLIENT_SYNC arrives.
-        recv() has no timeout in this state (set in open()); the close()
+        applies CLIENT_SYNC / DEVICE_INFO mid-stream as they arrive.
+        recv() has no timeout in this state (cleared in open()); the close()
         path uses socket.shutdown to unblock this.
         """
-        if not self._is_open or self._socket is None:
+        if self._codec is None:
             raise DeviceError("Device not open")
 
         if not self._streaming:
-            self._send_setting(SETTING_STREAMING_ENABLED, 1)
+            self._codec.send_setting(Setting.STREAMING_ENABLED, 1)
             self._streaming = True
+            logger.info(
+                "SpyServer streaming enabled (host=%s:%d, sr=%.0f, format=%s)",
+                self.host,
+                self.port,
+                self._actual_sample_rate,
+                _enum_name(IqFormat, self._iq_format),
+            )
 
         while len(self._iq_buf) < count:
-            msg_type, mflags, body = self._recv_message()
-            if msg_type == MSG_INT16_IQ:
-                self._iq_buf.extend(self._decode_int16_iq(body, mflags))
-            elif msg_type == MSG_CLIENT_SYNC:
-                self._parse_client_sync(body)
-            elif msg_type == MSG_DEVICE_INFO:
-                self._parse_device_info(body)
-            # else: ignore (PONG, unknown types)
+            msg_type, mflags, body = self._codec.recv_message()
+            if msg_type in (MsgType.INT16_IQ, MsgType.UINT8_IQ, MsgType.FLOAT_IQ):
+                self._note_iq_message(msg_type, mflags, len(body))
+                self._iq_buf.extend(self._codec.decode_iq(msg_type, mflags, body))
+            elif msg_type == MsgType.CLIENT_SYNC:
+                sync = _ClientSync.from_bytes(body)
+                if sync is not None:
+                    self._apply_client_sync(sync)
+                else:
+                    logger.warning("SpyServer CLIENT_SYNC too short: %d bytes", len(body))
+            elif msg_type == MsgType.DEVICE_INFO:
+                self._apply_device_info(_DeviceInfo.from_bytes(body))
+            elif msg_type == MsgType.PONG:
+                logger.debug("SpyServer ← PONG")
+            elif msg_type not in self._seen_unknown:
+                # Warn once per unknown msg_type so a protocol mismatch (e.g.
+                # server forces a format we don't decode) doesn't silently
+                # stall the read loop.
+                self._seen_unknown.add(msg_type)
+                logger.warning(
+                    "SpyServer received unknown message type %d (mflags=0x%04x, "
+                    "body=%d bytes) — discarding",
+                    msg_type,
+                    mflags,
+                    len(body),
+                )
 
         out = bytes(self._iq_buf[:count])
         del self._iq_buf[:count]
         return out
 
-    def _decode_int16_iq(self, body: bytes, mflags: int) -> bytes:
-        # Per-message digital-gain compensation: float = (int16 / 32768) / 10^(mflags/20).
-        # mflags usually stays put for many messages — cache the scale.
-        scale = self._scale_cache.get(mflags)
-        if scale is None:
-            scale = np.float32(1.0 / (32768.0 * (10.0 ** (mflags / 20.0))))
-            self._scale_cache[mflags] = scale
-        ints = np.frombuffer(body, dtype="<i2")
-        if ints.size % 2:
-            ints = ints[:-1]
-        floats = ints.astype(np.float32) * scale
-        return floats.view(np.complex64).tobytes()
-
-    def _send_handshake(self) -> None:
-        appname = APP_NAME.encode("utf-8")
-        body = struct.pack("<I", PROTO_VERSION) + appname
-        self._send_command(CMD_HELLO, body)
-
-    def _send_command(self, cmd_type: int, body: bytes) -> None:
-        if self._socket is None:
-            raise DeviceError("Device not open")
-        header = struct.pack("<II", cmd_type, len(body))
-        try:
-            self._socket.sendall(header + body)
-        except OSError as e:
-            raise DeviceError(f"SpyServer send failed: {e}")
-
-    def _send_setting(self, setting_id: int, value: int) -> None:
-        body = struct.pack("<II", setting_id, value & 0xFFFFFFFF)
-        self._send_command(CMD_SET_SETTING, body)
-
-    def _recv_exact(self, n: int) -> bytes:
-        assert self._socket is not None
-        # Drain accumulated buffer first
-        while len(self._recv_buf) < n:
-            try:
-                chunk = self._socket.recv(max(4096, n - len(self._recv_buf)))
-            except OSError as e:
-                raise DeviceError(f"SpyServer recv failed: {e}")
-            if not chunk:
-                raise DeviceError("SpyServer connection closed by server")
-            self._recv_buf.extend(chunk)
-        out = bytes(self._recv_buf[:n])
-        del self._recv_buf[:n]
-        return out
-
-    def _recv_message(self) -> tuple[int, int, bytes]:
-        header = self._recv_exact(_MSG_HEADER_SIZE)
-        _proto_id, msg_type_word, _stream_type, _seq, body_size = struct.unpack(
-            _MSG_HEADER_LAYOUT, header
-        )
-        msg_type = msg_type_word & 0xFFFF
-        mflags = (msg_type_word >> 16) & 0xFFFF
-        body = self._recv_exact(body_size) if body_size else b""
-        return msg_type, mflags, body
-
-    def _parse_device_info(self, body: bytes) -> None:
-        if len(body) < struct.calcsize(_DEVICE_INFO_LAYOUT):
-            raise DeviceError(f"DEVICE_INFO too short: {len(body)} bytes")
-        fields = struct.unpack(_DEVICE_INFO_LAYOUT, body[:48])
-        (
-            self._device_type,
-            _serial,
-            self._max_sample_rate,
-            _max_bw,
-            self._decimation_stage_count,
-            _gain_stage_count,
-            self._max_gain_index,
-            min_freq,
-            max_freq,
-            _resolution,
-            _min_iq_decim,
-            _forced_iq_format,
-        ) = fields
-        self._freq_range = (float(min_freq), float(max_freq))
-        # Supported rates: max_sr >> 0..decimation_stage_count
-        self._supported_rates = [
-            self._max_sample_rate >> n for n in range(self._decimation_stage_count + 1)
-        ]
-
-    def _parse_client_sync(self, body: bytes) -> None:
-        if len(body) < struct.calcsize(_CLIENT_SYNC_LAYOUT):
+    def _note_iq_message(self, msg_type: int, mflags: int, body_size: int) -> None:
+        """Log the first IQ message and any mflags transitions thereafter."""
+        if self._last_mflags is None:
+            logger.info(
+                "SpyServer first IQ message: type=%s mflags=%d body=%d bytes",
+                _enum_name(MsgType, msg_type),
+                mflags,
+                body_size,
+            )
+            self._last_mflags = mflags
             return
-        fields = struct.unpack(_CLIENT_SYNC_LAYOUT, body[:36])
-        (
-            _can_control,
-            _current_gain,
-            _device_center_freq,
-            _iq_center_freq,
-            _fft_center_freq,
-            min_iq_freq,
-            max_iq_freq,
-            _min_fft_freq,
-            _max_fft_freq,
-        ) = fields
+        if mflags != self._last_mflags:
+            logger.debug("SpyServer mflags %d → %d", self._last_mflags, mflags)
+            self._last_mflags = mflags
+
+    def _apply_device_info(self, info: _DeviceInfo) -> None:
+        self._device_type = info.device_type
+        self._max_sample_rate = info.max_sample_rate
+        self._max_gain_index = info.max_gain_index
+        self._min_iq_decim = info.min_iq_decimation
+        if info.forced_iq_format:
+            self._iq_format = info.forced_iq_format
+        self._freq_range = (float(info.min_freq), float(info.max_freq))
+        # Supported rates: max_sr >> n for n in min_iq_decim..decimation_stage_count
+        self._supported_rates = [
+            info.max_sample_rate >> n
+            for n in range(info.min_iq_decimation, info.decimation_stage_count + 1)
+        ]
+        fmt_name = _enum_name(IqFormat, info.forced_iq_format) if info.forced_iq_format else "NONE"
+        logger.info(
+            "SpyServer DEVICE_INFO: type=%s serial=0x%08x max_sr=%d max_bw=%d "
+            "decim_stages=%d (min=%d) gain_stages=%d max_gain_index=%d "
+            "freq_range=[%d, %d] resolution=%d forced_iq_format=%s",
+            _enum_name(DeviceType, info.device_type),
+            info.serial,
+            info.max_sample_rate,
+            info.max_bandwidth,
+            info.decimation_stage_count,
+            info.min_iq_decimation,
+            info.gain_stage_count,
+            info.max_gain_index,
+            info.min_freq,
+            info.max_freq,
+            info.resolution,
+            fmt_name,
+        )
+        logger.info(
+            "SpyServer supported sample rates: %s",
+            ", ".join(str(r) for r in self._supported_rates),
+        )
+
+    def _apply_client_sync(self, sync: _ClientSync) -> None:
+        self._can_control = sync.can_control
         # CLIENT_SYNC narrows the tunable range to what the *user* can request
         # via IQ_FREQUENCY (vs the DEVICE_INFO range which is hardware-wide).
         # If both are present, use the IQ range — that's what set_frequency
         # actually controls.
-        if min_iq_freq and max_iq_freq:
-            self._freq_range = (float(min_iq_freq), float(max_iq_freq))
-
-    def __str__(self) -> str:
-        status = "connected" if self._is_open else "disconnected"
-        return f"SpyServerDevice({self.host}:{self.port}, {status})"
+        if sync.min_iq_freq and sync.max_iq_freq:
+            self._freq_range = (float(sync.min_iq_freq), float(sync.max_iq_freq))
+        if sync == self._last_client_sync:
+            return
+        self._last_client_sync = sync
+        logger.info(
+            "SpyServer CLIENT_SYNC: can_control=%s current_gain=%d "
+            "device_center=%d iq_center=%d fft_center=%d "
+            "iq_range=[%d, %d] fft_range=[%d, %d]",
+            sync.can_control,
+            sync.current_gain,
+            sync.device_center_freq,
+            sync.iq_center_freq,
+            sync.fft_center_freq,
+            sync.min_iq_freq,
+            sync.max_iq_freq,
+            sync.min_fft_freq,
+            sync.max_fft_freq,
+        )

@@ -12,6 +12,19 @@ class DeviceParams:
     pass
 
 
+@runtime_checkable
+class NetworkDeviceParams(Protocol):
+    """Optional capability: device params carry a remote `host:port` endpoint.
+
+    rtltcp and spyserver params implement this implicitly via their
+    `host: str` / `port: int` fields. Used to switch UI/commands on
+    network-source devices without enumerating every concrete type.
+    """
+
+    host: str
+    port: int
+
+
 class SDRDevice(Protocol):
     """Protocol implemented by every SDR device driver."""
 
@@ -85,6 +98,17 @@ class SDRDevice(Protocol):
         Default is False. Drivers that support bias-T control override
         this to return True (optionally after probing the underlying
         device at open time).
+        """
+        ...
+
+    @property
+    def supports_gain_control(self) -> bool:
+        """Whether this client may set RF gain on the device.
+
+        Most devices return True. SpyServer reports False when the server
+        is configured to deny SET_SETTING from this client (read-only or
+        another client holds control). UI grays the gain readout and
+        commands refuse `--gain`/`--agc` when False.
         """
         ...
 

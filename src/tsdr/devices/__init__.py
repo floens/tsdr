@@ -7,7 +7,7 @@ Public API:
     - EXTENSION_FORMAT_MAP for file-extension sample-format detection
 """
 
-from tsdr.devices.base import DeviceParams, SDRDevice
+from tsdr.devices.base import DeviceParams, NetworkDeviceParams, SDRDevice
 from tsdr.devices.factory import create_device
 from tsdr.devices.iq_file import EXTENSION_FORMAT_MAP, IQFileDevice, IQFileParams
 from tsdr.devices.mock import MockParams, MockSDRDevice
@@ -23,6 +23,7 @@ __all__ = [
     "IQFileParams",
     "MockParams",
     "MockSDRDevice",
+    "NetworkDeviceParams",
     "RTLSDRDevice",
     "RTLSDRParams",
     "RTLTCPDevice",
