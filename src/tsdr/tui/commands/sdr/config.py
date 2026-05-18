@@ -1,16 +1,68 @@
 from argparse import Namespace
+from dataclasses import fields as dataclass_fields
+from dataclasses import replace
+from types import MappingProxyType
 from typing import Any
 
 from tsdr.core.preferences import save_device
 from tsdr.core.sdr.config import DeviceConfig, SDRConfig
-from tsdr.core.sdr.engine import get_engine
+from tsdr.core.sdr.device_context import DeviceState
+from tsdr.core.sdr.engine import SDREngine, get_engine
 from tsdr.core.units import parse_hz
-from tsdr.tui.commands._format import db, device_id, fields, freq_mhz, rate_msps, state, success
+from tsdr.devices import NetworkDeviceParams
+from tsdr.tui.commands._format import (
+    db,
+    device_id,
+    error,
+    fields,
+    freq_mhz,
+    header,
+    rate_msps,
+    state,
+    success,
+)
 from tsdr.tui.commands.base import Command, CommandParser, Completion
 from tsdr.tui.commands.sdr._utils import device_id_completions, get_focused_device_id
 
 _DEVICE_FIELDS = frozenset(DeviceConfig.__dataclass_fields__.keys())
 _GLOBAL_FIELDS = frozenset(SDRConfig.__dataclass_fields__.keys())
+
+
+def _format_field(name: str, value: Any) -> str:
+    """Render a single config field. Generic by default; specialized only
+    where the unit is well-known so it's easy to add new fields without
+    touching this file."""
+    if value is None:
+        return "[dim]None[/]"
+    if isinstance(value, bool):
+        return state("on" if value else "off")
+    if isinstance(value, MappingProxyType):
+        return f"[dim]{{{len(value)} entries}}[/]"
+    if name == "center_frequency" and isinstance(value, (int, float)):
+        return freq_mhz(float(value), precision=3)
+    if name == "sample_rate" and isinstance(value, (int, float)):
+        return rate_msps(float(value))
+    if name == "rf_gain" and isinstance(value, (int, float)):
+        return db(float(value))
+    if name == "channel_bandwidth" and isinstance(value, (int, float)):
+        return f"[yellow]{value / 1000:.1f} kHz[/]"
+    if name == "network_buffer_seconds" and isinstance(value, (int, float)):
+        return f"[yellow]{value:.2f} s[/]"
+    return repr(value)
+
+
+def _dump_dataclass(obj: Any) -> list[str]:
+    """Render every dataclass field of `obj` as `name: value`, one per line.
+
+    Iterates fields via `dataclasses.fields()` so new fields appear here
+    automatically. Only the formatter (`_format_field`) needs touching to
+    customize unit display.
+    """
+    rows = [(f.name, _format_field(f.name, getattr(obj, f.name))) for f in dataclass_fields(obj)]
+    if not rows:
+        return ["  [dim](no fields)[/]"]
+    width = max(len(name) for name, _ in rows)
+    return [f"  [dim]{name:<{width}}[/]  {rendered}" for name, rendered in rows]
 
 
 class SDRConfigCommand(Command):
@@ -23,7 +75,7 @@ class SDRConfigCommand(Command):
             "frequency",
             nargs="?",
             default=None,
-            help="Center frequency with SI suffix (e.g. 100.1M, 430k)",
+            help="Center frequency with SI suffix (e.g. 100.1M, 430k), or 'show' to dump config",
         )
         parser.add_argument("--device", dest="device_id")
         parser.add_argument(
@@ -52,10 +104,36 @@ class SDRConfigCommand(Command):
             type=float,
             help="Jitter buffer pre-fill, seconds (rtltcp/spyserver)",
         )
+        parser.add_argument(
+            "--host",
+            help="Reconnect to a different host (rtltcp/spyserver). Auto-restarts.",
+        )
+        parser.add_argument(
+            "--port",
+            type=int,
+            help="Reconnect to a different port (rtltcp/spyserver). Auto-restarts.",
+        )
 
     def run(self, args: Namespace) -> str:
         manager = get_engine()
         did = args.device_id or get_focused_device_id()
+
+        if args.frequency == "show":
+            return self._show_config(manager, did)
+
+        # Allow `--host host:port` as a shorthand for `--host host --port port`.
+        # Explicit `--port` wins over the embedded one.
+        if args.host is not None and ":" in args.host:
+            host_part, _, port_part = args.host.rpartition(":")
+            if not port_part.isdigit():
+                return error(f"invalid port in --host {args.host!r}")
+            args.host = host_part
+            if args.port is None:
+                args.port = int(port_part)
+
+        endpoint_error = self._apply_endpoint(manager, did, args)
+        if endpoint_error is not None:
+            return endpoint_error
 
         changes: dict[str, Any] = {}
 
@@ -65,6 +143,10 @@ class SDRConfigCommand(Command):
             changes["center_frequency"] = float(parse_hz(args.frequency_flag))
         if args.sample_rate is not None:
             changes["sample_rate"] = float(parse_hz(args.sample_rate))
+        if args.gain is not None or args.agc is not None or args.hw_agc is not None:
+            device = manager.get_device(did)
+            if not device.device.supports_gain_control:
+                return f"gain locked by {device_id(did)} (--gain/--agc/--hw-agc unavailable)"
         if args.gain is not None:
             changes["rf_gain"] = args.gain
             changes["enable_agc"] = False
@@ -100,7 +182,8 @@ class SDRConfigCommand(Command):
                 )
             changes["network_buffer_seconds"] = args.network_buffer_seconds
 
-        if not changes:
+        endpoint_changed = args.host is not None or args.port is not None
+        if not changes and not endpoint_changed:
             return self.help_text()
 
         device_changes = {k: v for k, v in changes.items() if k in _DEVICE_FIELDS}
@@ -134,7 +217,58 @@ class SDRConfigCommand(Command):
             else:
                 summary[key] = str(value)
 
+        if args.host is not None:
+            summary["host"] = f"[yellow]{args.host}[/]"
+        if args.port is not None:
+            summary["port"] = f"[yellow]{args.port}[/]"
+
         return f"{success('Updated ' + device_id(did))}: {fields(summary)}"
+
+    def _show_config(self, manager: SDREngine, did: str | None) -> str:
+        if did is None:
+            return error("No device focused")
+        context = manager.get_device(did)
+
+        lines: list[str] = []
+        lines.append(
+            f"{device_id(did)} [dim]({context.device_type}, {state(context.state.value)})[/]"
+        )
+        lines.append(header("Params"))
+        lines.extend(_dump_dataclass(context.params))
+        lines.append(header("Device"))
+        lines.extend(_dump_dataclass(context.config))
+        lines.append(header("Global"))
+        lines.extend(_dump_dataclass(manager.config))
+        return "\n".join(lines)
+
+    def _apply_endpoint(self, manager, did: str, args: Namespace) -> str | None:
+        """Stop-swap-restart the device with new host/port from args.
+
+        No-op when neither --host nor --port given. Returns an error message
+        when the device type doesn't support endpoint reconfig, otherwise None.
+        """
+        if args.host is None and args.port is None:
+            return None
+
+        context = manager.get_device(did)
+        if not isinstance(context.params, NetworkDeviceParams):
+            return f"--host/--port not applicable to {device_id(did)} ({context.device_type})"
+
+        # `replace` requires a dataclass; mypy can't see that the Protocol is
+        # implemented by frozen dataclasses (RTLTCPParams / SpyServerParams).
+        new_params = replace(
+            context.params,  # type: ignore[type-var]
+            host=context.params.host if args.host is None else args.host,
+            port=context.params.port if args.port is None else args.port,
+        )
+
+        was_running = context.state == DeviceState.RUNNING
+        if was_running:
+            manager.stop_device(did)
+        manager.reconfigure_device_params(did, new_params)
+        if was_running:
+            manager.start_device(did)
+        return None
 
     def complete(
         self,
@@ -146,4 +280,6 @@ class SDRConfigCommand(Command):
     ) -> list[Completion]:
         if flag == "--device":
             return device_id_completions(prefix)
+        if flag is None and "show".startswith(prefix):
+            return [Completion("show", "Dump current device and global config")]
         return []

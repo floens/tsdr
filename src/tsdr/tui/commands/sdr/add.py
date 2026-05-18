@@ -124,6 +124,7 @@ class SDRAddCommand(Command):
             device_config = DeviceConfig(**config_overrides)  # type: ignore[arg-type]
 
         manager.add_device(args.device_id, args.device_type, params, device_config)
+        manager.set_focused_device(args.device_id)
         save_device(manager)
         context = manager.devices[args.device_id]
         freq_range = context.device.frequency_range

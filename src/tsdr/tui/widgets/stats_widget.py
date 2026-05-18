@@ -9,6 +9,7 @@ from tsdr.core.events.events import (
 )
 from tsdr.core.sdr.datatypes import SignalInfo
 from tsdr.core.sdr.engine import get_engine
+from tsdr.devices import NetworkDeviceParams
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +23,7 @@ class StatsWidget(Static):
         self._signal_info: SignalInfo | None = None
         self._device_id: str | None = None
         self._jitter: JitterBufferUpdateEvent | None = None
+        self._network_address: str | None = None
 
     def on_mount(self) -> None:
         self._read_config()
@@ -35,6 +37,10 @@ class StatsWidget(Static):
             # Focus shifted; stale jitter state belongs to the old device.
             self._jitter = None
         self._device_id = device.device_id
+        if isinstance(device.params, NetworkDeviceParams):
+            self._network_address = f"{device.params.host}:{device.params.port}"
+        else:
+            self._network_address = None
 
     def update_stats(self, event: StatsUpdateEvent) -> None:
         self.current_event = event
@@ -133,9 +139,14 @@ class StatsWidget(Static):
         lines.append(f"  Size:          {event.queue_size:>4} / {event.queue_capacity:>4}")
         lines.append(f"  Utilization:   [{util_color}]{queue_util:>7.1f}[/{util_color}] %")
 
-        # Network jitter buffer (only for network-source devices).
-        if self._jitter is not None and self._jitter.target_seconds > 0:
+        # Network section (only for network-source devices).
+        has_jitter = self._jitter is not None and self._jitter.target_seconds > 0
+        if has_jitter or self._network_address is not None:
             lines.append("[bold cyan]Network:[/bold cyan]")
+        if self._network_address is not None:
+            lines.append(f"  Connected:     [white]{self._network_address}[/white]")
+        if has_jitter:
+            assert self._jitter is not None
             lines.append(f"  Buffer Target: [white]{self._jitter.target_seconds:>5.2f}[/white] s")
             pct = self._jitter.fill_fraction * 100
             if self._jitter.rebuffering or pct < 10:

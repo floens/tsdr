@@ -270,7 +270,9 @@ class TunerWidget(Vertical):
         self._sample_rate = config.sample_rate
         sr_mhz = config.sample_rate / 1e6
         self._sr_line = f"[bold]{sr_mhz:.2f}[/bold] [dim]MSps[/dim]"
-        if config.enable_agc:
+        if not device.device.supports_gain_control:
+            self._gain_line = f"[dim]{config.rf_gain:.1f} dB locked[/dim]"
+        elif config.enable_agc:
             self._gain_line = f"[dim]{config.rf_gain:.1f} dB AGC[/dim]"
         else:
             self._gain_line = f"[yellow]{config.rf_gain:.1f}[/yellow] [dim]dB[/dim]"

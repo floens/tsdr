@@ -13,7 +13,7 @@ class SDRRemoveCommand(Command):
         return "Remove an SDR device"
 
     def configure(self, parser: CommandParser) -> None:
-        parser.add_argument("--device", dest="device_id")
+        parser.add_argument("device_id", nargs="?")
 
     def run(self, args: Namespace) -> str:
         did = args.device_id or get_focused_device_id()
@@ -30,6 +30,4 @@ class SDRRemoveCommand(Command):
         flag: str | None = None,
         subcommand: str | None = None,
     ) -> list[Completion]:
-        if flag == "--device":
-            return device_id_completions(prefix)
-        return []
+        return device_id_completions(prefix)
