@@ -41,6 +41,9 @@ class MockSDRDevice:
         self._is_open = True
         self._sample_index = 0
 
+    def interrupt(self) -> None:
+        pass
+
     def close(self) -> None:
         self._is_open = False
 

@@ -118,7 +118,6 @@ class SDREngine:
             control_queue=control_queue,
             pipeline_control_queue=pipeline_control_queue,
             audio_queue=audio_queue,
-            event_bus=self.event_bus,
             get_sdr_config=lambda: self.config,
         )
 

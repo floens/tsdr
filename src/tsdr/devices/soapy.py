@@ -180,6 +180,10 @@ class SoapySDRDevice:
         hw = self._device.getHardwareKey()
         logger.info(f"SoapySDR opened: {hw} (driver={self._driver or 'auto'})")
 
+    def interrupt(self) -> None:
+        # Soapy reads have a 2s timeout, so they unblock on their own.
+        pass
+
     def close(self) -> None:
         if self._device and self._stream:
             try:

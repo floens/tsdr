@@ -19,6 +19,20 @@ class SDRDevice(Protocol):
 
     def close(self) -> None: ...
 
+    def interrupt(self) -> None:
+        """Unblock any in-flight read_samples() without freeing resources.
+
+        Safe to call from any thread, including while another thread is
+        parked in read_samples(). Used by the stop sequence to break a
+        worker out of a blocking network read so its lifecycle flag can
+        take effect. Network-transport devices shutdown the socket;
+        USB/file/mock devices are no-ops (their reads return on their own).
+
+        Resource cleanup happens in close(), which is called only from
+        the I/O worker's teardown.
+        """
+        ...
+
     def read_samples(self, count: int) -> bytes:
         """Read up to `count` bytes of raw IQ samples (format per driver)."""
         ...

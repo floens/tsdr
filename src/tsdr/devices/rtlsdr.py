@@ -127,6 +127,11 @@ class RTLSDRDevice:
             self._device_index,
         )
 
+    def interrupt(self) -> None:
+        # USB sync reads complete on their own (bulk-transfer timeout); no
+        # cross-thread cancel API exposed by pyrtlsdr/librtlsdr.
+        pass
+
     def close(self) -> None:
         if self._device is not None:
             try:

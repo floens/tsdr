@@ -6,7 +6,6 @@ from enum import Enum
 from queue import Queue
 from typing import TYPE_CHECKING, Unpack
 
-from tsdr.core.events.bus import EventBus
 from tsdr.core.sdr.config import DeviceConfig, DeviceConfigChanges, SDRConfig
 from tsdr.core.sdr.pipeline.pipeline import ProcessingPipeline
 from tsdr.core.sdr.pipeline.stage_factory import create_stage, stage_type_of
@@ -61,7 +60,6 @@ class SDRDeviceContext:
         control_queue: Queue,
         pipeline_control_queue: Queue,
         audio_queue: Queue,
-        event_bus: EventBus,
         get_sdr_config: Callable[[], SDRConfig],
     ) -> None:
         self.device_id = device_id
@@ -71,7 +69,6 @@ class SDRDeviceContext:
 
         self._device_config = device_config
         self._config_lock = threading.Lock()
-        self._event_bus = event_bus
         self.get_sdr_config = get_sdr_config
 
         self.pipelines: dict[str, ProcessingPipeline] = {}
@@ -153,13 +150,13 @@ class SDRDeviceContext:
         logger.info(f"Device {self.device_id} started successfully")
 
     def stop(self, worker_runner, timeout: float = 5.0) -> None:
-        """Stop workers and close device.
+        """Stop workers; the I/O worker's teardown closes the device.
 
         Ordering matters when the I/O worker is parked in a blocking
         device read (e.g. socket.recv via the jitter buffer): plain
-        request_stop won't unblock it, so we close the device first to
-        unblock pending I/O, then join. The worker's teardown calls
-        device.close() again, which is idempotent.
+        request_stop won't unblock it, so we call device.interrupt()
+        to break pending I/O without freeing resources, then join.
+        Resource cleanup is the I/O worker's job.
         """
         if self.state == DeviceState.STOPPED:
             return
@@ -173,11 +170,10 @@ class SDRDeviceContext:
         if self.pipeline_worker:
             self.pipeline_worker.lifecycle.request_stop()
 
-        # Step 2: close the device so any blocking I/O returns/raises.
-        try:
-            self.device.close()
-        except Exception as e:  # noqa: BLE001 - cleanup must not fail
-            logger.warning(f"Error closing device {self.device_id}: {e}", exc_info=True)
+        # Step 2: unblock any in-flight read so the worker can observe
+        # the stop flag. Doesn't free resources — close() does that, from
+        # the I/O worker's teardown.
+        self.device.interrupt()
 
         # Step 3: join workers.
         if self.io_worker:

@@ -173,7 +173,7 @@ class IOWorker:
                     except DeviceError as e:
                         if not context.should_continue():
                             # Read error after request_stop is the expected
-                            # shutdown path (device was closed to unblock
+                            # shutdown path (device was interrupted to unblock
                             # us); don't surface it as an error.
                             continue
                         logger.error(f"Device {self.device_context.device_id} read error: {e}")
@@ -218,7 +218,7 @@ class IOWorker:
                         try:
                             _ = sample_queue.get(block=False)
                             sample_queue.put(batch, block=False)
-                        except queue.Empty, queue.Full:
+                        except (queue.Empty, queue.Full):
                             pass
 
                         self.device_context.dropped_samples += batch.sample_count

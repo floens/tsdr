@@ -150,12 +150,26 @@ class RTLTCPDevice:
             self._is_open = False
             raise
 
+    def interrupt(self) -> None:
+        """Half-close the socket to unblock the producer's recv.
+
+        Safe to call from any thread; no resources freed. The producer
+        thread is blocked in socket.recv with no timeout (set in open());
+        shutdown is the only way to wake it from outside its own thread.
+        """
+        sock = self.socket
+        if sock is not None:
+            try:
+                sock.shutdown(socket.SHUT_RDWR)
+            except OSError as e:
+                logger.debug(f"interrupt: shutdown skipped for {self.host}:{self.port}: {e}")
+
     def close(self) -> None:
         """Disconnect from rtltcp server.
 
-        Ordering: shutdown → jitter.stop → close. The producer thread is
-        blocked in socket.recv; shutdown unblocks it so jitter.stop's
-        join can complete before the socket fd is freed.
+        Ordering: shutdown → jitter.stop → close. Shutdown is idempotent
+        (interrupt() may have already done it); jitter.stop joins the
+        producer thread, which by now is unblocked from its recv.
         """
         if self.socket:
             try:

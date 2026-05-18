@@ -181,6 +181,20 @@ class SpyServerDevice:
             self._is_open = False
             raise
 
+    def interrupt(self) -> None:
+        """Half-close the socket to unblock the producer's recv.
+
+        Safe to call from any thread; no resources freed. The producer
+        is blocked in a no-timeout recv (see open()); shutdown is the
+        only wake mechanism from outside its own thread.
+        """
+        sock = self._socket
+        if sock is not None:
+            try:
+                sock.shutdown(socket.SHUT_RDWR)
+            except OSError as e:
+                logger.debug("SpyServer interrupt: shutdown skipped: %s", e)
+
     def close(self) -> None:
         if self._socket:
             try:
@@ -191,7 +205,7 @@ class SpyServerDevice:
                 self._socket.shutdown(socket.SHUT_RDWR)
             except OSError as e:
                 logger.debug("SpyServer close: shutdown skipped: %s", e)
-            # Shutdown above unblocks the producer's recv; safe to join now.
+            # Shutdown is idempotent — interrupt() may have already done it.
             self.jitter.stop()
             try:
                 self._socket.close()

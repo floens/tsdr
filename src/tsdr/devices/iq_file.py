@@ -81,6 +81,11 @@ class IQFileDevice:
             f"format={self._sample_format.value}, sample_rate={self._sample_rate})"
         )
 
+    def interrupt(self) -> None:
+        # Paced playback: each read returns within one chunk's worth of
+        # wall-clock time, so nothing to break out of.
+        pass
+
     def close(self) -> None:
         if self._file:
             self._file.close()
