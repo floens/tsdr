@@ -1,8 +1,10 @@
 from dataclasses import dataclass
-from typing import Protocol, runtime_checkable
+from typing import Literal, Protocol, runtime_checkable
 
 from tsdr.core.sdr.samples_batch import SampleFormat
 from tsdr.devices._jitter_buffer import JitterBuffer
+
+GainUnit = Literal["dB", "index"]
 
 
 @dataclass(frozen=True)
@@ -23,6 +25,25 @@ class NetworkDeviceParams(Protocol):
 
     host: str
     port: int
+
+
+@dataclass(frozen=True)
+class DeviceIdentity:
+    type_label: str
+    serial: str | None = None
+
+
+@dataclass(frozen=True)
+class DeviceCapabilities:
+    frequency_range: tuple[float, float] | None
+    sample_rates: tuple[float, ...] | None
+
+    gain_supported: bool
+    gain_range: tuple[float, float]
+    gain_step: float
+    gain_unit: GainUnit
+
+    bias_tee_supported: bool
 
 
 class SDRDevice(Protocol):
@@ -52,16 +73,6 @@ class SDRDevice(Protocol):
 
     def set_frequency(self, freq: float) -> None: ...
 
-    @property
-    def frequency_range(self) -> tuple[float, float] | None:
-        """Tunable frequency range in Hz as (min, max).
-
-        Returns None if the device has no enforceable range (e.g. file
-        playback, mock). The engine validates `set_frequency` arguments
-        against this; the tuner widget clamps adjustments to it.
-        """
-        ...
-
     def set_sample_rate(self, rate: float) -> None: ...
 
     @property
@@ -80,44 +91,20 @@ class SDRDevice(Protocol):
 
     def set_auto_gain(self, enable: bool) -> None: ...
 
-    @property
-    def gain_range(self) -> tuple[float, float]:
-        """RF gain range in dB as (min, max).
-
-        Used by client-side AGC to clamp step adjustments. Devices without
-        controllable gain (file playback, mock) should return (0.0, 0.0).
-        """
-        ...
-
     def get_sample_format(self) -> SampleFormat: ...
 
     @property
-    def supports_bias_tee(self) -> bool:
-        """Whether this driver can drive an antenna-port bias-T.
-
-        Default is False. Drivers that support bias-T control override
-        this to return True (optionally after probing the underlying
-        device at open time).
-        """
-        ...
+    def identity(self) -> DeviceIdentity: ...
 
     @property
-    def supports_gain_control(self) -> bool:
-        """Whether this client may set RF gain on the device.
-
-        Most devices return True. SpyServer reports False when the server
-        is configured to deny SET_SETTING from this client (read-only or
-        another client holds control). UI grays the gain readout and
-        commands refuse `--gain`/`--agc` when False.
-        """
-        ...
+    def capabilities(self) -> DeviceCapabilities: ...
 
     def set_bias_tee(self, enable: bool) -> None:
         """Enable or disable the antenna-port bias-T power supply.
 
         No-op on drivers that don't override it. Callers should check
-        `supports_bias_tee` before calling. Bias-T state is write-only
-        on RTL-SDR hardware; there is no read-back.
+        `capabilities.bias_tee_supported` before calling. Bias-T state is
+        write-only on RTL-SDR hardware; there is no read-back.
         """
         ...
 

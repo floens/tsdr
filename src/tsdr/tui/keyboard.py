@@ -318,7 +318,7 @@ class KeyboardMixin(MixinBase):
         device = get_engine().get_focused_device()
         if device is None:
             return None
-        if not device.device.supports_gain_control:
+        if not device.device.capabilities.gain_supported:
             self._show_error("Gain locked by device")
             return None
         return device
@@ -328,15 +328,17 @@ class KeyboardMixin(MixinBase):
         if device is None:
             return
 
+        caps = device.device.capabilities
+        lo, hi = caps.gain_range
         new_gain = device.config.rf_gain + direction
-        new_gain = max(0, min(new_gain, 50))
+        new_gain = max(lo, min(new_gain, hi))
         if new_gain == device.config.rf_gain:
             return
 
         engine = get_engine()
         engine.update_device_config(device.device_id, rf_gain=new_gain, enable_agc=False)
         save_device(engine)
-        self.show_status(f"Gain: {new_gain:.0f} dB")
+        self.show_status(f"Gain: {new_gain:.0f} {caps.gain_unit}")
 
     def _toggle_agc(self) -> None:
         device = self._gain_controllable_device()

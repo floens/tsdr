@@ -9,7 +9,18 @@ import zstandard as zstd
 
 from tsdr.core.sdr.exceptions import DeviceError
 from tsdr.core.sdr.samples_batch import SampleFormat
-from tsdr.devices.base import DeviceParams
+from tsdr.devices.base import DeviceCapabilities, DeviceIdentity, DeviceParams
+
+_IQFILE_IDENTITY = DeviceIdentity(type_label="IQ file", serial=None)
+_IQFILE_CAPABILITIES = DeviceCapabilities(
+    frequency_range=None,
+    sample_rates=None,
+    gain_supported=False,
+    gain_range=(0.0, 0.0),
+    gain_step=1.0,
+    gain_unit="dB",
+    bias_tee_supported=False,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -134,10 +145,6 @@ class IQFileDevice:
     def set_frequency(self, freq: float) -> None:
         pass
 
-    @property
-    def frequency_range(self) -> tuple[float, float] | None:
-        return None
-
     def set_sample_rate(self, rate: float) -> None:
         logger.debug(f"IQFile set_sample_rate: {self._sample_rate} -> {rate}")
         self._sample_rate = rate
@@ -152,20 +159,16 @@ class IQFileDevice:
     def set_auto_gain(self, enable: bool) -> None:
         pass
 
-    @property
-    def gain_range(self) -> tuple[float, float]:
-        return (0.0, 0.0)
-
-    @property
-    def supports_bias_tee(self) -> bool:
-        return False
-
     def set_bias_tee(self, enable: bool) -> None:
         pass
 
     @property
-    def supports_gain_control(self) -> bool:
-        return False
+    def identity(self) -> DeviceIdentity:
+        return _IQFILE_IDENTITY
+
+    @property
+    def capabilities(self) -> DeviceCapabilities:
+        return _IQFILE_CAPABILITIES
 
     def set_network_buffer_seconds(self, seconds: float) -> None:
         pass

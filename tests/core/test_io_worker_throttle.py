@@ -9,6 +9,18 @@ from tsdr.core.sdr.config import DeviceConfig
 from tsdr.core.sdr.samples_batch import SampleFormat
 from tsdr.core.sdr.workers.io_worker import CONFIG_APPLY_MIN_INTERVAL, IOWorker
 from tsdr.core.workers import WorkerContext, WorkerLifecycle
+from tsdr.devices.base import DeviceCapabilities, DeviceIdentity
+
+_TEST_IDENTITY = DeviceIdentity(type_label="Test", serial=None)
+_TEST_CAPABILITIES = DeviceCapabilities(
+    frequency_range=None,
+    sample_rates=None,
+    gain_supported=True,
+    gain_range=(0.0, 49.6),
+    gain_step=1.0,
+    gain_unit="dB",
+    bias_tee_supported=False,
+)
 
 
 class _CountingDevice:
@@ -16,15 +28,10 @@ class _CountingDevice:
 
     def __init__(self) -> None:
         self.freq_calls: list[float] = []
-        self.supports_bias_tee = False
         self._sample_rate = 0.0
 
     def set_frequency(self, freq: float) -> None:
         self.freq_calls.append(freq)
-
-    @property
-    def frequency_range(self) -> tuple[float, float] | None:
-        return None
 
     def set_sample_rate(self, rate: float) -> None:
         self._sample_rate = rate
@@ -41,6 +48,14 @@ class _CountingDevice:
 
     def set_bias_tee(self, enable: bool) -> None:
         pass
+
+    @property
+    def identity(self) -> DeviceIdentity:
+        return _TEST_IDENTITY
+
+    @property
+    def capabilities(self) -> DeviceCapabilities:
+        return _TEST_CAPABILITIES
 
     def read_samples(self, count: int) -> bytes:
         # Tight read loop (~200 Hz) so the worker checks the queue often;

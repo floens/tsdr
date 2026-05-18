@@ -270,12 +270,15 @@ class TunerWidget(Vertical):
         self._sample_rate = config.sample_rate
         sr_mhz = config.sample_rate / 1e6
         self._sr_line = f"[bold]{sr_mhz:.2f}[/bold] [dim]MSps[/dim]"
-        if not device.device.supports_gain_control:
-            self._gain_line = f"[dim]{config.rf_gain:.1f} dB locked[/dim]"
+        caps = device.device.capabilities
+        unit = caps.gain_unit
+        gain_str = f"{int(config.rf_gain)}" if unit == "index" else f"{config.rf_gain:.1f}"
+        if not caps.gain_supported:
+            self._gain_line = f"[dim]{gain_str} {unit} locked[/dim]"
         elif config.enable_agc:
-            self._gain_line = f"[dim]{config.rf_gain:.1f} dB AGC[/dim]"
+            self._gain_line = f"[dim]{gain_str} {unit} AGC[/dim]"
         else:
-            self._gain_line = f"[yellow]{config.rf_gain:.1f}[/yellow] [dim]dB[/dim]"
+            self._gain_line = f"[yellow]{gain_str}[/yellow] [dim]{unit}[/dim]"
         if config.bias_tee:
             self._gain_line += " [black on yellow]BT[/black on yellow]"
         self._volume = engine.config.audio_volume
@@ -351,7 +354,7 @@ class TunerWidget(Vertical):
             if device is None:
                 return
             new_freq = device.config.center_frequency + event.direction * place_value
-            freq_range = device.device.frequency_range
+            freq_range = device.device.capabilities.frequency_range
             if freq_range is not None:
                 lo, hi = freq_range
                 new_freq = max(lo, min(new_freq, hi))

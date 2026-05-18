@@ -172,6 +172,7 @@ class TSDRApp(App[None], KeyboardMixin, TuningMixin, CommandInputMixin, EventHan
         self.set_timer(0.5, self._force_refresh_all)
         self.set_timer(1.0, self._force_refresh_all)
         self.set_timer(2.0, self._force_refresh_all)
+        self.set_timer(4.0, self._force_refresh_all)
 
     def _force_refresh_all(self):
         self.screen.refresh()

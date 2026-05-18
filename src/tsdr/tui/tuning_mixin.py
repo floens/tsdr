@@ -61,7 +61,7 @@ class TuningMixin(MixinBase):
         return resolve_auto_step(device.active_mode, device.config.center_frequency)
 
     def _clamp_to_range(self, device: SDRDeviceContext, freq: float) -> float:
-        rng = device.device.frequency_range
+        rng = device.device.capabilities.frequency_range
         if rng is None:
             return freq
         lo, hi = rng
@@ -154,7 +154,7 @@ class TuningMixin(MixinBase):
             fft,
             memories,
             bandplan,
-            device.device.frequency_range,
+            device.device.capabilities.frequency_range,
         )
         if target is None:
             self.show_status("No landmark or peak")

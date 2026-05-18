@@ -13,6 +13,7 @@ from tsdr.core.events.events import (
     ConfigChangedEvent,
     ConstellationUpdateEvent,
     DecoderOutputEvent,
+    DeviceCapabilitiesChangedEvent,
     DeviceErrorEvent,
     DeviceStateChangedEvent,
     FFTUpdateEvent,
@@ -96,6 +97,14 @@ class DeviceStateChanged(Message):
     """Wrapper for DeviceStateChangedEvent."""
 
     def __init__(self, event: DeviceStateChangedEvent) -> None:
+        super().__init__()
+        self.event = event
+
+
+class DeviceCapabilitiesChanged(Message):
+    """Wrapper for DeviceCapabilitiesChangedEvent."""
+
+    def __init__(self, event: DeviceCapabilitiesChangedEvent) -> None:
         super().__init__()
         self.event = event
 

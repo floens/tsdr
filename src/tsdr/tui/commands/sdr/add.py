@@ -127,7 +127,7 @@ class SDRAddCommand(Command):
         manager.set_focused_device(args.device_id)
         save_device(manager)
         context = manager.devices[args.device_id]
-        freq_range = context.device.frequency_range
+        freq_range = context.device.capabilities.frequency_range
         range_text = ""
         if freq_range is not None:
             lo, hi = freq_range

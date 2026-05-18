@@ -16,6 +16,7 @@ from tsdr.tui.messages import (
     ConfigChanged,
     ConstellationUpdate,
     DecoderOutput,
+    DeviceCapabilitiesChanged,
     DeviceError,
     DeviceStateChanged,
     FFTUpdate,
@@ -82,6 +83,17 @@ class EventHandlerMixin(MixinBase):
     @on(DeviceStateChanged)
     def handle_device_state_changed(self, message: DeviceStateChanged) -> None:
         self._forward(TunerWidget, "update_running_state", message.event)
+
+    @on(DeviceCapabilitiesChanged)
+    def handle_device_capabilities_changed(self, message: DeviceCapabilitiesChanged) -> None:
+        try:
+            self.query_one(TunerWidget).update_config()
+        except NoMatches:
+            pass
+        try:
+            self.query_one(StatsWidget).update_config()
+        except NoMatches:
+            pass
 
     @on(ConfigChanged)
     def handle_config_changed(self, message: ConfigChanged) -> None:

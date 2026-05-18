@@ -10,6 +10,7 @@ from tsdr.core.events.events import (
     ConfigChangedEvent,
     ConstellationUpdateEvent,
     DecoderOutputEvent,
+    DeviceCapabilitiesChangedEvent,
     DeviceErrorEvent,
     DeviceStateChangedEvent,
     Event,
@@ -32,6 +33,7 @@ from tsdr.tui.messages import (
     ConfigChanged,
     ConstellationUpdate,
     DecoderOutput,
+    DeviceCapabilitiesChanged,
     DeviceError,
     DeviceStateChanged,
     FFTUpdate,
@@ -99,6 +101,11 @@ class TextualEventAdapter:
         )
         self._subscriptions.append(
             self.event_bus.subscribe(DeviceStateChangedEvent, self._on_device_state_changed)
+        )
+        self._subscriptions.append(
+            self.event_bus.subscribe(
+                DeviceCapabilitiesChangedEvent, self._on_device_capabilities_changed
+            )
         )
         self._subscriptions.append(
             self.event_bus.subscribe(PipelineChangedEvent, self._on_pipeline_changed)
@@ -205,6 +212,11 @@ class TextualEventAdapter:
         if not isinstance(event, DeviceStateChangedEvent):
             return
         self.app.post_message(DeviceStateChanged(event))
+
+    def _on_device_capabilities_changed(self, event: Event) -> None:
+        if not isinstance(event, DeviceCapabilitiesChangedEvent):
+            return
+        self.app.post_message(DeviceCapabilitiesChanged(event))
 
     def _on_pipeline_changed(self, event: Event) -> None:
         if not isinstance(event, PipelineChangedEvent):

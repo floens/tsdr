@@ -17,7 +17,7 @@ from typing import Any
 
 from tsdr.core.sdr.exceptions import DeviceError
 from tsdr.core.sdr.samples_batch import SampleFormat
-from tsdr.devices.base import DeviceParams
+from tsdr.devices.base import DeviceCapabilities, DeviceIdentity, DeviceParams
 
 logger = logging.getLogger(__name__)
 
@@ -89,8 +89,17 @@ class RTLSDRDevice:
         self._device_index = device_index
         self._device: Any = None
         self._is_open = False
-        self._supports_bias_tee = False
         self._sample_rate: float = 0.0
+        self._identity = DeviceIdentity(type_label="RTL-SDR", serial=None)
+        self._capabilities = DeviceCapabilities(
+            frequency_range=(24e6, 1766e6),
+            sample_rates=None,
+            gain_supported=True,
+            gain_range=(0.0, 49.6),
+            gain_step=1.0,
+            gain_unit="dB",
+            bias_tee_supported=False,
+        )
 
     def open(self) -> None:
         if not _HAS_RTLSDR:
@@ -109,7 +118,7 @@ class RTLSDRDevice:
         except OSError as e:
             raise DeviceError(f"Failed to open RTL-SDR device: {e}")
 
-        self._supports_bias_tee = hasattr(self._device, "set_bias_tee")
+        supports_bias_tee = hasattr(self._device, "set_bias_tee")
 
         try:
             with _silence_stderr():
@@ -118,6 +127,21 @@ class RTLSDRDevice:
         except OSError as e:
             logger.debug("RTL-SDR get_tuner_type failed: %s", e)
             tuner_name = "Unknown"
+
+        type_label = f"RTL-SDR {tuner_name}" if tuner_name != "Unknown" else "RTL-SDR"
+        self._identity = DeviceIdentity(
+            type_label=type_label,
+            serial=self._serial or None,
+        )
+        self._capabilities = DeviceCapabilities(
+            frequency_range=self._capabilities.frequency_range,
+            sample_rates=None,
+            gain_supported=True,
+            gain_range=self._capabilities.gain_range,
+            gain_step=1.0,
+            gain_unit="dB",
+            bias_tee_supported=supports_bias_tee,
+        )
 
         self._is_open = True
         logger.info(
@@ -175,10 +199,6 @@ class RTLSDRDevice:
         except OSError as e:
             self._on_setter_failure("set_frequency", e)
 
-    @property
-    def frequency_range(self) -> tuple[float, float] | None:
-        return None
-
     def set_sample_rate(self, rate: float) -> None:
         if self._device is None:
             return
@@ -212,24 +232,18 @@ class RTLSDRDevice:
             self._on_setter_failure("set_auto_gain", e)
 
     @property
-    def gain_range(self) -> tuple[float, float]:
-        # librtlsdr only ships the R820T tuner in practice; pyrtlsdr exposes
-        # the same dB range (0.0 to 49.6) and clamps internally.
-        return (0.0, 49.6)
+    def identity(self) -> DeviceIdentity:
+        return self._identity
 
     @property
-    def supports_bias_tee(self) -> bool:
-        return self._supports_bias_tee
+    def capabilities(self) -> DeviceCapabilities:
+        return self._capabilities
 
     def set_bias_tee(self, enable: bool) -> None:
-        if self._device is not None and self._supports_bias_tee:
+        if self._device is not None and self._capabilities.bias_tee_supported:
             with _silence_stderr():
                 self._device.set_bias_tee(enable)
             logger.debug("RTL-SDR: bias-T %s", "on" if enable else "off")
-
-    @property
-    def supports_gain_control(self) -> bool:
-        return True
 
     def set_network_buffer_seconds(self, seconds: float) -> None:
         # USB-paced device: no jitter buffer.

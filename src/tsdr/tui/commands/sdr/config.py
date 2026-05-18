@@ -48,6 +48,14 @@ def _format_field(name: str, value: Any) -> str:
         return f"[yellow]{value / 1000:.1f} kHz[/]"
     if name == "network_buffer_seconds" and isinstance(value, (int, float)):
         return f"[yellow]{value:.2f} s[/]"
+    if name == "frequency_range" and isinstance(value, tuple) and len(value) == 2:
+        return (
+            f"{freq_mhz(float(value[0]), precision=3)} – {freq_mhz(float(value[1]), precision=3)}"
+        )
+    if name == "sample_rates" and isinstance(value, tuple):
+        return ", ".join(rate_msps(float(r)) for r in value)
+    if name == "gain_range" and isinstance(value, tuple) and len(value) == 2:
+        return f"[yellow]{float(value[0]):.1f} – {float(value[1]):.1f}[/]"
     return repr(value)
 
 
@@ -142,10 +150,18 @@ class SDRConfigCommand(Command):
         if args.frequency_flag is not None:
             changes["center_frequency"] = float(parse_hz(args.frequency_flag))
         if args.sample_rate is not None:
-            changes["sample_rate"] = float(parse_hz(args.sample_rate))
+            new_rate = float(parse_hz(args.sample_rate))
+            sample_rates = manager.get_device(did).device.capabilities.sample_rates
+            if sample_rates is not None and not any(abs(new_rate - r) < 1.0 for r in sample_rates):
+                valid = ", ".join(f"{r / 1e6:.3f}M" for r in sorted(sample_rates))
+                return error(
+                    f"sample rate {new_rate / 1e6:.3f} MHz not supported by "
+                    f"{device_id(did)} (valid: {valid})"
+                )
+            changes["sample_rate"] = new_rate
         if args.gain is not None or args.agc is not None or args.hw_agc is not None:
             device = manager.get_device(did)
-            if not device.device.supports_gain_control:
+            if not device.device.capabilities.gain_supported:
                 return f"gain locked by {device_id(did)} (--gain/--agc/--hw-agc unavailable)"
         if args.gain is not None:
             changes["rf_gain"] = args.gain
@@ -164,7 +180,7 @@ class SDRConfigCommand(Command):
                 changes["auto_gain"] = False
         if args.bias_t is not None:
             device = manager.get_device(did)
-            if not device.device.supports_bias_tee:
+            if not device.device.capabilities.bias_tee_supported:
                 return f"bias-T not supported by {device_id(did)}"
             changes["bias_tee"] = args.bias_t == "on"
         if args.fft_size is not None:
@@ -235,6 +251,10 @@ class SDRConfigCommand(Command):
         )
         lines.append(header("Params"))
         lines.extend(_dump_dataclass(context.params))
+        lines.append(header("Identity"))
+        lines.extend(_dump_dataclass(context.device.identity))
+        lines.append(header("Capabilities"))
+        lines.extend(_dump_dataclass(context.device.capabilities))
         lines.append(header("Device"))
         lines.extend(_dump_dataclass(context.config))
         lines.append(header("Global"))

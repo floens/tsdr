@@ -9,6 +9,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 from tsdr.core.sdr.datatypes import SignalInfo
+from tsdr.devices.base import DeviceCapabilities
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -129,6 +130,12 @@ class DeviceStateChangedEvent(Event):
 
     device_id: str
     running: bool
+
+
+@dataclass(frozen=True)
+class DeviceCapabilitiesChangedEvent(Event):
+    device_id: str
+    capabilities: DeviceCapabilities
 
 
 # AGC Events

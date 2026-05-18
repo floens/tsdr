@@ -1,6 +1,12 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from math import ceil, log10
+
+
+def find_nearest[NumT: (int, float)](options: Iterable[NumT], target: float) -> NumT:
+    return min(options, key=lambda x: abs(x - target))
+
 
 _SUFFIXES: tuple[tuple[str, float], ...] = (
     ("ghz", 1e9),

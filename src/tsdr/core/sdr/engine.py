@@ -14,6 +14,7 @@ from tsdr.core.events.bus import EventBus
 from tsdr.core.events.events import (
     AGCGainChangeEvent,
     ConfigChangedEvent,
+    DeviceCapabilitiesChangedEvent,
     DeviceStateChangedEvent,
     Event,
     PipelineChangedEvent,
@@ -31,6 +32,7 @@ from tsdr.core.sdr.device_context import DeviceState, SDRDeviceContext
 from tsdr.core.sdr.exceptions import ConfigurationError, SDRException
 from tsdr.core.sdr.workers.audio_worker import AudioOutputWorker, list_audio_devices
 from tsdr.core.tracing import span, traced
+from tsdr.core.units import find_nearest
 from tsdr.core.workers import WorkerRunner
 from tsdr.devices import DeviceParams, create_device
 
@@ -77,6 +79,9 @@ class SDREngine:
             # TODO: Why is this here?
             self.event_bus.subscribe(AGCGainChangeEvent, self._on_agc_gain_change)
             self.event_bus.subscribe(RecordingFinishedEvent, self._on_recording_finished)
+            self.event_bus.subscribe(
+                DeviceCapabilitiesChangedEvent, self._on_device_capabilities_changed
+            )
 
     def add_device(
         self,
@@ -251,8 +256,10 @@ class SDREngine:
 
         context = self.devices[device_id]
 
+        caps = context.device.capabilities
+
         if "center_frequency" in changes:
-            freq_range = context.device.frequency_range
+            freq_range = caps.frequency_range
             new_freq = changes["center_frequency"]
             if freq_range is not None:
                 lo, hi = freq_range
@@ -261,6 +268,14 @@ class SDREngine:
                         f"Frequency {new_freq / 1e6:.3f} MHz out of range "
                         f"(device supports {lo / 1e6:.3f}–{hi / 1e6:.3f} MHz)"
                     )
+
+        if "sample_rate" in changes and caps.sample_rates is not None:
+            new_rate = changes["sample_rate"]
+            if not any(abs(new_rate - r) < 1.0 for r in caps.sample_rates):
+                valid = ", ".join(f"{r / 1e6:.3f}M" for r in sorted(caps.sample_rates))
+                raise ValueError(
+                    f"Sample rate {new_rate / 1e6:.3f} MHz not supported (device supports: {valid})"
+                )
 
         logger.info("Device config update %s: %s", device_id, changes)
         context.update_config(**changes)
@@ -527,6 +542,41 @@ class SDREngine:
         assert isinstance(event, RecordingFinishedEvent)
         if event.device_id in self.devices:
             self.remove_pipeline(event.device_id, event.pipeline_name)
+
+    def _on_device_capabilities_changed(self, event: Event) -> None:
+        assert isinstance(event, DeviceCapabilitiesChangedEvent)
+        context = self.devices.get(event.device_id)
+        if context is None:
+            return
+        caps = event.capabilities
+        config = context.config
+        changes: dict[str, Any] = {}
+
+        if caps.gain_supported and caps.gain_range[0] != caps.gain_range[1]:
+            lo, hi = caps.gain_range
+            clamped = max(lo, min(config.rf_gain, hi))
+            if clamped != config.rf_gain:
+                changes["rf_gain"] = clamped
+        elif not caps.gain_supported and config.enable_agc:
+            changes["enable_agc"] = False
+
+        freq_range = caps.frequency_range
+        if freq_range is not None:
+            lo, hi = freq_range
+            if not (lo <= config.center_frequency <= hi):
+                changes["center_frequency"] = max(lo, min(config.center_frequency, hi))
+
+        if caps.sample_rates is not None and not any(
+            abs(config.sample_rate - r) < 1.0 for r in caps.sample_rates
+        ):
+            changes["sample_rate"] = find_nearest(caps.sample_rates, config.sample_rate)
+
+        if not caps.bias_tee_supported and config.bias_tee:
+            changes["bias_tee"] = False
+
+        if changes:
+            logger.info("Clamping %s config to new capabilities: %s", event.device_id, changes)
+            self.update_device_config(event.device_id, **changes)
 
     def shutdown(self, timeout: float = 5.0) -> None:
         """Shutdown all devices and workers.

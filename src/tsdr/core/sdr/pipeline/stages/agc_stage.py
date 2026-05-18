@@ -48,7 +48,7 @@ class AGCStage:
             self._current_gain_db = config.rf_gain
             return data
 
-        min_db, max_db = context.device_context.device.gain_range
+        min_db, max_db = context.device_context.device.capabilities.gain_range
         if min_db == max_db:
             # Device has no controllable gain (file playback, mock).
             return data

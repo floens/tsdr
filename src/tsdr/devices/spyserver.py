@@ -21,8 +21,9 @@ import numpy as np
 
 from tsdr.core.sdr.exceptions import DeviceError
 from tsdr.core.sdr.samples_batch import SampleFormat
+from tsdr.core.units import find_nearest
 from tsdr.devices._jitter_buffer import JitterBuffer
-from tsdr.devices.base import DeviceParams
+from tsdr.devices.base import DeviceCapabilities, DeviceIdentity, DeviceParams
 
 logger = logging.getLogger(__name__)
 
@@ -323,6 +324,17 @@ class SpyServerDevice:
         self._can_control: bool = False
         self._actual_sample_rate: float = 0.0
 
+        self._identity = DeviceIdentity(type_label="SpyServer", serial=None)
+        self._capabilities = DeviceCapabilities(
+            frequency_range=None,
+            sample_rates=None,
+            gain_supported=False,
+            gain_range=(0.0, 0.0),
+            gain_step=1.0,
+            gain_unit="index",
+            bias_tee_supported=False,
+        )
+
         # read_raw accumulator — variable-size server messages → fixed-size reads.
         self._iq_buf = bytearray()
 
@@ -439,18 +451,16 @@ class SpyServerDevice:
             raise DeviceError("Device not open")
         self._codec.send_setting(Setting.IQ_FREQUENCY, int(freq))
 
-    @property
-    def frequency_range(self) -> tuple[float, float] | None:
-        return self._freq_range
-
     def set_sample_rate(self, rate: float) -> None:
         if self._codec is None:
             raise DeviceError("Device not open; cannot set sample rate")
-        # Pick nearest within 1% tolerance
-        chosen = min(self._supported_rates, key=lambda r: abs(r - rate))
+        chosen = find_nearest(self._supported_rates, rate)
         if abs(chosen - rate) / rate > 0.01:
-            valid = ", ".join(str(r) for r in sorted(self._supported_rates))
-            raise ValueError(f"SpyServer rate {int(rate)} not supported; valid: {valid}")
+            logger.warning(
+                "SpyServer rate %d off by >1%% from nearest supported (%d); using nearest",
+                int(rate),
+                chosen,
+            )
         decim = self._max_sample_rate.bit_length() - chosen.bit_length()
         # Server silently refuses decim below MinimumIQDecimation.
         decim = max(decim, self._min_iq_decim)
@@ -479,23 +489,19 @@ class SpyServerDevice:
         # SpyServer doesn't expose hardware AGC; TSDR's client-side AGC takes over.
         pass
 
-    @property
-    def gain_range(self) -> tuple[float, float]:
-        return (0.0, float(self._max_gain_index))
-
     def get_sample_format(self) -> SampleFormat:
         return SampleFormat.COMPLEX64
-
-    @property
-    def supports_bias_tee(self) -> bool:
-        return False
 
     def set_bias_tee(self, enable: bool) -> None:
         pass
 
     @property
-    def supports_gain_control(self) -> bool:
-        return self._can_control
+    def identity(self) -> DeviceIdentity:
+        return self._identity
+
+    @property
+    def capabilities(self) -> DeviceCapabilities:
+        return self._capabilities
 
     def set_network_buffer_seconds(self, seconds: float) -> None:
         self.jitter.set_prefill_seconds(seconds)
@@ -590,6 +596,11 @@ class SpyServerDevice:
             info.max_sample_rate >> n
             for n in range(info.min_iq_decimation, info.decimation_stage_count + 1)
         ]
+        self._identity = DeviceIdentity(
+            type_label=_enum_name(DeviceType, info.device_type),
+            serial=f"0x{info.serial:08x}",
+        )
+        self._rebuild_capabilities()
         fmt_name = _enum_name(IqFormat, info.forced_iq_format) if info.forced_iq_format else "NONE"
         logger.info(
             "SpyServer DEVICE_INFO: type=%s serial=0x%08x max_sr=%d max_bw=%d "
@@ -614,6 +625,9 @@ class SpyServerDevice:
         )
 
     def _apply_client_sync(self, sync: _ClientSync) -> None:
+        if sync == self._last_client_sync:
+            return
+        self._last_client_sync = sync
         self._can_control = sync.can_control
         # CLIENT_SYNC narrows the tunable range to what the *user* can request
         # via IQ_FREQUENCY (vs the DEVICE_INFO range which is hardware-wide).
@@ -621,9 +635,7 @@ class SpyServerDevice:
         # actually controls.
         if sync.min_iq_freq and sync.max_iq_freq:
             self._freq_range = (float(sync.min_iq_freq), float(sync.max_iq_freq))
-        if sync == self._last_client_sync:
-            return
-        self._last_client_sync = sync
+        self._rebuild_capabilities()
         logger.info(
             "SpyServer CLIENT_SYNC: can_control=%s current_gain=%d "
             "device_center=%d iq_center=%d fft_center=%d "
@@ -637,4 +649,17 @@ class SpyServerDevice:
             sync.max_iq_freq,
             sync.min_fft_freq,
             sync.max_fft_freq,
+        )
+
+    def _rebuild_capabilities(self) -> None:
+        self._capabilities = DeviceCapabilities(
+            frequency_range=self._freq_range,
+            sample_rates=tuple(float(r) for r in self._supported_rates)
+            if self._supported_rates
+            else None,
+            gain_supported=self._can_control,
+            gain_range=(0.0, float(self._max_gain_index)),
+            gain_step=1.0,
+            gain_unit="index",
+            bias_tee_supported=False,
         )

@@ -4,6 +4,7 @@ import time
 from typing import TYPE_CHECKING
 
 from tsdr.core.events.events import (
+    DeviceCapabilitiesChangedEvent,
     DeviceErrorEvent,
     JitterBufferUpdateEvent,
     SamplesDroppedEvent,
@@ -12,7 +13,7 @@ from tsdr.core.sdr.exceptions import DeviceError
 from tsdr.core.sdr.samples_batch import SampleFormat, SamplesBatch
 from tsdr.core.tracing import span
 from tsdr.core.workers import WorkerContext
-from tsdr.devices.base import HasJitterBuffer
+from tsdr.devices.base import DeviceCapabilities, HasJitterBuffer
 
 if TYPE_CHECKING:
     from tsdr.core.sdr.config import DeviceConfig
@@ -48,6 +49,8 @@ class IOWorker:
         # fill_fraction) for source-side coalescing; None before first emit.
         self._last_jitter_state: tuple[bool, int, float] | None = None
 
+        self._last_capabilities: DeviceCapabilities | None = None
+
     def setup(self, context: WorkerContext) -> None:
         device = self.device_context.device
         config = self.device_context.config
@@ -71,7 +74,7 @@ class IOWorker:
                 logger.debug(f"Setting RF gain to {config.rf_gain} dB")
                 device.set_gain(config.rf_gain)
 
-            if device.supports_bias_tee and config.bias_tee:
+            if device.capabilities.bias_tee_supported and config.bias_tee:
                 logger.debug("Enabling bias-T")
                 device.set_bias_tee(True)
 
@@ -143,7 +146,10 @@ class IOWorker:
                         if not new_config.auto_gain and new_config.rf_gain != config.rf_gain:
                             device.set_gain(new_config.rf_gain)
 
-                        if new_config.bias_tee != config.bias_tee and device.supports_bias_tee:
+                        if (
+                            new_config.bias_tee != config.bias_tee
+                            and device.capabilities.bias_tee_supported
+                        ):
                             device.set_bias_tee(new_config.bias_tee)
 
                         if new_config.network_buffer_seconds != config.network_buffer_seconds:
@@ -233,6 +239,20 @@ class IOWorker:
                 self.device_context.total_samples_read += batch.sample_count
 
                 self._maybe_publish_jitter_state(context)
+                self._maybe_publish_capabilities(context)
+
+    def _maybe_publish_capabilities(self, context: WorkerContext) -> None:
+        current = self.device_context.device.capabilities
+        if current is self._last_capabilities or current == self._last_capabilities:
+            return
+        self._last_capabilities = current
+        context.emit_event(
+            DeviceCapabilitiesChangedEvent(
+                source_id=context.worker_id,
+                device_id=self.device_context.device_id,
+                capabilities=current,
+            )
+        )
 
     def _maybe_publish_jitter_state(self, context: WorkerContext) -> None:
         """Publish a JitterBufferUpdateEvent if the buffer state has shifted.

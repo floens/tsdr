@@ -17,7 +17,7 @@ import numpy as np
 
 from tsdr.core.sdr.exceptions import DeviceError
 from tsdr.core.sdr.samples_batch import SampleFormat
-from tsdr.devices.base import DeviceParams
+from tsdr.devices.base import DeviceCapabilities, DeviceIdentity, DeviceParams
 
 logger = logging.getLogger(__name__)
 _soapy_logger = logging.getLogger("SoapySDR")
@@ -122,9 +122,20 @@ class SoapySDRDevice:
         self._device = None
         self._stream = None
         self._is_open = False
-        self._supports_bias_tee = False
-        self._gain_range: tuple[float, float] = (0.0, 49.6)
         self._sample_rate: float = 0.0
+        self._identity = DeviceIdentity(
+            type_label=driver if driver else "Soapy",
+            serial=serial or None,
+        )
+        self._capabilities = DeviceCapabilities(
+            frequency_range=None,
+            sample_rates=None,
+            gain_supported=True,
+            gain_range=(0.0, 49.6),
+            gain_step=1.0,
+            gain_unit="dB",
+            bias_tee_supported=False,
+        )
 
     def _build_args(self):
         """Build SoapySDR kwargs dict.
@@ -166,18 +177,29 @@ class SoapySDRDevice:
 
         try:
             settings = self._device.getSettingInfo()
-            self._supports_bias_tee = any(s.key == "biastee" for s in settings)
+            supports_bias_tee = any(s.key == "biastee" for s in settings)
         except (RuntimeError, AttributeError) as e:
             logger.debug(f"SoapySDR getSettingInfo failed: {e}")
-            self._supports_bias_tee = False
+            supports_bias_tee = False
 
+        gain_range = self._capabilities.gain_range
         try:
             r = self._device.getGainRange(_SoapySDR.SOAPY_SDR_RX, 0)
-            self._gain_range = (float(r.minimum()), float(r.maximum()))
+            gain_range = (float(r.minimum()), float(r.maximum()))
         except (RuntimeError, AttributeError) as e:
             logger.debug(f"SoapySDR getGainRange failed, using default: {e}")
 
         hw = self._device.getHardwareKey()
+        self._identity = DeviceIdentity(type_label=hw or "Soapy", serial=self._serial or None)
+        self._capabilities = DeviceCapabilities(
+            frequency_range=None,
+            sample_rates=None,
+            gain_supported=True,
+            gain_range=gain_range,
+            gain_step=1.0,
+            gain_unit="dB",
+            bias_tee_supported=supports_bias_tee,
+        )
         logger.info(f"SoapySDR opened: {hw} (driver={self._driver or 'auto'})")
 
     def interrupt(self) -> None:
@@ -226,10 +248,6 @@ class SoapySDRDevice:
         if self._device:
             self._device.setFrequency(_SoapySDR.SOAPY_SDR_RX, 0, freq)
 
-    @property
-    def frequency_range(self) -> tuple[float, float] | None:
-        return None
-
     def set_sample_rate(self, rate: float) -> None:
         if self._device:
             self._device.setSampleRate(_SoapySDR.SOAPY_SDR_RX, 0, rate)
@@ -249,21 +267,17 @@ class SoapySDRDevice:
             self._device.setGainMode(_SoapySDR.SOAPY_SDR_RX, 0, enable)
 
     @property
-    def gain_range(self) -> tuple[float, float]:
-        return self._gain_range
+    def identity(self) -> DeviceIdentity:
+        return self._identity
 
     @property
-    def supports_bias_tee(self) -> bool:
-        return self._supports_bias_tee
+    def capabilities(self) -> DeviceCapabilities:
+        return self._capabilities
 
     def set_bias_tee(self, enable: bool) -> None:
-        if self._device and self._supports_bias_tee:
+        if self._device and self._capabilities.bias_tee_supported:
             self._device.writeSetting("biastee", "true" if enable else "false")
             logger.debug("SoapySDR: bias-T %s", "on" if enable else "off")
-
-    @property
-    def supports_gain_control(self) -> bool:
-        return True
 
     def set_network_buffer_seconds(self, seconds: float) -> None:
         # Soapy handles its own buffering; no client-side jitter buffer.

@@ -24,6 +24,8 @@ class StatsWidget(Static):
         self._device_id: str | None = None
         self._jitter: JitterBufferUpdateEvent | None = None
         self._network_address: str | None = None
+        self._identity_label: str | None = None
+        self._identity_serial: str | None = None
 
     def on_mount(self) -> None:
         self._read_config()
@@ -41,6 +43,9 @@ class StatsWidget(Static):
             self._network_address = f"{device.params.host}:{device.params.port}"
         else:
             self._network_address = None
+        identity = device.device.identity
+        self._identity_label = identity.type_label
+        self._identity_serial = identity.serial
 
     def update_stats(self, event: StatsUpdateEvent) -> None:
         self.current_event = event
@@ -77,6 +82,11 @@ class StatsWidget(Static):
         lines = []
 
         lines.append(f"[bold]Device:[/bold] {self._device_id}")
+        if self._identity_label is not None:
+            id_line = f"  Hardware:      [white]{self._identity_label}[/white]"
+            if self._identity_serial is not None:
+                id_line += f" [dim]#{self._identity_serial}[/dim]"
+            lines.append(id_line)
         lines.append("[bold cyan]Signal:[/bold cyan]")
         # IQ amplitude (shows ADC utilization and clipping)
         if event.iq_rms is not None:

@@ -8,6 +8,7 @@ from tsdr.core.sdr.config import DeviceConfig, SDRConfig
 from tsdr.core.sdr.pipeline.pipeline import PipelineContext
 from tsdr.core.sdr.pipeline.stages.agc_stage import AGCStage
 from tsdr.core.sdr.samples_batch import SamplesBatch
+from tsdr.devices.base import DeviceCapabilities
 
 
 def _make_context(
@@ -23,7 +24,15 @@ def _make_context(
     bus.subscribe(AGCGainChangeEvent, lambda e: captured.append(e))  # type: ignore[arg-type]
 
     device = MagicMock()
-    device.gain_range = gain_range
+    device.capabilities = DeviceCapabilities(
+        frequency_range=None,
+        sample_rates=None,
+        gain_supported=gain_range != (0.0, 0.0),
+        gain_range=gain_range,
+        gain_step=1.0,
+        gain_unit="dB",
+        bias_tee_supported=False,
+    )
 
     device_context = MagicMock()
     device_context.device = device

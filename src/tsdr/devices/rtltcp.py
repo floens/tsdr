@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from tsdr.core.sdr.exceptions import DeviceError
 from tsdr.core.sdr.samples_batch import SampleFormat
 from tsdr.devices._jitter_buffer import JitterBuffer
-from tsdr.devices.base import DeviceParams
+from tsdr.devices.base import DeviceCapabilities, DeviceIdentity, DeviceParams
 
 logger = logging.getLogger(__name__)
 
@@ -87,6 +87,17 @@ class RTLTCPDevice:
         self.tuner_type: int | None = None
         self.gain_count: int | None = None
 
+        self._identity = DeviceIdentity(type_label="RTL-TCP", serial=None)
+        self._capabilities = DeviceCapabilities(
+            frequency_range=None,
+            sample_rates=None,
+            gain_supported=True,
+            gain_range=(self.R820T_GAINS[0] / 10.0, self.R820T_GAINS[-1] / 10.0),
+            gain_step=1.0,
+            gain_unit="dB",
+            bias_tee_supported=True,
+        )
+
         # sample_rate=0 defers ring allocation until set_sample_rate().
         self.jitter = JitterBuffer(
             prefill_seconds=network_buffer_seconds,
@@ -124,6 +135,11 @@ class RTLTCPDevice:
 
             # Log header information
             tuner_name = self.get_tuner_name()
+            if tuner_name and tuner_name != "Unknown":
+                self._identity = DeviceIdentity(
+                    type_label=f"RTL-TCP {tuner_name}",
+                    serial=None,
+                )
             logger.info(
                 f"RTL-TCP connected to {self.host}:{self.port} - "
                 f"Tuner: {tuner_name}, Gain count: {self.gain_count}"
@@ -230,10 +246,6 @@ class RTLTCPDevice:
     def set_frequency(self, freq: float) -> None:
         self._send_command(self.CMD_SET_FREQUENCY, int(freq))
 
-    @property
-    def frequency_range(self) -> tuple[float, float] | None:
-        return None
-
     def set_sample_rate(self, rate: float) -> None:
         self._send_command(self.CMD_SET_SAMPLE_RATE, int(rate))
         self._sample_rate = float(int(rate))
@@ -272,24 +284,20 @@ class RTLTCPDevice:
         self._send_command(self.CMD_SET_GAIN_MODE, 0 if enable else 1)
         logger.debug(f"RTL-TCP: Set AGC {'enabled' if enable else 'disabled'}")
 
-    @property
-    def gain_range(self) -> tuple[float, float]:
-        return (self.R820T_GAINS[0] / 10.0, self.R820T_GAINS[-1] / 10.0)
-
     def set_freq_correction(self, ppm: int) -> None:
         self._send_command(self.CMD_SET_FREQ_CORRECTION, ppm)
-
-    @property
-    def supports_bias_tee(self) -> bool:
-        return True
 
     def set_bias_tee(self, enable: bool) -> None:
         self._send_command(self.CMD_SET_BIAS_TEE, 1 if enable else 0)
         logger.debug("RTL-TCP: bias-T %s", "on" if enable else "off")
 
     @property
-    def supports_gain_control(self) -> bool:
-        return True
+    def identity(self) -> DeviceIdentity:
+        return self._identity
+
+    @property
+    def capabilities(self) -> DeviceCapabilities:
+        return self._capabilities
 
     def set_network_buffer_seconds(self, seconds: float) -> None:
         self.jitter.set_prefill_seconds(seconds)
