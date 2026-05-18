@@ -280,3 +280,10 @@ class IOWorker:
             logger.warning(
                 f"Error closing device {self.device_context.device_id}: {e}", exc_info=True
             )
+            context.emit_event(
+                DeviceErrorEvent(
+                    source_id=context.worker_id,
+                    device_id=self.device_context.device_id,
+                    error=f"close failed: {e}",
+                )
+            )

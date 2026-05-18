@@ -199,16 +199,17 @@ class JitterBuffer:
         with self._cond:
             self._stop = True
             self._cond.notify_all()
-        if self._thread is not None:
-            self._thread.join(timeout=_STOP_JOIN_TIMEOUT_S)
-            if self._thread.is_alive():
-                logger.warning(
-                    "JitterBuffer producer thread did not exit within %.1fs; "
-                    "did the caller unblock the underlying I/O?",
-                    _STOP_JOIN_TIMEOUT_S,
-                )
-            else:
-                self._thread = None
+        if self._thread is None:
+            return
+        self._thread.join(timeout=_STOP_JOIN_TIMEOUT_S)
+        if self._thread.is_alive():
+            logger.warning(
+                "JitterBuffer producer thread did not exit within %.1fs; "
+                "did the caller unblock the underlying I/O?",
+                _STOP_JOIN_TIMEOUT_S,
+            )
+        else:
+            self._thread = None
 
     def read(self, count: int) -> bytes:
         """Block until `count` bytes are available, then return them.
