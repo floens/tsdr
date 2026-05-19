@@ -5,7 +5,7 @@ from types import MappingProxyType
 from tsdr.core.sdr.config import StageType
 from tsdr.core.sdr.engine import get_engine
 from tsdr.core.sdr.exceptions import SDRException
-from tsdr.tui.commands._format import success
+from tsdr.tui.commands._format import freq_mhz, rate_sps, success
 from tsdr.tui.commands.base import Command, CommandParser, Completion
 from tsdr.tui.commands.sdr._utils import device_id_completions, get_focused_device_id
 
@@ -46,9 +46,6 @@ class SDRPipelineCommand(Command):
 
         context = manager.devices[device_id]
 
-        freq_mhz = context.config.center_frequency / 1e6
-        rate_msps = context.config.sample_rate / 1e6
-
         running = bool(context.pipelines)
         title = f"Pipelines for [bold cyan]{device_id}[/]"
         if not running:
@@ -58,8 +55,8 @@ class SDRPipelineCommand(Command):
             f"{title}:",
             "",
             f"  [bold white]IQ Samples[/] "
-            f"[dim]@[/] [yellow]{rate_msps:.2f} Msps[/] "
-            f"[dim]·[/] [cyan]{freq_mhz:.3f} MHz[/]",
+            f"[dim]@[/] {rate_sps(context.config.sample_rate)} "
+            f"[dim]·[/] {freq_mhz(context.config.center_frequency)}",
         ]
 
         if running:

@@ -45,8 +45,19 @@ def freq_mhz(hz: float, *, precision: int = 3, width: int = 0) -> str:
     return f"[cyan]{text:>{width}}[/]"
 
 
-def rate_msps(hz: float, *, precision: int = 2) -> str:
-    return f"[yellow]{hz / 1e6:.{precision}f} Msps[/]"
+def format_rate(hz: float, *, precision: int = 2) -> tuple[str, str]:
+    """Return (number, unit) for a sample rate, switching to ksps below 1 Msps."""
+    if hz >= 1e6:
+        return f"{hz / 1e6:.{precision}f}", "Msps"
+    ksps = hz / 1e3
+    if ksps == int(ksps):
+        return f"{int(ksps)}", "ksps"
+    return f"{ksps:.{precision}f}", "ksps"
+
+
+def rate_sps(hz: float, *, precision: int = 2) -> str:
+    value, unit = format_rate(hz, precision=precision)
+    return f"[yellow]{value} {unit}[/]"
 
 
 def db(value: float) -> str:

@@ -5,7 +5,7 @@ from tsdr.core.sdr.engine import get_engine
 from tsdr.core.sdr.exceptions import ConfigurationError, SDRException
 from tsdr.core.units import parse_hz
 from tsdr.radio.registry import DEMODULATORS
-from tsdr.tui.commands._format import device_id, fields, success
+from tsdr.tui.commands._format import device_id, fields, rate_sps, success
 from tsdr.tui.commands.base import Command, CommandParser, Completion
 from tsdr.tui.commands.sdr._utils import device_id_completions, get_focused_device_id
 
@@ -56,7 +56,7 @@ class SDRDemodCommand(Command):
                 raise ConfigurationError(
                     f"Frequency offset {frequency_offset / 1000:.1f} kHz exceeds Nyquist limit "
                     f"(±{max_offset / 1000:.1f} kHz for sample rate "
-                    f"{context.config.sample_rate / 1e6:.2f} Msps)"
+                    f"{rate_sps(context.config.sample_rate)})"
                 )
 
         manager.set_audio_demod(did, mode, frequency_offset, deviation)

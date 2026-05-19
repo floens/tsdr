@@ -1,7 +1,7 @@
 from argparse import Namespace
 
 from tsdr.core.sdr.engine import get_engine
-from tsdr.tui.commands._format import device_id, freq_mhz, header, rate_msps, state
+from tsdr.tui.commands._format import device_id, freq_mhz, header, rate_sps, state
 from tsdr.tui.commands.base import Command
 
 
@@ -28,7 +28,7 @@ class SDRListCommand(Command):
                 f"[dim]{dev['type']}[/] | "
                 f"{state(dev['state'].lower())} | "
                 f"{freq_mhz(dev['frequency'], precision=2, width=10)} | "
-                f"{rate_msps(dev['sample_rate'])} | "
+                f"{rate_sps(dev['sample_rate'])} | "
                 f"{mode_md}"
                 f"{desc_md}"
             )

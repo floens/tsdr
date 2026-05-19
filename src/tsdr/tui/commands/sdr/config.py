@@ -17,7 +17,7 @@ from tsdr.tui.commands._format import (
     fields,
     freq_mhz,
     header,
-    rate_msps,
+    rate_sps,
     state,
     success,
 )
@@ -45,7 +45,7 @@ def _format_field(name: str, value: Any) -> str:
     if name == "center_frequency" and isinstance(value, (int, float)):
         return freq_mhz(float(value), precision=3)
     if name == "sample_rate" and isinstance(value, (int, float)):
-        return rate_msps(float(value))
+        return rate_sps(float(value))
     if name == "rf_gain" and isinstance(value, (int, float)):
         return db(float(value))
     if name == "channel_bandwidth" and isinstance(value, (int, float)):
@@ -57,7 +57,7 @@ def _format_field(name: str, value: Any) -> str:
             f"{freq_mhz(float(value[0]), precision=3)} – {freq_mhz(float(value[1]), precision=3)}"
         )
     if name == "sample_rates" and isinstance(value, tuple):
-        return ", ".join(rate_msps(float(r)) for r in value)
+        return ", ".join(rate_sps(float(r)) for r in value)
     if name == "gain_range" and isinstance(value, tuple) and len(value) == 2:
         return f"[yellow]{float(value[0]):.1f} – {float(value[1]):.1f}[/]"
     return repr(value)
@@ -160,9 +160,9 @@ class SDRConfigCommand(Command):
             new_rate = float(parse_hz(args.sample_rate))
             sample_rates = manager.get_device(did).device.capabilities.sample_rates
             if sample_rates is not None and not any(abs(new_rate - r) < 1.0 for r in sample_rates):
-                valid = ", ".join(f"{r / 1e6:.3f}M" for r in sorted(sample_rates))
+                valid = ", ".join(rate_sps(float(r)) for r in sorted(sample_rates))
                 return error(
-                    f"sample rate {new_rate / 1e6:.3f} MHz not supported by "
+                    f"sample rate {rate_sps(new_rate)} not supported by "
                     f"{device_id(did)} (valid: {valid})"
                 )
             changes["sample_rate"] = new_rate
@@ -224,7 +224,7 @@ class SDRConfigCommand(Command):
             if key == "center_frequency":
                 summary["frequency"] = freq_mhz(value, precision=2)
             elif key == "sample_rate":
-                summary["sample_rate"] = rate_msps(value)
+                summary["sample_rate"] = rate_sps(value)
             elif key == "rf_gain":
                 summary["gain"] = db(value)
             elif key == "auto_gain":

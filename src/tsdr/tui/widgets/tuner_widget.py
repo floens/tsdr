@@ -25,6 +25,7 @@ from tsdr.core.tracing import span
 from tsdr.core.tuning import resolve_auto_step
 from tsdr.core.tuning_state import get_tuning_state
 from tsdr.core.units import format_hz
+from tsdr.tui.commands._format import format_rate
 from tsdr.tui.widgets.snr_widget import SNRWidget
 
 Half = Literal["top", "bottom"]
@@ -51,7 +52,8 @@ def _format_signal_info(info: SignalInfo, device_sample_rate: float | None) -> s
         and device_sample_rate is not None
         and abs(info.sample_rate - device_sample_rate) > 1.0
     ):
-        lines.append(f"[red bold]Needs {info.sample_rate / 1e6:.2f} MSps[/red bold]")
+        value, unit = format_rate(info.sample_rate)
+        lines.append(f"[red bold]Needs {value} {unit}[/red bold]")
     elif info.description:
         lines.append(f"[dim]{info.description}[/dim]")
     return "\n".join(lines)
@@ -268,8 +270,8 @@ class TunerWidget(Vertical):
         self.query_one("#tuner-frequency", HoverableDigits).update(formatted)
 
         self._sample_rate = config.sample_rate
-        sr_mhz = config.sample_rate / 1e6
-        self._sr_line = f"[bold]{sr_mhz:.2f}[/bold] [dim]MSps[/dim]"
+        sr_value, sr_unit = format_rate(config.sample_rate)
+        self._sr_line = f"[bold]{sr_value}[/bold] [dim]{sr_unit}[/dim]"
         caps = device.device.capabilities
         unit = caps.gain_unit
         gain_str = f"{int(config.rf_gain)}" if unit == "index" else f"{config.rf_gain:.1f}"
