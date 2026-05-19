@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from typing import Literal
 
 import numpy as np
 
@@ -53,6 +54,10 @@ class SignalInfo:
     description: str | None = None  # Protocol-specific identifier for display
     squelch_open: bool | None = None  # None = no squelch, True/False = gate state
     squelch_threshold_db: float | None = None  # Threshold (dBFS) when squelch is configured
+    # SSB-style asymmetric filter: channel passband sits entirely on one side
+    # of the carrier ("upper" → [center, center+bw], "lower" → [center-bw, center]).
+    # None means symmetric around the carrier.
+    sideband: Literal["upper", "lower"] | None = None
 
 
 @dataclass(frozen=True)

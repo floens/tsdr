@@ -111,6 +111,7 @@ class SpectrumWidget(ImageModeMixin, Widget):
         self._ui_state = ui_state
         self.current_event: FFTUpdateEvent | None = None
         self._channel_bandwidth: float | None = None
+        self._sideband: str | None = None
         self._memories: tuple[Memory, ...] = ()
         self._bandplan: Bandplan | None = None
         self._strips: list[Strip] = []
@@ -141,11 +142,12 @@ class SpectrumWidget(ImageModeMixin, Widget):
         device = engine.get_focused_device()
         if device is None:
             return
+        demod_info = device.active_demod_info
+        self._sideband = demod_info.sideband if demod_info else None
         # Prefer explicit config value; fall back to demodulator default
         if device.config.channel_bandwidth is not None:
             self._channel_bandwidth = device.config.channel_bandwidth
         else:
-            demod_info = device.active_demod_info
             self._channel_bandwidth = demod_info.channel_bandwidth if demod_info else None
 
     def update_config(self) -> None:
@@ -895,8 +897,14 @@ class SpectrumWidget(ImageModeMixin, Widget):
 
         center = (freq_min + freq_max) / 2
         span = freq_max - freq_min
-        col_low = int((center - channel_bw / 2 - freq_min) / span * width)
-        col_high = int((center + channel_bw / 2 - freq_min) / span * width)
+        if self._sideband == "upper":
+            f_low, f_high = center, center + channel_bw
+        elif self._sideband == "lower":
+            f_low, f_high = center - channel_bw, center
+        else:
+            f_low, f_high = center - channel_bw / 2, center + channel_bw / 2
+        col_low = int((f_low - freq_min) / span * width)
+        col_high = int((f_high - freq_min) / span * width)
         col_low = max(0, col_low)
         col_high = min(width, col_high)
 

@@ -136,6 +136,7 @@ class SSBDemodulator(Demodulator):
             has_audio=True,
             squelch_open=self._squelch.is_open if self._squelch.enabled else None,
             squelch_threshold_db=self._squelch.threshold_db,
+            sideband="upper" if self.mode == "USB" else "lower",
         )
 
     def set_squelch(self, enabled: bool, threshold_db: float, hang_ms: float) -> None:
