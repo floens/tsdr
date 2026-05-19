@@ -113,6 +113,20 @@ class SSBDemodulator(Demodulator):
         self.channel_bandwidth = float(bandwidth)
         self._channel = self._build_channel_filter(self.channel_bandwidth)
 
+    def set_sample_rate(self, rate: float) -> None:
+        self.sample_rate = float(rate)
+        self._fwd_phase = 0.0
+        self._back_phase = 0.0
+        self._setup_channel_filter()
+        self._dc_blocker = DCBlocker(self.decimated_rate, cutoff_hz=self.DC_BLOCKER_CUTOFF)
+        self._agc = AGC(
+            self.decimated_rate,
+            attack_ms=5.0,
+            decay_ms=200.0,
+            setpoint=0.5,
+        )
+        self._squelch = SquelchGate(audio_rate=self.decimated_rate)
+
     def info(self) -> SignalInfo:
         """Thread-safe: callable from any thread."""
         return SignalInfo(

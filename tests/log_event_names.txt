@@ -38,6 +38,7 @@ dab_service_selected
 dab_slide_decode_failed
 demod_change
 demodulator_reset
+demodulator_sample_rate_changed
 device_close_failed
 device_closed
 device_config_clamped

@@ -107,6 +107,19 @@ class NarrowbandFMDemodulator(Demodulator):
             self.deviation = bandwidth / 2.0
             self._fm_discrim.set_deviation(self.decimated_rate, self.deviation)
 
+    def set_sample_rate(self, rate: float) -> None:
+        self.sample_rate = float(rate)
+        self._setup_channel_filter()
+        self._fm_discrim = FMDiscriminator(self.decimated_rate, self.deviation)
+        if self.use_deemphasis:
+            self._setup_deemphasis_filter()
+        self._squelch = SquelchGate(audio_rate=self.decimated_rate)
+
+    def set_deviation(self, deviation: float) -> None:
+        self.deviation = float(deviation)
+        self._deviation_override = self.deviation
+        self._fm_discrim.set_deviation(self.decimated_rate, self.deviation)
+
     def info(self) -> SignalInfo:
         """Thread-safe: callable from any thread."""
         return SignalInfo(

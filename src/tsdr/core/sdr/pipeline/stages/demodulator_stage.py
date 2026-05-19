@@ -27,6 +27,7 @@ class DemodulatorStage:
         self.mode_name = mode_name or demodulator.info().label.upper().replace(" ", "")
         self._pipeline_name = pipeline_name
         self._last_freq: float | None = None
+        self._last_sample_rate: float | None = None
 
     @property
     def demodulator(self) -> Demodulator:
@@ -78,20 +79,31 @@ class DemodulatorStage:
         return data.with_changes(**changes)
 
     def on_config_change(self, config) -> None:
-        if isinstance(config, DeviceConfig):
-            if config.channel_bandwidth is not None:
-                self._demodulator.set_channel_bandwidth(config.channel_bandwidth)
-            if config.center_frequency is not None and config.center_frequency != self._last_freq:
-                logger.debug("demodulator_reset reason=frequency_changed")
-                self._last_freq = config.center_frequency
-                self._demodulator.reset()
-            pipeline_config = config.pipelines.get(self._pipeline_name)
-            if pipeline_config is not None:
-                self._demodulator.set_squelch(
-                    enabled=pipeline_config.squelch_enabled,
-                    threshold_db=pipeline_config.squelch_threshold_db,
-                    hang_ms=pipeline_config.squelch_hang_ms,
-                )
+        if not isinstance(config, DeviceConfig):
+            return
+        # Sample-rate first: bandwidth/deviation/squelch hooks below
+        # build filters off decimated_rate, which the rebuild updates.
+        if config.sample_rate != self._last_sample_rate:
+            self._last_sample_rate = config.sample_rate
+            logger.debug("demodulator_sample_rate_changed rate=%d", int(config.sample_rate))
+            self._demodulator.set_sample_rate(config.sample_rate)
+            self._demodulator.reset()
+        if config.channel_bandwidth is not None:
+            self._demodulator.set_channel_bandwidth(config.channel_bandwidth)
+        if config.center_frequency is not None and config.center_frequency != self._last_freq:
+            logger.debug("demodulator_reset reason=frequency_changed")
+            self._last_freq = config.center_frequency
+            self._demodulator.reset()
+        pipeline_config = config.pipelines.get(self._pipeline_name)
+        if pipeline_config is None:
+            return
+        if pipeline_config.fm_deviation_hz is not None:
+            self._demodulator.set_deviation(pipeline_config.fm_deviation_hz)
+        self._demodulator.set_squelch(
+            enabled=pipeline_config.squelch_enabled,
+            threshold_db=pipeline_config.squelch_threshold_db,
+            hang_ms=pipeline_config.squelch_hang_ms,
+        )
 
     def reset(self) -> None:
         self._demodulator.reset()

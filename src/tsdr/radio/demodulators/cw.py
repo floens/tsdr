@@ -106,6 +106,19 @@ class CWDemodulator(Demodulator):
         self.channel_bandwidth = float(bandwidth)
         self._channel = self._build_channel_filter(self.channel_bandwidth)
 
+    def set_sample_rate(self, rate: float) -> None:
+        self.sample_rate = float(rate)
+        self._bfo_phase = 0.0
+        self._setup_channel_filter()
+        self._agc = AGC(
+            self.decimated_rate,
+            attack_ms=100.0,
+            decay_ms=500.0,
+            setpoint=0.5,
+        )
+        self._squelch = SquelchGate(audio_rate=self.decimated_rate)
+        self._morse = MorseDecoder(self.decimated_rate)
+
     def info(self) -> SignalInfo:
         """Thread-safe: callable from any thread."""
         return SignalInfo(

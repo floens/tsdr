@@ -48,10 +48,10 @@ Examples:
 uv run tsdr
 
 # Execute commands on startup
-uv run tsdr -e "add rtl0 --type rtltcp --host localhost --port 1234 --frequency 101.1"
-uv run tsdr -e "add rtl0 --type rtltcp --host localhost --port 1234 --frequency 101.1" \\
+uv run tsdr -e "add rtl0 --type rtltcp --host localhost --port 1234 --frequency 101.1M"
+uv run tsdr -e "add rtl0 --type rtltcp --host localhost --port 1234 --frequency 101.1M" \\
           -e "start rtl0" \\
-          -e "demod rtl0 wfm"
+          -e "demod WFM --device rtl0"
     """,
     )
     parser.add_argument(

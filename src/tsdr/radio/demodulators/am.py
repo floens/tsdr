@@ -86,6 +86,18 @@ class AMDemodulator(Demodulator):
         self._channel = self._build_channel_filter(self.channel_bandwidth)
         self._audio_lpf = self._build_audio_lpf(self.channel_bandwidth)
 
+    def set_sample_rate(self, rate: float) -> None:
+        self.sample_rate = float(rate)
+        self._build_filters()
+        self._dc = DCBlocker(self.decimated_rate, cutoff_hz=16.0)
+        self._agc = AGC(
+            self.decimated_rate,
+            attack_ms=5.0,
+            decay_ms=200.0,
+            setpoint=0.5,
+        )
+        self._squelch = SquelchGate(audio_rate=self.decimated_rate)
+
     def info(self) -> SignalInfo:
         return SignalInfo(
             label="AM",

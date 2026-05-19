@@ -158,6 +158,24 @@ class WidebandFMDemodulator(Demodulator):
             expected_input_size=200_000,
         )
 
+    def set_sample_rate(self, rate: float) -> None:
+        # Order mirrors __init__: channel filter sets intermediate_rate
+        # before downstream helpers consume it.
+        self.sample_rate = float(rate)
+        self._setup_channel_filter()
+        self._fm_discrim = FMDiscriminator(self.intermediate_rate, 75000.0)
+        self.audio_decimation_factor = max(1, round(self.intermediate_rate / self.audio_rate))
+        self.output_sample_rate = self.intermediate_rate / self.audio_decimation_factor
+        self._setup_deemphasis_filter()
+        self._setup_audio_lpf()
+        self._setup_pilot_filter()
+        self._setup_stereo_filters()
+        self._channel_decim_phase = 0
+        self._rds_decoder = None
+        self.stereo_detected = False
+        self._last_ps_name = ""
+        self._messages.clear()
+
     def info(self) -> SignalInfo:
         """Thread-safe: callable from any thread. Reads scalar fields only."""
         # Normalize pilot SNR: 3 dB (unlock) = 0.0, 20 dB (strong) = 1.0

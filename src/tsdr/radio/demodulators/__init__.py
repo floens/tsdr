@@ -35,6 +35,19 @@ class Demodulator(ABC):
     def set_channel_bandwidth(self, bandwidth: float) -> None:  # noqa: B027
         pass
 
+    def set_sample_rate(self, rate: float) -> None:  # noqa: B027
+        """Rebuild rate-dependent filter taps and helpers.
+
+        Default no-op for protocol decoders that expect a spec-locked
+        rate (DAB=2.048M, ADSB=2.4M, …) where a live switch is a user
+        error.
+        """
+        pass
+
+    def set_deviation(self, deviation: float) -> None:  # noqa: B027
+        """Update FM peak deviation. NFM-only; default no-op elsewhere."""
+        pass
+
     def set_squelch(  # noqa: B027
         self, enabled: bool, threshold_db: float, hang_ms: float
     ) -> None:
