@@ -325,25 +325,9 @@ class AudioOutputWorker:
             elapsed,
         )
 
-        # Zero-pad and enqueue any residual
-        if self._residual is not None and len(self._residual) > 0:
-            padded = np.zeros((self.BLOCK_SIZE, self._residual.shape[1]), dtype=np.float32)
-            padded[: len(self._residual)] = self._residual
-            try:
-                self._callback_queue.put(padded, timeout=0.5)
-            except queue.Full:
-                pass
-            self._residual = None
-
-        # Wait briefly for callback to drain
-        if self._started:
-            deadline = time.monotonic() + 0.5
-            while not self._callback_queue.empty() and time.monotonic() < deadline:
-                time.sleep(0.01)
-
         if self.stream:
             try:
-                self.stream.stop()
+                self.stream.abort()
                 self.stream.close()
                 logger.info("audio_stream_closed source=%s", self.source_id)
             except Exception as e:  # noqa: BLE001 - cleanup must not fail
