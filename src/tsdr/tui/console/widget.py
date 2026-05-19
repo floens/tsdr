@@ -32,7 +32,7 @@ class ConsoleWidget(Vertical):
         yield _HistoryLog(id="console-history", wrap=True, markup=True)
         yield Static("", id="autocomplete-overlay")
         yield TerminalInput(
-            placeholder=" ` console  ←→ tune  ↑↓ bw  gG gain  ^G AGC  ⇧↕ vol  qQ^q squelch  mM^m mem  i image-mode",
+            placeholder=" ` console  space run  ←→ tune  ↑↓ bw  d demod  gG gain  ⇧↕ vol  1-9 band  mM^m mem  kj zoom  hl/HL db  i image",
             id="command-input",
         )
 
