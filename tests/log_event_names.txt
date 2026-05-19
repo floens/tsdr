@@ -7,9 +7,11 @@ app_shutting_down_engine
 app_stopping_event_adapter
 app_unmounting
 audio_devices_query_failed
+audio_flush
 audio_glitch
 audio_output_changed
 audio_prebuffer_raised
+audio_queue_drained
 audio_resampling_failed
 audio_sounddevice_missing
 audio_stream_close_failed
@@ -39,6 +41,7 @@ dab_slide_decode_failed
 demod_change
 demodulator_reset
 demodulator_sample_rate_changed
+demodulator_swapped
 device_close_failed
 device_closed
 device_config_clamped

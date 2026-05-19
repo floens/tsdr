@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+from typing import ClassVar
 
 import numpy as np
 
@@ -10,6 +11,7 @@ class Demodulator(ABC):
     """Base class for all demodulators and decoders."""
 
     stereo_detected: bool = False
+    has_audio: ClassVar[bool] = False
 
     def __init__(self) -> None:
         self._audio_batches: list[AudioBatch] = []

@@ -28,6 +28,8 @@ class AMDemodulator(Demodulator):
     impractical -- transition bandwidth scales with fs/numtaps).
     """
 
+    has_audio = True
+
     DEFAULT_CHANNEL_BANDWIDTH = 10_000
 
     def __init__(

@@ -180,6 +180,8 @@ class DABDecoder(Demodulator):
     Audio output: call get_audio() to retrieve decoded PCM batches.
     """
 
+    has_audio = True
+
     def __init__(self, sample_rate: float = 2_048_000):
         super().__init__()
         self._sample_rate = sample_rate

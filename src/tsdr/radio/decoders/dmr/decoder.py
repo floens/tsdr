@@ -145,6 +145,8 @@ class DMRDecoder(Demodulator):
     Voice bursts are decoded through AMBE+2 vocoder to 8 kHz PCM audio.
     """
 
+    has_audio = True
+
     @property
     def audio_prebuffer_seconds(self) -> float:
         return 0.25

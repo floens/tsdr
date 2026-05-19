@@ -6,6 +6,7 @@ from tsdr.core.sdr.pipeline.pipeline import PipelineContext
 from tsdr.core.sdr.samples_batch import SamplesBatch
 from tsdr.core.tracing import span
 from tsdr.radio.demodulators import Demodulator
+from tsdr.radio.registry import make_demodulator
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +25,8 @@ class DemodulatorStage:
         pipeline_name: str = "",
     ):
         self._demodulator = demodulator
-        self.mode_name = mode_name or demodulator.info().label.upper().replace(" ", "")
+        raw_name = mode_name or demodulator.info().label
+        self.mode_name = raw_name.upper().replace(" ", "")
         self._pipeline_name = pipeline_name
         self._last_freq: float | None = None
         self._last_sample_rate: float | None = None
@@ -81,6 +83,30 @@ class DemodulatorStage:
     def on_config_change(self, config) -> None:
         if not isinstance(config, DeviceConfig):
             return
+        pipeline_config = config.pipelines.get(self._pipeline_name)
+
+        if pipeline_config is not None and pipeline_config.demod_mode:
+            new_mode = pipeline_config.demod_mode.upper()
+            if new_mode != self.mode_name:
+                # Build before assigning so a failed make_demodulator leaves the old demod intact.
+                new_demod = make_demodulator(
+                    new_mode,
+                    config.sample_rate,
+                    config.channel_bandwidth,
+                    pipeline_config.fm_deviation_hz,
+                )
+                logger.info("demodulator_swapped old=%s new=%s", self.mode_name, new_mode)
+                self._demodulator = new_demod
+                self.mode_name = new_mode
+                self._last_sample_rate = config.sample_rate
+                self._last_freq = config.center_frequency
+                self._demodulator.set_squelch(
+                    enabled=pipeline_config.squelch_enabled,
+                    threshold_db=pipeline_config.squelch_threshold_db,
+                    hang_ms=pipeline_config.squelch_hang_ms,
+                )
+                return
+
         # Sample-rate first: bandwidth/deviation/squelch hooks below
         # build filters off decimated_rate, which the rebuild updates.
         if config.sample_rate != self._last_sample_rate:
@@ -94,7 +120,6 @@ class DemodulatorStage:
             logger.debug("demodulator_reset reason=frequency_changed")
             self._last_freq = config.center_frequency
             self._demodulator.reset()
-        pipeline_config = config.pipelines.get(self._pipeline_name)
         if pipeline_config is None:
             return
         if pipeline_config.fm_deviation_hz is not None:

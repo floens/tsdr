@@ -4,10 +4,31 @@ from tsdr.radio.demodulators import Demodulator
 
 # mode name -> factory callable (receives sample_rate kwarg, returns Demodulator)
 DEMODULATORS: dict[str, Callable[..., Demodulator]] = {}
+# Parallel to DEMODULATORS, for class-attribute lookups (e.g. has_audio) without instantiating.
+DEMODULATOR_CLASSES: dict[str, type[Demodulator]] = {}
 
 
-def register(mode: str, factory: Callable[..., Demodulator]) -> None:
-    DEMODULATORS[mode.upper()] = factory
+def register(mode: str, cls: type[Demodulator], factory: Callable[..., Demodulator]) -> None:
+    key = mode.upper()
+    DEMODULATORS[key] = factory
+    DEMODULATOR_CLASSES[key] = cls
+
+
+def make_demodulator(
+    mode: str,
+    sample_rate: float,
+    channel_bandwidth: float | None = None,
+    fm_deviation_hz: float | None = None,
+) -> Demodulator:
+    mode = mode.upper()
+    if mode not in DEMODULATORS:
+        raise ValueError(f"Unknown demodulator mode: {mode}")
+    kw: dict = {}
+    if channel_bandwidth is not None:
+        kw["channel_bandwidth"] = channel_bandwidth
+    if mode == "NFM" and fm_deviation_hz is not None:
+        kw["deviation"] = fm_deviation_hz
+    return DEMODULATORS[mode](sample_rate=sample_rate, **kw)
 
 
 # Built-in audio demodulators
@@ -17,12 +38,32 @@ from tsdr.radio.demodulators.nfm import NarrowbandFMDemodulator  # noqa: E402
 from tsdr.radio.demodulators.ssb import SSBDemodulator  # noqa: E402
 from tsdr.radio.demodulators.wfm import WidebandFMDemodulator  # noqa: E402
 
-register("WFM", lambda sample_rate, **kw: WidebandFMDemodulator(sample_rate=sample_rate, **kw))
-register("NFM", lambda sample_rate, **kw: NarrowbandFMDemodulator(sample_rate=sample_rate, **kw))
-register("AM", lambda sample_rate, **kw: AMDemodulator(sample_rate=sample_rate, **kw))
-register("USB", lambda sample_rate, **kw: SSBDemodulator(mode="USB", sample_rate=sample_rate, **kw))
-register("LSB", lambda sample_rate, **kw: SSBDemodulator(mode="LSB", sample_rate=sample_rate, **kw))
-register("CW", lambda sample_rate, **kw: CWDemodulator(sample_rate=sample_rate, **kw))
+register(
+    "WFM",
+    WidebandFMDemodulator,
+    lambda sample_rate, **kw: WidebandFMDemodulator(sample_rate=sample_rate, **kw),
+)
+register(
+    "NFM",
+    NarrowbandFMDemodulator,
+    lambda sample_rate, **kw: NarrowbandFMDemodulator(sample_rate=sample_rate, **kw),
+)
+register(
+    "AM", AMDemodulator, lambda sample_rate, **kw: AMDemodulator(sample_rate=sample_rate, **kw)
+)
+register(
+    "USB",
+    SSBDemodulator,
+    lambda sample_rate, **kw: SSBDemodulator(mode="USB", sample_rate=sample_rate, **kw),
+)
+register(
+    "LSB",
+    SSBDemodulator,
+    lambda sample_rate, **kw: SSBDemodulator(mode="LSB", sample_rate=sample_rate, **kw),
+)
+register(
+    "CW", CWDemodulator, lambda sample_rate, **kw: CWDemodulator(sample_rate=sample_rate, **kw)
+)
 
 # Protocol decoders
 from tsdr.radio.decoders.adsb import ADSBDecoder  # noqa: E402
@@ -32,11 +73,11 @@ from tsdr.radio.decoders.flex import FLEXDecoder  # noqa: E402
 
 # Protocol decoders have fixed, spec-defined bandwidths; they ignore the
 # device's channel_bandwidth and any other audio-demod tuning kwargs.
-register("ADSB", lambda sample_rate, **_: ADSBDecoder(sample_rate=sample_rate))
-register("DAB", lambda sample_rate, **_: DABDecoder(sample_rate=sample_rate))
-register("DMR", lambda sample_rate, **_: DMRDecoder(sample_rate=sample_rate))
-register("FLEX", lambda sample_rate, **_: FLEXDecoder(sample_rate=sample_rate))
+register("ADSB", ADSBDecoder, lambda sample_rate, **_: ADSBDecoder(sample_rate=sample_rate))
+register("DAB", DABDecoder, lambda sample_rate, **_: DABDecoder(sample_rate=sample_rate))
+register("DMR", DMRDecoder, lambda sample_rate, **_: DMRDecoder(sample_rate=sample_rate))
+register("FLEX", FLEXDecoder, lambda sample_rate, **_: FLEXDecoder(sample_rate=sample_rate))
 
 from tsdr.radio.decoders.tetra import TETRADecoder  # noqa: E402
 
-register("TETRA", lambda sample_rate, **_: TETRADecoder(sample_rate=sample_rate))
+register("TETRA", TETRADecoder, lambda sample_rate, **_: TETRADecoder(sample_rate=sample_rate))

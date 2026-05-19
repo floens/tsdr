@@ -33,6 +33,8 @@ class NarrowbandFMDemodulator(Demodulator):
         >>> batches = demod.get_audio()
     """
 
+    has_audio = True
+
     # Default channel bandwidth for NFM (12.5 kHz standard channel spacing)
     DEFAULT_CHANNEL_BANDWIDTH = 12_500
 

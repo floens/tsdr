@@ -49,6 +49,8 @@ from tsdr.radio.dsp._kernels import apply_freq_shift_c64
 class CWDemodulator(Demodulator):
     """CW (Morse code) demodulator with explicit BFO."""
 
+    has_audio = True
+
     DEFAULT_CHANNEL_BANDWIDTH = 200.0
     DEFAULT_TONE_HZ = 700.0
 

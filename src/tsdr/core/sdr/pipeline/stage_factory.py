@@ -10,7 +10,7 @@ from tsdr.core.sdr.pipeline.stages import (
     FrequencyShiftStage,
     RecordStage,
 )
-from tsdr.radio.registry import DEMODULATORS
+from tsdr.radio.registry import make_demodulator
 
 logger = logging.getLogger(__name__)
 
@@ -30,23 +30,6 @@ def stage_type_of(stage: PipelineStage) -> StageType:
     if stage_type is None:
         raise ValueError(f"Unknown stage class: {type(stage).__name__}")
     return stage_type
-
-
-def _make_demodulator(
-    mode: str,
-    sample_rate: float,
-    channel_bandwidth: float | None = None,
-    fm_deviation_hz: float | None = None,
-):
-    mode = mode.upper()
-    if mode not in DEMODULATORS:
-        raise ValueError(f"Unknown demodulator mode: {mode}")
-    kw: dict = {}
-    if channel_bandwidth is not None:
-        kw["channel_bandwidth"] = channel_bandwidth
-    if mode == "NFM" and fm_deviation_hz is not None:
-        kw["deviation"] = fm_deviation_hz
-    return DEMODULATORS[mode](sample_rate=sample_rate, **kw)
 
 
 def create_stage(
@@ -70,7 +53,7 @@ def create_stage(
         case StageType.DEMODULATOR:
             if not pipeline_config.demod_mode:
                 raise ValueError("DEMODULATOR stage requires demod_mode in PipelineConfig")
-            demodulator = _make_demodulator(
+            demodulator = make_demodulator(
                 pipeline_config.demod_mode,
                 device_config.sample_rate,
                 device_config.channel_bandwidth,

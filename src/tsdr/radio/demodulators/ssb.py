@@ -40,6 +40,8 @@ from tsdr.radio.dsp._kernels import apply_freq_shift_c64
 class SSBDemodulator(Demodulator):
     """SSB (Single Sideband) demodulator for USB/LSB amateur-radio voice."""
 
+    has_audio = True
+
     # Audio passband upper cutoff in Hz; matches SDRangel default.
     DEFAULT_CHANNEL_BANDWIDTH = 3_000
 

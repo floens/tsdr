@@ -35,6 +35,7 @@ from tsdr.core.tracing import span, traced
 from tsdr.core.units import find_nearest
 from tsdr.core.workers import WorkerRunner
 from tsdr.devices import DeviceParams, create_device
+from tsdr.radio.registry import DEMODULATOR_CLASSES
 
 logger = logging.getLogger(__name__)
 
@@ -393,14 +394,7 @@ class SDREngine:
             pipeline_config.demod_mode,
         )
 
-        self.event_bus.publish(
-            PipelineChangedEvent(
-                source_id=f"engine_{device_id}",
-                device_id=device_id,
-                pipeline_name=pipeline_name,
-                active=True,
-            )
-        )
+        self._publish_pipeline_changed(device_id, pipeline_name, active=True)
 
     def remove_pipeline(self, device_id: str, pipeline_name: str) -> None:
         """Remove a pipeline from a device by updating its config.
@@ -421,14 +415,29 @@ class SDREngine:
 
         logger.info("pipeline_removed device=%s name=%s", device_id, pipeline_name)
 
+        self._publish_pipeline_changed(device_id, pipeline_name, active=False)
+
+    def _publish_pipeline_changed(self, device_id: str, name: str, *, active: bool) -> None:
         self.event_bus.publish(
             PipelineChangedEvent(
                 source_id=f"engine_{device_id}",
                 device_id=device_id,
-                pipeline_name=pipeline_name,
-                active=False,
+                pipeline_name=name,
+                active=active,
             )
         )
+
+    def _drain_audio_queue(self, device_id: str) -> None:
+        context = self.devices[device_id]
+        dropped = 0
+        try:
+            while True:
+                context.audio_queue.get_nowait()
+                dropped += 1
+        except Empty:
+            pass
+        if dropped:
+            logger.info("audio_queue_drained device=%s batches=%d", device_id, dropped)
 
     def start_audio_output(self, device_id: str) -> None:
         """Start audio output for a device."""
@@ -439,15 +448,7 @@ class SDREngine:
 
         context = self.devices[device_id]
 
-        dropped = 0
-        try:
-            while True:
-                context.audio_queue.get_nowait()
-                dropped += 1
-        except Empty:
-            pass
-        if dropped:
-            logger.info("audio_queue_drained device=%s batches=%d", device_id, dropped)
+        self._drain_audio_queue(device_id)
 
         worker = AudioOutputWorker(
             source_id=device_id,
@@ -527,39 +528,66 @@ class SDREngine:
     ) -> None:
         """Rebuild the 'audio' pipeline for the given demod mode.
 
-        Handles stop_audio -> remove_pipeline -> add_pipeline -> start_audio as one step.
-        Inserts a FREQUENCY_SHIFT stage when offset != 0. EVENT_EMITTER is always
-        included so decoder events reach the bus.
+        Fast path: when the audio worker is already running and the stage
+        tuple is unchanged, swap the demodulator in place — the
+        ``AudioOutputWorker``'s sounddevice stream stays open and ``PortAudio``
+        is not torn down. Falls back to stop/remove/add/start when the pipeline
+        shape changes (FREQUENCY_SHIFT add/remove) or the new mode has no
+        audio output (audio→decoder).
         """
-        old_pipeline = (
-            self.devices[device_id].config.pipelines.get("audio")
-            if device_id in self.devices
-            else None
-        )
+        if device_id not in self.devices:
+            raise SDRException(f"Device {device_id} not found")
+
+        context = self.devices[device_id]
+        old_pipeline = context.config.pipelines.get("audio")
         old_mode = old_pipeline.demod_mode if old_pipeline is not None else None
         logger.info("demod_change device=%s old=%s new=%s", device_id, old_mode, mode)
 
+        new_stages: list[StageType] = []
+        if frequency_offset != 0.0:
+            new_stages.append(StageType.FREQUENCY_SHIFT)
+        new_stages.append(StageType.DEMODULATOR)
+        new_stages.append(StageType.EVENT_EMITTER)
+        new_stages_tuple = tuple(new_stages)
+
+        new_cls = DEMODULATOR_CLASSES.get(mode.upper())
+        new_has_audio = new_cls is not None and new_cls.has_audio
+
+        can_swap_in_place = (
+            device_id in self._audio_workers
+            and old_pipeline is not None
+            and old_pipeline.stages == new_stages_tuple
+            and new_has_audio
+        )
+
+        if can_swap_in_place:
+            self._drain_audio_queue(device_id)
+            self._audio_workers[device_id].request_flush()
+
+            new_pc = PipelineConfig(
+                stages=new_stages_tuple,
+                demod_mode=mode,
+                frequency_offset=frequency_offset,
+                fm_deviation_hz=fm_deviation_hz,
+            )
+            new_pipelines = MappingProxyType(dict(context.config.pipelines) | {"audio": new_pc})
+            self.update_device_config(device_id, pipelines=new_pipelines)
+            self._publish_pipeline_changed(device_id, "audio", active=True)
+            return
+
         self.stop_audio_output(device_id)
         self.remove_pipeline(device_id, "audio")
-
-        stages: list[StageType] = []
-        if frequency_offset != 0.0:
-            stages.append(StageType.FREQUENCY_SHIFT)
-        stages.append(StageType.DEMODULATOR)
-        stages.append(StageType.EVENT_EMITTER)
-
         self.add_pipeline(
             device_id,
             "audio",
             PipelineConfig(
-                stages=tuple(stages),
+                stages=new_stages_tuple,
                 demod_mode=mode,
                 frequency_offset=frequency_offset,
                 fm_deviation_hz=fm_deviation_hz,
             ),
         )
 
-        context = self.get_device(device_id)
         if context.active_demod_info and context.active_demod_info.has_audio:
             self.start_audio_output(device_id)
 

@@ -72,6 +72,8 @@ class WidebandFMDemodulator(Demodulator):
         >>> batches = demod.get_audio()
     """
 
+    has_audio = True
+
     # Default channel bandwidth for WFM (200 kHz for stereo + RDS)
     DEFAULT_CHANNEL_BANDWIDTH = 200_000
 

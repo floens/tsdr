@@ -54,6 +54,7 @@ class AudioOutputWorker:
         self._residual: np.ndarray | None = None
         self._started = False
         self._rebuffering = False
+        self._needs_flush = False
         self._pre_buffer_blocks = max(
             1, int(_DEFAULT_PREBUFFER_SECONDS * self.TARGET_RATE / self.BLOCK_SIZE)
         )
@@ -155,6 +156,19 @@ class AudioOutputWorker:
 
         while context.should_continue():
             with span("audio_worker"):
+                if self._needs_flush:
+                    dropped = 0
+                    while True:
+                        try:
+                            self._callback_queue.get_nowait()
+                            dropped += 1
+                        except queue.Empty:
+                            break
+                    self._residual = None
+                    self._rebuffering = True
+                    self._needs_flush = False
+                    logger.info("audio_flush source=%s dropped=%d", self.source_id, dropped)
+
                 with span("audio.queue_get"):
                     try:
                         audio_batch = self.audio_queue.get(timeout=0.1)
@@ -335,6 +349,10 @@ class AudioOutputWorker:
 
     def on_config_change(self, config) -> None:
         self._volume = config.audio_volume
+
+    def request_flush(self) -> None:
+        """Discard already-resampled audio; the callback emits silence until prebuffer refills."""
+        self._needs_flush = True
 
 
 def list_audio_devices() -> list[dict[str, Any]]:

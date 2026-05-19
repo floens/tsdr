@@ -108,6 +108,8 @@ class _FragChain:
 class TETRADecoder(Demodulator):
     """TETRA digital trunked radio decoder."""
 
+    has_audio = True
+
     @property
     def audio_prebuffer_seconds(self) -> float:
         return 0.25
