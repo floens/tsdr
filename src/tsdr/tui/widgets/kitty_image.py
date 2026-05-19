@@ -113,9 +113,7 @@ class KittyImageWidget(Widget):
         """Return (width_px, height_px) of this widget in pixels."""
         region = self.content_region
         if region.width == 0 or region.height == 0:
-            logger.warning(
-                "available_pixel_size content_region is zero, widget is not laid out yet."
-            )
+            logger.warning("kitty_image_zero_region reason=not_laid_out")
         return region.width * self._cell_width_px, region.height * self._cell_height_px
 
     @property
@@ -358,7 +356,7 @@ class KittyImageWidget(Widget):
     def remove_image(self, key: str) -> None:
         entry = self._images.pop(key, None)
         if entry is None:
-            logger.warning("REMOVE_MISS key=%s (not in _images)", key)
+            logger.warning("kitty_image_remove_miss key=%s", key)
             return
         self._queue_cmd(f"\x1b_Ga=d,d=I,i={entry.image_id},q=0\x1b\\")
         self._schedule_delete_retries(entry.image_id)

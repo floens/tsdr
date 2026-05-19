@@ -29,7 +29,7 @@ def _close_stage(stage: object) -> None:
     try:
         close()
     except Exception:  # noqa: BLE001 - stages can fail in arbitrary ways during teardown
-        logger.exception("Error closing stage %s", type(stage).__name__)
+        logger.exception("stage_close_failed stage=%s", type(stage).__name__)
 
 
 class DeviceState(Enum):
@@ -128,17 +128,17 @@ class SDRDeviceContext:
         if self.state != DeviceState.STOPPED:
             raise RuntimeError(f"Cannot start device in state {self.state}")
 
-        logger.info(f"Starting device {self.device_id} (type={self.device_type})")
+        logger.info("device_starting device=%s type=%s", self.device_id, self.device_type)
         self.state = DeviceState.STARTING
 
-        logger.debug(f"Starting I/O worker for {self.device_id}")
+        logger.debug("io_worker_starting device=%s", self.device_id)
         io_worker_instance = IOWorker(device_context=self)
         self.io_worker = worker_runner.start_worker(
             worker_id=f"io_{self.device_id}", worker=io_worker_instance, daemon=False
         )
 
         if self.pipelines:
-            logger.debug(f"Starting pipeline worker for {self.device_id}")
+            logger.debug("pipeline_worker_launching device=%s", self.device_id)
             pipeline_worker_instance = PipelineWorker(device_context=self)
             self.pipeline_worker = worker_runner.start_worker(
                 worker_id=f"pipeline_{self.device_id}",
@@ -147,7 +147,7 @@ class SDRDeviceContext:
             )
 
         self.state = DeviceState.RUNNING
-        logger.info(f"Device {self.device_id} started successfully")
+        logger.info("device_started device=%s", self.device_id)
 
     def stop(self, worker_runner, timeout: float = 5.0) -> None:
         """Stop workers; the I/O worker's teardown closes the device.
@@ -162,7 +162,7 @@ class SDRDeviceContext:
             return
 
         self.state = DeviceState.STOPPING
-        logger.info(f"Stopping device {self.device_id}")
+        logger.info("device_stopping device=%s", self.device_id)
 
         # Step 1: signal workers to stop iterating.
         if self.io_worker:
@@ -177,23 +177,23 @@ class SDRDeviceContext:
 
         # Step 3: join workers.
         if self.io_worker:
-            logger.debug(f"Stopping I/O worker for {self.device_id}")
+            logger.debug("io_worker_stopping device=%s", self.device_id)
             try:
                 worker_runner.stop_worker(f"io_{self.device_id}", timeout=timeout)
             except Exception as e:  # noqa: BLE001 - cleanup must not fail
-                logger.warning(f"Error stopping I/O worker: {e}")
+                logger.warning("io_worker_stop_failed device=%s error=%r", self.device_id, e)
             self.io_worker = None
 
         if self.pipeline_worker:
-            logger.debug(f"Stopping pipeline worker for {self.device_id}")
+            logger.debug("pipeline_worker_stopping device=%s", self.device_id)
             try:
                 worker_runner.stop_worker(f"pipeline_{self.device_id}", timeout=timeout)
             except Exception as e:  # noqa: BLE001 - cleanup must not fail
-                logger.warning(f"Error stopping pipeline worker: {e}")
+                logger.warning("pipeline_worker_stop_failed device=%s error=%r", self.device_id, e)
             self.pipeline_worker = None
 
         self.state = DeviceState.STOPPED
-        logger.info(f"Device {self.device_id} stopped")
+        logger.info("device_stopped device=%s", self.device_id)
 
     @traced("ctx.update_config")
     def update_config(self, **changes: Unpack[DeviceConfigChanges]) -> None:
@@ -216,9 +216,7 @@ class SDRDeviceContext:
             try:
                 self.control_queue.put(new_config, block=False)
             except queue.Full:
-                logger.warning(
-                    f"Control queue full for {self.device_id}, config update may be delayed"
-                )
+                logger.warning("control_queue_full device=%s", self.device_id)
             try:
                 self.pipeline_control_queue.put(new_config, block=False)
             except queue.Full:

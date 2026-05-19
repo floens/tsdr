@@ -39,7 +39,7 @@ def _decode_slide_to_rgba(slide: DABSlide) -> np.ndarray | None:
         img = img.convert("RGBA")
         return np.array(img, dtype=np.uint8)
     except OSError, ValueError:
-        logger.debug("Failed to decode slide image", exc_info=True)
+        logger.debug("dab_slide_decode_failed", exc_info=True)
         return None
 
 

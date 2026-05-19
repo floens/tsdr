@@ -277,7 +277,7 @@ class SDREngine:
                     f"Sample rate {new_rate / 1e6:.3f} MHz not supported (device supports: {valid})"
                 )
 
-        logger.info("Device config update %s: %s", device_id, changes)
+        logger.info("device_config_update device=%s changes=%r", device_id, changes)
         context.update_config(**changes)
 
         self.event_bus.publish(ConfigChangedEvent(device_id=device_id, source_id=device_id))
@@ -287,7 +287,7 @@ class SDREngine:
 
         Notifies all running pipeline workers and audio workers.
         """
-        logger.info("Global config update: %s", changes)
+        logger.info("global_config_update changes=%r", changes)
         self.config = self.config.with_changes(**changes)
         self.config.validate()
 
@@ -386,6 +386,13 @@ class SDREngine:
         )
         self.update_device_config(device_id, pipelines=new_pipelines)
 
+        logger.info(
+            "pipeline_added device=%s name=%s mode=%s",
+            device_id,
+            pipeline_name,
+            pipeline_config.demod_mode,
+        )
+
         self.event_bus.publish(
             PipelineChangedEvent(
                 source_id=f"engine_{device_id}",
@@ -411,6 +418,8 @@ class SDREngine:
 
         new_pipelines = {k: v for k, v in context.config.pipelines.items() if k != pipeline_name}
         self.update_device_config(device_id, pipelines=MappingProxyType(new_pipelines))
+
+        logger.info("pipeline_removed device=%s name=%s", device_id, pipeline_name)
 
         self.event_bus.publish(
             PipelineChangedEvent(
@@ -447,7 +456,9 @@ class SDREngine:
 
     def set_audio_output_device(self, device_name: str | None) -> None:
         """Change the audio output device, restarting any running audio workers."""
+        old = self._audio_output_device
         self._audio_output_device = device_name
+        logger.info("audio_output_changed old=%r new=%r", old, device_name)
         for device_id in list(self._audio_workers.keys()):
             self.stop_audio_output(device_id)
             self.start_audio_output(device_id)
@@ -509,6 +520,14 @@ class SDREngine:
         Inserts a FREQUENCY_SHIFT stage when offset != 0. EVENT_EMITTER is always
         included so decoder events reach the bus.
         """
+        old_pipeline = (
+            self.devices[device_id].config.pipelines.get("audio")
+            if device_id in self.devices
+            else None
+        )
+        old_mode = old_pipeline.demod_mode if old_pipeline is not None else None
+        logger.info("demod_change device=%s old=%s new=%s", device_id, old_mode, mode)
+
         self.stop_audio_output(device_id)
         self.remove_pipeline(device_id, "audio")
 
@@ -576,7 +595,7 @@ class SDREngine:
             changes["bias_tee"] = False
 
         if changes:
-            logger.info("Clamping %s config to new capabilities: %s", event.device_id, changes)
+            logger.info("device_config_clamped device=%s changes=%r", event.device_id, changes)
             self.update_device_config(event.device_id, **changes)
 
     def shutdown(self, timeout: float = 5.0) -> None:
@@ -588,31 +607,41 @@ class SDREngine:
         Args:
             timeout: Maximum time to wait per worker for graceful shutdown
         """
-        logger.info("Shutting down SDREngine")
+        logger.info("engine_shutdown_starting")
 
         # Stop all devices (this stops I/O and pipeline workers)
         device_ids = list(self.devices.keys())
         for device_id in device_ids:
             context = self.devices[device_id]
             if context.state == DeviceState.RUNNING:
-                logger.debug(f"Stopping device {device_id}")
+                logger.debug("engine_stopping_device device=%s", device_id)
                 try:
                     self.stop_device(device_id)
                 except Exception as e:
-                    logger.error(f"Error stopping device {device_id}: {e}", exc_info=True)
+                    logger.error(
+                        "engine_stop_device_failed device=%s error=%r",
+                        device_id,
+                        e,
+                        exc_info=True,
+                    )
 
         # Stop any remaining audio workers (devices may not have run stop_device)
         for source_id in list(self._audio_workers.keys()):
             try:
                 self.stop_audio_output(source_id, timeout=timeout)
             except (KeyError, RuntimeError) as e:
-                logger.error(f"Error stopping audio output for {source_id}: {e}", exc_info=True)
+                logger.error(
+                    "engine_stop_audio_failed source=%s error=%r",
+                    source_id,
+                    e,
+                    exc_info=True,
+                )
 
         # Final cleanup: stop any remaining workers
-        logger.debug("Stopping all remaining workers")
+        logger.debug("engine_stopping_remaining_workers")
         try:
             self.worker_runner.stop_all_workers(timeout=timeout)
         except Exception as e:
-            logger.error(f"Error stopping workers: {e}", exc_info=True)
+            logger.error("engine_stop_workers_failed error=%r", e, exc_info=True)
 
-        logger.info("SDREngine shutdown complete")
+        logger.info("engine_shutdown_complete")

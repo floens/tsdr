@@ -211,7 +211,7 @@ def _dispatch_fig2(cur: Cursor, state: _FIGParserState) -> None:
         state,
         ("fig2",),
         logging.INFO,
-        "[DAB] FIG 2: extended (UTF-8/UCS-2) labels present in ensemble",
+        "dab_fig2_extended_labels_present",
     )
     cur.skip(cur.remaining)
 
@@ -232,7 +232,7 @@ def _parse_fig0_ensemble_info(cur: Cursor, state: _FIGParserState) -> None:
             state,
             ("fig0_0_change", state.ensemble_id, change),
             logging.INFO,
-            "[DAB] FIG 0/0: dynamic reconfiguration signaled (Change=%d) in ensemble %#06x",
+            "dab_fig0_0_reconfig change=%d ensemble=%#06x",
             change,
             state.ensemble_id,
         )
@@ -241,7 +241,7 @@ def _parse_fig0_ensemble_info(cur: Cursor, state: _FIGParserState) -> None:
             state,
             ("fig0_0_al", state.ensemble_id),
             logging.WARNING,
-            "[DAB] FIG 0/0: alarm flag asserted at ensemble level (EId=%#06x)",
+            "dab_fig0_0_alarm ensemble=%#06x",
             state.ensemble_id,
         )
 
@@ -331,7 +331,7 @@ def _parse_fig0_service_comp_packet(cur: Cursor, state: _FIGParserState) -> None
             state,
             ("fig0_3", scid),
             logging.INFO,
-            "[DAB] FIG 0/3: packet-mode component SCId=%#x DSCTy=%d",
+            "dab_fig0_3_packet_mode scid=%#x dscty=%d",
             scid,
             scty,
         )
@@ -366,7 +366,7 @@ def _parse_fig0_service_comp_global(cur: Cursor, state: _FIGParserState, pd: int
                 state,
                 ("fig0_8", service_id, scids),
                 logging.INFO,
-                "[DAB] FIG 0/8: service %#x has secondary component SCIdS=%d",
+                "dab_fig0_8_secondary_component service=%#x scids=%d",
                 service_id,
                 scids,
             )
@@ -414,7 +414,7 @@ def _parse_fig0_date_time(cur: Cursor, state: _FIGParserState) -> None:
         state,
         ("fig0_10", mjd, hours, minutes),
         logging.INFO,
-        "[DAB] FIG 0/10: UTC %04d-%02d-%02d %02d:%02d:%02d",
+        "dab_fig0_10_utc year=%04d month=%02d day=%02d hour=%02d minute=%02d second=%02d",
         year,
         month,
         day,
@@ -448,7 +448,7 @@ def _parse_fig0_user_app_info(cur: Cursor, state: _FIGParserState, pd: int) -> N
                 state,
                 ("fig0_13", service_id, app_type),
                 logging.INFO,
-                "[DAB] FIG 0/13: service %#x advertises user-app %s (%#05x)",
+                "dab_fig0_13_user_app service=%#x app=%s type=%#05x",
                 service_id,
                 USER_APP_TYPES.get(app_type, "Unknown"),
                 app_type,
@@ -481,7 +481,7 @@ def _parse_fig0_programme_type(cur: Cursor, state: _FIGParserState, pd: int) -> 
             state,
             ("fig0_17", service_id, pty, sd),
             logging.INFO,
-            "[DAB] FIG 0/17: service %#x programme type = %s (%d, %s)",
+            "dab_fig0_17_programme_type service=%#x type=%s code=%d kind=%s",
             service_id,
             name,
             pty,
@@ -508,7 +508,7 @@ def _parse_fig0_announcement_support(cur: Cursor, state: _FIGParserState) -> Non
             state,
             ("fig0_18", service_id, asu),
             logging.INFO,
-            "[DAB] FIG 0/18: service %#x supports announcements: %s",
+            "dab_fig0_18_announcements service=%#x kinds=%s",
             service_id,
             types,
         )
@@ -547,7 +547,7 @@ def _parse_fig0_announcement_switching(cur: Cursor, state: _FIGParserState) -> N
             state,
             ("fig0_19", cluster_id, asw, new_flag, sub_ch_id),
             level,
-            "[DAB] FIG 0/19: announcement active on cluster %d (subch=%d, new=%d): %s",
+            "dab_fig0_19_announcement_active cluster=%d subchannel=%d new=%d kind=%s",
             cluster_id,
             sub_ch_id,
             new_flag,
@@ -569,7 +569,7 @@ def _parse_fig0_freq_info(cur: Cursor, state: _FIGParserState) -> None:
         state,
         ("fig0_21", state.ensemble_id),
         logging.INFO,
-        "[DAB] FIG 0/21: service-following / alternate-frequency info present",
+        "dab_fig0_21_service_following_present",
     )
     # Skip the rest of the FIG body; field-level FI parsing is out of scope.
     cur.skip(cur.remaining)
@@ -592,7 +592,7 @@ def _parse_fig0_oe_services(cur: Cursor, state: _FIGParserState, pd: int) -> Non
             state,
             ("fig0_24", service_id),
             logging.INFO,
-            "[DAB] FIG 0/24: service %#x also carried in ensembles %s",
+            "dab_fig0_24_oe_service service=%#x ensembles=%s",
             service_id,
             ", ".join(f"{e:#06x}" for e in eids),
         )
@@ -615,7 +615,7 @@ def _parse_fig0_oe_announcement_support(cur: Cursor, state: _FIGParserState) -> 
             state,
             ("fig0_25", service_id, asu),
             logging.INFO,
-            "[DAB] FIG 0/25: OE service %#x supports announcements: %s",
+            "dab_fig0_25_oe_announcements service=%#x kinds=%s",
             service_id,
             ", ".join(_announcement_flag_names(asu)),
         )
@@ -639,7 +639,7 @@ def _parse_fig0_oe_announcement_switching(cur: Cursor, state: _FIGParserState) -
             state,
             ("fig0_26", cluster_id_current, cluster_id_other, asw),
             level,
-            "[DAB] FIG 0/26: OE announcement active (cluster %d -> %d): %s",
+            "dab_fig0_26_oe_announcement_active old_cluster=%d new_cluster=%d kind=%s",
             cluster_id_current,
             cluster_id_other,
             ", ".join(_announcement_flag_names(asw)),
@@ -691,7 +691,7 @@ def _parse_fig1_service_component_label(cur: Cursor, state: _FIGParserState, cha
         state,
         ("fig1_4", sid, scids),
         logging.INFO,
-        "[DAB] FIG 1/4: service %#x component SCIdS=%d label=%r",
+        "dab_fig1_4_component_label service=%#x scids=%d label=%r",
         sid,
         scids,
         label,
@@ -711,7 +711,7 @@ def _parse_fig1_data_service_label(cur: Cursor, state: _FIGParserState, charset:
         state,
         ("fig1_5", sid),
         logging.INFO,
-        "[DAB] FIG 1/5: data service %#010x label=%r",
+        "dab_fig1_5_data_service_label service=%#010x label=%r",
         sid,
         label,
     )
@@ -737,7 +737,7 @@ def _parse_fig1_xpad_label(cur: Cursor, state: _FIGParserState, charset: int) ->
         state,
         ("fig1_6", sid, scids, xpad_app_type),
         logging.INFO,
-        "[DAB] FIG 1/6: X-PAD label service=%#x SCIdS=%d xpad_app=%d label=%r",
+        "dab_fig1_6_xpad_label service=%#x scids=%d xpad_app=%d label=%r",
         sid,
         scids,
         xpad_app_type,
@@ -785,7 +785,7 @@ def _build_ensemble(state: _FIGParserState) -> DABEnsemble:
                     state,
                     ("data_service", sid, comp.subchannel_id),
                     logging.INFO,
-                    "[DAB] data-only service %#x '%s' on subchannel %d",
+                    "dab_data_service service=%#x label='%s' subchannel=%d",
                     sid,
                     label,
                     comp.subchannel_id,

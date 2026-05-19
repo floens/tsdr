@@ -82,7 +82,7 @@ class DemodulatorStage:
             if config.channel_bandwidth is not None:
                 self._demodulator.set_channel_bandwidth(config.channel_bandwidth)
             if config.center_frequency is not None and config.center_frequency != self._last_freq:
-                logger.debug("Frequency changed, resetting demodulator")
+                logger.debug("demodulator_reset reason=frequency_changed")
                 self._last_freq = config.center_frequency
                 self._demodulator.reset()
             pipeline_config = config.pipelines.get(self._pipeline_name)

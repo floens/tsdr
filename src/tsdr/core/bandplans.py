@@ -93,7 +93,7 @@ class BandplanStore:
             return None
         if not isinstance(data, dict):
             logger.warning(
-                "Bandplan %s: top-level must be an object, got %s",
+                "bandplan_invalid_top_level filename=%s got=%s",
                 filename,
                 type(data).__name__,
             )
@@ -102,7 +102,7 @@ class BandplanStore:
         raw_bands = data.get("bands", [])
         if not isinstance(raw_bands, list):
             logger.warning(
-                "Bandplan %s: 'bands' must be an array, got %s",
+                "bandplan_bands_not_array filename=%s got=%s",
                 filename,
                 type(raw_bands).__name__,
             )
@@ -111,27 +111,26 @@ class BandplanStore:
         valid_bands: list[Band] = []
         for i, entry in enumerate(raw_bands):
             if not isinstance(entry, dict):
-                logger.warning(
-                    "Bandplan %s band[%d]: not an object, skipping",
-                    filename,
-                    i,
-                )
+                logger.warning("bandplan_band_not_object filename=%s index=%d", filename, i)
                 continue
             try:
                 valid_bands.append(Band.model_validate(entry))
             except ValidationError as e:
-                logger.warning("Bandplan %s band[%d]: %s", filename, i, e.errors())
+                logger.warning(
+                    "bandplan_band_invalid filename=%s index=%d errors=%r",
+                    filename,
+                    i,
+                    e.errors(),
+                )
 
         if raw_bands and not valid_bands:
             logger.warning(
-                "Bandplan %s: all %d bands failed validation, skipping file",
-                filename,
-                len(raw_bands),
+                "bandplan_all_bands_invalid filename=%s count=%d", filename, len(raw_bands)
             )
             return None
 
         if not raw_bands:
-            logger.info("Bandplan %s loaded with no bands", filename)
+            logger.info("bandplan_empty filename=%s", filename)
 
         stem = filename.rsplit(".", 1)[0]
         outer = {k: v for k, v in data.items() if k != "bands"}
@@ -141,7 +140,7 @@ class BandplanStore:
         try:
             plan: Bandplan = Bandplan.model_validate(outer)
         except ValidationError as e:
-            logger.warning("Bandplan %s: top-level invalid: %s", filename, e.errors())
+            logger.warning("bandplan_top_level_invalid filename=%s errors=%r", filename, e.errors())
             return None
         return plan
 
@@ -161,7 +160,7 @@ class BandplanStore:
     def set_active(self, filename: str) -> Bandplan | None:
         plan = self._plans.get(filename)
         if plan is None:
-            logger.warning("Bandplan %s not loaded, cannot activate", filename)
+            logger.warning("bandplan_activate_failed filename=%s reason=not_loaded", filename)
             return None
         self._active = plan
         return plan

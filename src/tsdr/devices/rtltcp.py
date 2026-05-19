@@ -144,12 +144,17 @@ class RTLTCPDevice:
                     serial=None,
                 )
             logger.info(
-                f"RTL-TCP connected to {self.host}:{self.port} - "
-                f"Tuner: {tuner_name}, Gain count: {self.gain_count}"
+                "rtltcp_connected host=%s:%d tuner=%s gain_count=%d",
+                self.host,
+                self.port,
+                tuner_name,
+                self.gain_count,
             )
             logger.debug(
-                f"RTL-TCP header: magic={magic!r}, tuner_type={self.tuner_type}, "
-                f"gain_count={self.gain_count}"
+                "rtltcp_header magic=%r tuner_type=%s gain_count=%d",
+                magic,
+                self.tuner_type,
+                self.gain_count,
             )
 
             self._is_open = True
@@ -182,7 +187,12 @@ class RTLTCPDevice:
             try:
                 sock.shutdown(socket.SHUT_RDWR)
             except OSError as e:
-                logger.debug(f"interrupt: shutdown skipped for {self.host}:{self.port}: {e}")
+                logger.debug(
+                    "rtltcp_interrupt_shutdown_skipped host=%s:%d error=%r",
+                    self.host,
+                    self.port,
+                    e,
+                )
 
     def close(self) -> None:
         """Disconnect from rtltcp server.
@@ -195,12 +205,14 @@ class RTLTCPDevice:
             try:
                 self.socket.shutdown(socket.SHUT_RDWR)
             except OSError as e:
-                logger.debug(f"Shutdown skipped for {self.host}:{self.port}: {e}")
+                logger.debug("rtltcp_shutdown_skipped host=%s:%d error=%r", self.host, self.port, e)
             self.jitter.stop()
             try:
                 self.socket.close()
             except OSError as e:
-                logger.debug(f"Error closing socket to {self.host}:{self.port}: {e}")
+                logger.debug(
+                    "rtltcp_socket_close_failed host=%s:%d error=%r", self.host, self.port, e
+                )
             finally:
                 self.socket = None
                 self._is_open = False
@@ -280,19 +292,24 @@ class RTLTCPDevice:
 
         actual_gain = self.R820T_GAINS[best_idx] / 10.0
         self._send_command(self.CMD_SET_GAIN_INDEX, best_idx)
-        logger.debug(f"RTL-TCP: Set gain index {best_idx} ({actual_gain} dB, requested {gain} dB)")
+        logger.debug(
+            "rtltcp_set_gain index=%d actual_db=%s requested_db=%s",
+            best_idx,
+            actual_gain,
+            gain,
+        )
 
     def set_auto_gain(self, enable: bool) -> None:
         # rtltcp gain mode: 0=automatic, 1=manual (counterintuitive)
         self._send_command(self.CMD_SET_GAIN_MODE, 0 if enable else 1)
-        logger.debug(f"RTL-TCP: Set AGC {'enabled' if enable else 'disabled'}")
+        logger.debug("rtltcp_set_agc enabled=%s", enable)
 
     def set_freq_correction(self, ppm: int) -> None:
         self._send_command(self.CMD_SET_FREQ_CORRECTION, ppm)
 
     def set_bias_tee(self, enable: bool) -> None:
         self._send_command(self.CMD_SET_BIAS_TEE, 1 if enable else 0)
-        logger.debug("RTL-TCP: bias-T %s", "on" if enable else "off")
+        logger.debug("rtltcp_set_bias_tee enabled=%s", enable)
 
     @property
     def identity(self) -> DeviceIdentity:

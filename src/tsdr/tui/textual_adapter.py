@@ -74,7 +74,7 @@ class TextualEventAdapter:
         self._pending_config_timer: Timer | None = None
 
     def start(self) -> None:
-        logger.info("Starting Textual event adapter")
+        logger.info("textual_adapter_starting")
 
         # Subscribe to all event types
         self._subscriptions.append(
@@ -133,10 +133,10 @@ class TextualEventAdapter:
             self.event_bus.subscribe(TuningStateChangedEvent, self._on_tuning_state_changed)
         )
 
-        logger.info(f"Textual event adapter started ({len(self._subscriptions)} subscriptions)")
+        logger.info("textual_adapter_started subscriptions=%d", len(self._subscriptions))
 
     def stop(self) -> None:
-        logger.info("Stopping Textual event adapter")
+        logger.info("textual_adapter_stopping")
 
         for subscription in self._subscriptions:
             self.event_bus.unsubscribe(subscription)
@@ -148,7 +148,7 @@ class TextualEventAdapter:
             self._pending_config_timer = None
         self._pending_config_event = None
 
-        logger.info("Textual event adapter stopped")
+        logger.info("textual_adapter_stopped")
 
     def _on_device_error(self, event: Event) -> None:
         if not isinstance(event, DeviceErrorEvent):

@@ -205,7 +205,7 @@ def _build_params(device: PersistedDevice) -> DeviceParams | None:
         )
     if device.type == "iq-file":
         if not device.path:
-            logger.warning("Skipping iq-file device %s: missing path", device.id)
+            logger.warning("preferences_iq_file_missing_path device=%s", device.id)
             return None
         fmt = SampleFormat(device.sample_format) if device.sample_format else None
         return IQFileParams(path=device.path, sample_format=fmt)
@@ -216,7 +216,7 @@ def _build_params(device: PersistedDevice) -> DeviceParams | None:
             else 10e3,
             noise_level=device.noise_level if device.noise_level is not None else 0.1,
         )
-    logger.info("Skipping restore for unknown device type %s", device.type)
+    logger.info("preferences_restore_skipped device=%s type=%s", device.id, device.type)
     return None
 
 
@@ -236,9 +236,9 @@ def _restore_audio_pipeline(engine: SDREngine, device: PersistedDevice) -> None:
             device.demod_offset or 0.0,
             device.fm_deviation_hz,
         )
-        logger.info("Restored demod %s for %s", device.demod_mode, device.id)
+        logger.info("preferences_demod_restored device=%s mode=%s", device.id, device.demod_mode)
     except (KeyError, ValueError, OSError) as e:
-        logger.warning("Failed to restore demod for %s: %s", device.id, e)
+        logger.warning("preferences_demod_restore_failed device=%s error=%r", device.id, e)
         return
 
     squelch_kwargs: dict[str, Any] = {}
@@ -251,9 +251,11 @@ def _restore_audio_pipeline(engine: SDREngine, device: PersistedDevice) -> None:
     if squelch_kwargs:
         try:
             engine.update_squelch(device.id, "audio", **squelch_kwargs)
-            logger.info("Restored squelch for %s: %s", device.id, squelch_kwargs)
+            logger.info(
+                "preferences_squelch_restored device=%s fields=%r", device.id, squelch_kwargs
+            )
         except (KeyError, ValueError, OSError) as e:
-            logger.warning("Failed to restore squelch for %s: %s", device.id, e)
+            logger.warning("preferences_squelch_restore_failed device=%s error=%r", device.id, e)
 
 
 def restore_devices() -> None:
@@ -268,9 +270,9 @@ def restore_devices() -> None:
         config = _build_device_config(device)
         try:
             engine.add_device(device.id, device.type, params, config)
-            logger.info("Restored device %s (%s)", device.id, device.type)
+            logger.info("preferences_device_restored device=%s type=%s", device.id, device.type)
         except (OSError, ConnectionError, ValueError) as e:
-            logger.warning("Failed to restore device %s: %s", device.id, e)
+            logger.warning("preferences_device_restore_failed device=%s error=%r", device.id, e)
             continue
         _restore_audio_pipeline(engine, device)
 

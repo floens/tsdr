@@ -367,7 +367,7 @@ def parse_sysinfo(type1: np.ndarray) -> SysInfo | None:
     r = BitReader(type1)
     pdu_type = _try_enum(MacPduType, r.u(2))
     if pdu_type != MacPduType.BROADCAST:
-        logger.debug("SB2 MAC PDU type %s (not BROADCAST)", pdu_type)
+        logger.debug("tetra_sb2_mac_pdu_unexpected type=%s", pdu_type)
         return None
     r.skip(2)  # broadcast sub-type
 

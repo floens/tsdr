@@ -72,7 +72,7 @@ class DeviceStore:
                 device = PersistedDevice.model_validate(entry)
                 self._devices[device.id] = device
             except ValidationError as e:
-                logger.warning("Skipping invalid device entry: %s", e)
+                logger.warning("device_entry_invalid error=%r", e)
         if self._focused_id and self._focused_id not in self._devices:
             self._focused_id = None
 

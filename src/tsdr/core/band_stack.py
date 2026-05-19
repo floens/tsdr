@@ -71,7 +71,7 @@ class BandStackStore:
                 stack = BandStack.model_validate(entry)
                 self._stacks[stack.band.key] = stack
             except ValidationError as e:
-                logger.warning("Skipping invalid band stack entry: %s", e)
+                logger.warning("band_stack_entry_invalid error=%r", e)
         # Backfill any defaults the user hasn't customized.
         for band in BAND_DEFAULTS:
             self._stacks.setdefault(band.key, BandStack(band=band))

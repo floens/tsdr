@@ -24,7 +24,7 @@ def load_toml(filename: str) -> dict[str, Any]:
         with open(path, "rb") as f:
             return tomllib.load(f)
     except (OSError, tomllib.TOMLDecodeError) as e:
-        logger.warning("Failed to load %s: %s", path, e)
+        logger.error("storage_load_failed path=%s error=%r", path, e)
         return {}
 
 
@@ -35,7 +35,7 @@ def save_toml(filename: str, data: dict[str, Any]) -> None:
         with open(path, "wb") as f:
             tomli_w.dump(data, f)
     except OSError as e:
-        logger.warning("Failed to save %s: %s", path, e)
+        logger.error("storage_save_failed path=%s error=%r", path, e)
 
 
 def read_text(filename: str) -> str:
@@ -45,7 +45,7 @@ def read_text(filename: str) -> str:
     try:
         return path.read_text(encoding="utf-8")
     except OSError as e:
-        logger.warning("Failed to read %s: %s", path, e)
+        logger.error("storage_read_failed path=%s error=%r", path, e)
         return ""
 
 
@@ -55,7 +55,7 @@ def write_text(filename: str, content: str) -> None:
     try:
         path.write_text(content, encoding="utf-8")
     except OSError as e:
-        logger.warning("Failed to write %s: %s", path, e)
+        logger.error("storage_write_failed path=%s error=%r", path, e)
 
 
 def list_files(subdir: str, suffix: str) -> list[Path]:
@@ -70,7 +70,7 @@ def list_files(subdir: str, suffix: str) -> list[Path]:
     try:
         return sorted(p for p in path.iterdir() if p.is_file() and p.suffix == suffix)
     except OSError as e:
-        logger.warning("Failed to list %s: %s", path, e)
+        logger.error("storage_list_failed path=%s error=%r", path, e)
         return []
 
 
@@ -87,5 +87,5 @@ def load_json(relpath: str) -> Any:
         with open(path, "rb") as f:
             return json.load(f)
     except (OSError, json.JSONDecodeError) as e:
-        logger.warning("Failed to load %s: %s", path, e)
+        logger.error("storage_load_failed path=%s error=%r", path, e)
         return None

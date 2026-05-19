@@ -144,7 +144,7 @@ class MemoryStore:
                 memory = Memory.model_validate(entry)
                 self._memories[memory.id] = memory
             except ValidationError as e:
-                logger.warning("Skipping invalid memory entry: %s", e)
+                logger.warning("memory_entry_invalid error=%r", e)
 
     def save(self) -> None:
         data = {"memory": [m.model_dump(exclude_none=True) for m in self.all()]}

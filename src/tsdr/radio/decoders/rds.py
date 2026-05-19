@@ -343,11 +343,7 @@ class RDSDecoder:
         """Nudge M&M timing phase by sps/4. Preserves Costas lock."""
         self._sync_nudge_count = (self._sync_nudge_count + 1) % 4
         self._mm.nudge(0.25)
-        logger.debug(
-            "RDS timing nudge #%d, mu=%.2f",
-            self._sync_nudge_count,
-            self._mm._mu,
-        )
+        logger.debug("rds_timing_nudge count=%d mu=%.2f", self._sync_nudge_count, self._mm._mu)
 
     def _sync_drop(self) -> None:
         """Drop sync, reset counters, and nudge for re-acquisition.
@@ -591,7 +587,7 @@ class RDSDecoder:
             label = _ODA_NAMES.get(oda_aid, "TMC")
             prefix = f"{group_type}{ver_str} {label}"
             _raw, derived = self._summarize_tmc(prefix, b, c, d)
-            logger.info("TMC [%04X %04X %04X %04X] %s", a, b, c, d, _raw)
+            logger.info("rds_tmc a=%04X b=%04X c=%04X d=%04X raw=%r", a, b, c, d, _raw)
             self._recent_groups.append(
                 RDSGroup(
                     group_type=group_type,

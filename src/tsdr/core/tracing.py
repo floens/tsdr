@@ -182,17 +182,21 @@ def get_smoothed_stats(window_seconds: float = 5.0) -> dict[str, float]:
 def log_stats(threshold_ms: float = 0, phase: str = "") -> None:
     with _stats_lock:
         if not _stats:
-            logger.info("No tracing stats collected")
+            logger.info("tracing_stats_empty phase=%s", phase)
             return
 
-        logger.info(f"Tracing statistics: {phase}")
+        logger.info("tracing_stats_begin phase=%s", phase)
         for name in sorted(_stats.keys()):
             stats = _stats[name]
             if stats.avg_ms >= threshold_ms:
                 logger.info(
-                    f"* {name}: count={stats.count}, "
-                    f"min={stats.min_ms:.2f}ms, max={stats.max_ms:.2f}ms, "
-                    f"avg={stats.avg_ms:.2f}ms, p99={stats.p99_ms:.2f}ms"
+                    "tracing_stats name=%s count=%d min_ms=%.2f max_ms=%.2f avg_ms=%.2f p99_ms=%.2f",
+                    name,
+                    stats.count,
+                    stats.min_ms,
+                    stats.max_ms,
+                    stats.avg_ms,
+                    stats.p99_ms,
                 )
 
 

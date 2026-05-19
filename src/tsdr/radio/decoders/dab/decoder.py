@@ -269,9 +269,13 @@ class DABDecoder(Demodulator):
         self._pad_decoder.reset()
 
         logger.info(
-            f"DAB: Selected service '{svc.label}' (subch={svc.subchannel_id}, "
-            f"start={svc.start_address}, size={svc.subchannel_size}, "
-            f"prot={svc.protection_level}, option={svc.eep_option})"
+            "dab_service_selected label=%r subchannel=%d start=%d size=%d protection=%d option=%s",
+            svc.label,
+            svc.subchannel_id,
+            svc.start_address,
+            svc.subchannel_size,
+            svc.protection_level,
+            svc.eep_option,
         )
         return svc.label
 

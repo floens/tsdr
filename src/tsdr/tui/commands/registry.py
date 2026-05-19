@@ -1,7 +1,10 @@
+import logging
 import shlex
 from dataclasses import dataclass
 
 from tsdr.tui.commands.base import Command, Completion
+
+logger = logging.getLogger(__name__)
 
 COMMANDS: dict[str, Command] = {}
 last_command_output: str = ""
@@ -25,6 +28,10 @@ def execute(input_line: str) -> str:
     global last_command_output
 
     input_line = input_line.strip()
+    if not input_line:
+        return "Empty command. Type help for available commands."
+
+    logger.info("command line=%r", input_line)
 
     try:
         parts = shlex.split(input_line)

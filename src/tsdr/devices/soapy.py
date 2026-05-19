@@ -81,7 +81,7 @@ def import_soapysdr() -> Any:
     try:
         import SoapySDR  # noqa: PLC0415
 
-        logger.debug("SoapySDR found via system path: %s", SoapySDR.__file__)
+        logger.debug("soapy_found_system_path file=%s", SoapySDR.__file__)
         SoapySDR.registerLogHandler(_log_handler)
         return SoapySDR
     except ImportError, SystemError:
@@ -182,7 +182,7 @@ class SoapySDRDevice:
             settings = self._device.getSettingInfo()
             supports_bias_tee = any(s.key == "biastee" for s in settings)
         except (RuntimeError, AttributeError) as e:
-            logger.debug(f"SoapySDR getSettingInfo failed: {e}")
+            logger.debug("soapy_get_setting_info_failed error=%r", e)
             supports_bias_tee = False
 
         gain_range = self._capabilities.gain_range
@@ -190,7 +190,7 @@ class SoapySDRDevice:
             r = self._device.getGainRange(_SoapySDR.SOAPY_SDR_RX, 0)
             gain_range = (float(r.minimum()), float(r.maximum()))
         except (RuntimeError, AttributeError) as e:
-            logger.debug(f"SoapySDR getGainRange failed, using default: {e}")
+            logger.debug("soapy_get_gain_range_failed error=%r", e)
 
         hw = self._device.getHardwareKey()
         self._identity = DeviceIdentity(type_label=hw or "Soapy", serial=self._serial or None)
@@ -203,7 +203,7 @@ class SoapySDRDevice:
             gain_unit="dB",
             bias_tee_supported=supports_bias_tee,
         )
-        logger.info(f"SoapySDR opened: {hw} (driver={self._driver or 'auto'})")
+        logger.info("soapy_opened hw=%s driver=%s", hw, self._driver or "auto")
 
     def interrupt(self) -> None:
         # Soapy reads have a 2s timeout, so they unblock on their own.
@@ -215,7 +215,7 @@ class SoapySDRDevice:
                 self._device.deactivateStream(self._stream)
                 self._device.closeStream(self._stream)
             except RuntimeError as e:
-                logger.debug(f"Error closing SoapySDR stream: {e}")
+                logger.debug("soapy_stream_close_failed error=%r", e)
             self._stream = None
         self._device = None
         self._is_open = False
@@ -280,7 +280,7 @@ class SoapySDRDevice:
     def set_bias_tee(self, enable: bool) -> None:
         if self._device and self._capabilities.bias_tee_supported:
             self._device.writeSetting("biastee", "true" if enable else "false")
-            logger.debug("SoapySDR: bias-T %s", "on" if enable else "off")
+            logger.debug("soapy_set_bias_tee enabled=%s", enable)
 
     def set_network_buffer_seconds(self, seconds: float) -> None:
         # Soapy handles its own buffering; no client-side jitter buffer.

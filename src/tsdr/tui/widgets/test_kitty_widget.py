@@ -40,7 +40,7 @@ class KittyTestApp(App):
 
     def queue_oob_escape(self, cmd: str) -> None:
         logger.debug(
-            "KittyTestApp.queue_oob_escape: %d bytes, %d pending",
+            "kitty_test_queue_oob_escape bytes=%d pending=%d",
             len(cmd),
             len(self._pending_oob_escapes) + 1,
         )
@@ -48,14 +48,14 @@ class KittyTestApp(App):
 
     def post_display_hook(self) -> None:
         logger.debug(
-            "KittyTestApp.post_display_hook: %d pending, driver=%s",
+            "kitty_test_post_display_hook pending=%d driver=%s",
             len(self._pending_oob_escapes),
             self._driver is not None,
         )
         if self._pending_oob_escapes and self._driver is not None:
             payload = "".join(self._pending_oob_escapes)
             logger.debug(
-                "KittyTestApp.post_display_hook: flushing %d commands, %d bytes",
+                "kitty_test_flush_oob commands=%d bytes=%d",
                 len(self._pending_oob_escapes),
                 len(payload),
             )
@@ -66,18 +66,22 @@ class KittyTestApp(App):
         yield KittyImageWidget(id="image")
 
     def on_resize(self) -> None:
-        logger.debug("test on_resize")
+        logger.debug("kitty_test_on_resize")
         self.call_after_refresh(self._send_image)
 
     def action_adjust(self, dx: int, dy: int) -> None:
         widget = self.query_one("#image", KittyImageWidget)
         widget._cell_width_px += dx
         widget._cell_height_px += dy
-        logger.debug(f"[Test] adjusted cell px: {widget._cell_width_px}x{widget._cell_height_px}")
+        logger.debug(
+            "kitty_test_adjusted_cell w=%d h=%d",
+            widget._cell_width_px,
+            widget._cell_height_px,
+        )
         self._send_image()
 
     def _send_image(self) -> None:
-        logger.debug("test _send_image")
+        logger.debug("kitty_test_send_image")
 
         widget = self.query_one("#image", KittyImageWidget)
         w, h = widget.available_pixel_size
@@ -131,7 +135,7 @@ class KittyMultiImageApp(App):
 
     def queue_oob_escape(self, cmd: str) -> None:
         logger.debug(
-            "KittyMultiImageApp.queue_oob_escape: %d bytes, %d pending",
+            "kitty_multi_queue_oob_escape bytes=%d pending=%d",
             len(cmd),
             len(self._pending_oob_escapes) + 1,
         )
@@ -139,14 +143,14 @@ class KittyMultiImageApp(App):
 
     def post_display_hook(self) -> None:
         logger.debug(
-            "KittyMultiImageApp.post_display_hook: %d pending, driver=%s",
+            "kitty_multi_post_display_hook pending=%d driver=%s",
             len(self._pending_oob_escapes),
             self._driver is not None,
         )
         if self._pending_oob_escapes and self._driver is not None:
             payload = "".join(self._pending_oob_escapes)
             logger.debug(
-                "KittyMultiImageApp.post_display_hook: flushing %d commands, %d bytes",
+                "kitty_multi_flush_oob commands=%d bytes=%d",
                 len(self._pending_oob_escapes),
                 len(payload),
             )
@@ -157,15 +161,15 @@ class KittyMultiImageApp(App):
         yield KittyImageWidget(id="image")
 
     def on_resize(self) -> None:
-        logger.debug("KittyMultiImageApp on_resize")
+        logger.debug("kitty_multi_image_on_resize")
         self.call_after_refresh(self._send_all)
 
     def _send_all(self) -> None:
-        logger.debug("_send_all")
+        logger.debug("kitty_test_send_all")
         widget = self.query_one("#image", KittyImageWidget)
         w, h = widget.available_pixel_size
         if w <= 0 or h <= 0:
-            logger.debug("available_pixel_size w <= 0 or h <= 0")
+            logger.debug("kitty_test_zero_size")
             return
 
         # Image 1: red/green checkerboard at top-left (200x200)

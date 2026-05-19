@@ -101,7 +101,7 @@ class TSDRApp(App[None], KeyboardMixin, TuningMixin, CommandInputMixin, EventHan
             self.event_adapter = TextualEventAdapter(self, sdr_engine.event_bus)
 
             self.event_adapter.start()
-            logger.info("TextualEventAdapter initialized and started")
+            logger.info("textual_event_adapter_initialized")
 
             # Publish initial memories so spectrum widget shows labels on startup
             store = get_memory_store()
@@ -232,32 +232,32 @@ class TSDRApp(App[None], KeyboardMixin, TuningMixin, CommandInputMixin, EventHan
 
     def on_unmount(self) -> None:
         """Called when app is unmounting - cleanup resources."""
-        logger.info("App unmounting, starting cleanup")
+        logger.info("app_unmounting")
 
-        logger.debug("Stopping event adapter")
+        logger.debug("app_stopping_event_adapter")
         try:
             self.event_adapter.stop()
         except Exception as e:
-            logger.error(f"Error stopping event adapter: {e}", exc_info=True)
+            logger.error("event_adapter_stop_failed error=%r", e, exc_info=True)
 
-        logger.debug("Saving device state")
+        logger.debug("app_saving_device_state")
         try:
             save_device(get_engine())
         except Exception as e:
-            logger.error(f"Error saving device state: {e}", exc_info=True)
+            logger.error("device_save_failed error=%r", e, exc_info=True)
 
         try:
             flush_band_stack_writeback()
         except Exception as e:
-            logger.error(f"Error flushing band-stack writeback: {e}", exc_info=True)
+            logger.error("band_stack_flush_failed error=%r", e, exc_info=True)
 
-        logger.debug("Shutting down SDR manager")
+        logger.debug("app_shutting_down_engine")
         try:
             get_engine().shutdown(timeout=2.0)
         except Exception as e:
-            logger.error(f"Error during shutdown: {e}", exc_info=True)
+            logger.error("app_engine_shutdown_failed error=%r", e, exc_info=True)
 
-        logger.info("Cleanup complete")
+        logger.info("app_cleanup_complete")
 
     def show_status(self, message: str) -> None:
         """Show a message in the status bar."""

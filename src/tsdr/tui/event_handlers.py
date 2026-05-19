@@ -132,7 +132,7 @@ class EventHandlerMixin(MixinBase):
 
     @on(PipelineError)
     def handle_pipeline_error(self, message: PipelineError) -> None:
-        logger.error("Pipeline error %s", message)
+        logger.error("ui_pipeline_error message=%r", message)
         self._show_error(
             f"Pipeline error ({message.event.device_id}): "
             f"{message.event.stage_name}: {message.event.error}"

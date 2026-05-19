@@ -55,27 +55,34 @@ class IOWorker:
         device = self.device_context.device
         config = self.device_context.config
 
-        logger.info(f"I/O worker starting for device {self.device_context.device_id}")
+        device_id = self.device_context.device_id
+        logger.info("io_worker_starting device=%s", device_id)
 
         try:
-            logger.debug(f"Opening device {self.device_context.device_id}")
+            logger.debug("device_open device=%s", device_id)
             device.open()
 
-            logger.debug(f"Setting frequency to {config.center_frequency / 1e6:.3f} MHz")
+            logger.info(
+                "hardware_set_frequency device=%s value_hz=%d",
+                device_id,
+                int(config.center_frequency),
+            )
             device.set_frequency(config.center_frequency)
 
-            logger.debug(f"Setting sample rate to {config.sample_rate / 1e6:.3f} MHz")
+            logger.info(
+                "hardware_set_sample_rate device=%s value_hz=%d", device_id, int(config.sample_rate)
+            )
             device.set_sample_rate(config.sample_rate)
 
             if config.auto_gain:
-                logger.debug("Enabling automatic gain control")
+                logger.info("hardware_enable_agc device=%s", device_id)
                 device.set_auto_gain(True)
             else:
-                logger.debug(f"Setting RF gain to {config.rf_gain} dB")
+                logger.info("hardware_set_gain device=%s value_db=%s", device_id, config.rf_gain)
                 device.set_gain(config.rf_gain)
 
             if device.capabilities.bias_tee_supported and config.bias_tee:
-                logger.debug("Enabling bias-T")
+                logger.info("hardware_set_bias_tee device=%s enabled=True", device_id)
                 device.set_bias_tee(True)
 
             # Apply network jitter buffer pre-fill (no-op on non-network devices).
@@ -83,13 +90,15 @@ class IOWorker:
 
             self.sample_format = device.get_sample_format()
             logger.debug(
-                f"Device {self.device_context.device_id} sample format: {self.sample_format.value}"
+                "hardware_sample_format device=%s format=%s",
+                device_id,
+                self.sample_format.value,
             )
 
-            logger.info(f"Device {self.device_context.device_id} hardware initialized successfully")
+            logger.info("hardware_initialized device=%s", device_id)
 
         except Exception as e:
-            logger.error(f"Failed to initialize device {self.device_context.device_id}: {e}")
+            logger.error("hardware_init_failed device=%s error=%r", device_id, e)
             context.emit_event(
                 DeviceErrorEvent(
                     source_id=context.worker_id,
@@ -159,7 +168,11 @@ class IOWorker:
 
                     except Exception as e:  # noqa: BLE001 - hardware config can fail in various ways
                         error_msg = f"Configuration update failed: {e}"
-                        logger.warning(f"Device {self.device_context.device_id}: {error_msg}")
+                        logger.warning(
+                            "hardware_config_update_failed device=%s error=%r",
+                            self.device_context.device_id,
+                            e,
+                        )
                         context.emit_event(
                             DeviceErrorEvent(
                                 source_id=context.worker_id,
@@ -182,7 +195,11 @@ class IOWorker:
                             # shutdown path (device was interrupted to unblock
                             # us); don't surface it as an error.
                             continue
-                        logger.error(f"Device {self.device_context.device_id} read error: {e}")
+                        logger.error(
+                            "device_read_failed device=%s error=%r",
+                            self.device_context.device_id,
+                            e,
+                        )
                         context.emit_event(
                             DeviceErrorEvent(
                                 source_id=context.worker_id,
@@ -196,7 +213,11 @@ class IOWorker:
                         if not context.should_continue():
                             continue
                         error_msg = f"Unexpected read error: {e}"
-                        logger.error(f"Device {self.device_context.device_id}: {error_msg}")
+                        logger.error(
+                            "device_read_unexpected_error device=%s error=%r",
+                            self.device_context.device_id,
+                            e,
+                        )
                         context.emit_event(
                             DeviceErrorEvent(
                                 source_id=context.worker_id,
@@ -295,10 +316,13 @@ class IOWorker:
     def teardown(self, context: WorkerContext) -> None:
         try:
             self.device_context.device.close()
-            logger.info(f"Device {self.device_context.device_id} closed successfully")
+            logger.info("device_closed device=%s", self.device_context.device_id)
         except Exception as e:  # noqa: BLE001 - cleanup must not fail
             logger.warning(
-                f"Error closing device {self.device_context.device_id}: {e}", exc_info=True
+                "device_close_failed device=%s error=%r",
+                self.device_context.device_id,
+                e,
+                exc_info=True,
             )
             context.emit_event(
                 DeviceErrorEvent(

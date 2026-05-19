@@ -204,8 +204,7 @@ class JitterBuffer:
         self._thread.join(timeout=_STOP_JOIN_TIMEOUT_S)
         if self._thread.is_alive():
             logger.warning(
-                "JitterBuffer producer thread did not exit within %.1fs; "
-                "did the caller unblock the underlying I/O?",
+                "jitter_buffer_stop_timeout timeout=%.1f",
                 _STOP_JOIN_TIMEOUT_S,
             )
         else:
@@ -274,8 +273,8 @@ class JitterBuffer:
                     if self._ring.size < self._underflow_target and not self._filling:
                         self._filling = True
                         self._rebuffer_count += 1
-                        logger.debug(
-                            "JitterBuffer underflow (size=%d < target=%d), rebuffer #%d",
+                        logger.warning(
+                            "jitter_buffer_underflow size=%d target=%d rebuffer=%d",
                             self._ring.size,
                             self._underflow_target,
                             self._rebuffer_count,
@@ -366,7 +365,7 @@ class JitterBuffer:
                 with self._cond:
                     self._error = e
                     self._cond.notify_all()
-                logger.debug("JitterBuffer producer raised: %s", e)
+                logger.debug("jitter_buffer_producer_raised error=%r", e)
                 return
             if not chunk:
                 with self._cond:

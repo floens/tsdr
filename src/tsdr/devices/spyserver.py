@@ -195,7 +195,7 @@ class _SpyServerCodec:
         body = struct.pack("<I", PROTO_VERSION) + APP_NAME.encode("utf-8")
         self.send_command(Command.HELLO, body)
         logger.debug(
-            "SpyServer → HELLO proto=0x%08x (%d.%d.%d) app=%s",
+            "spyserver_hello proto=0x%08x version=%d.%d.%d app=%s",
             PROTO_VERSION,
             (PROTO_VERSION >> 24) & 0xFF,
             (PROTO_VERSION >> 16) & 0xFF,
@@ -208,7 +208,7 @@ class _SpyServerCodec:
         self.send_command(Command.SET_SETTING, body)
         # IQ_FORMAT value is itself an IqFormat — decode it for readability.
         val_str = _enum_name(IqFormat, value) if setting is Setting.IQ_FORMAT else str(value)
-        logger.debug("SpyServer → SET_SETTING %s = %s", setting.name, val_str)
+        logger.debug("spyserver_setting key=%s value=%s", setting.name, val_str)
 
     def recv_message(self) -> tuple[int, int, bytes]:
         header = self._recv_exact(_MSG_HEADER_SIZE)
@@ -248,13 +248,13 @@ class _SpyServerCodec:
         try:
             self._sock.shutdown(socket.SHUT_RDWR)
         except OSError as e:
-            logger.debug("SpyServer codec: shutdown skipped: %s", e)
+            logger.debug("spyserver_codec_shutdown_skipped error=%r", e)
 
     def close(self) -> None:
         try:
             self._sock.close()
         except OSError as e:
-            logger.debug("SpyServer codec: close error: %s", e)
+            logger.debug("spyserver_codec_close_failed error=%r", e)
 
     def _recv_exact(self, n: int) -> bytes:
         while len(self._recv_buf) < n:
@@ -378,10 +378,7 @@ class SpyServerDevice:
                     if sync is not None:
                         self._apply_client_sync(sync)
                     else:
-                        logger.warning(
-                            "SpyServer CLIENT_SYNC too short during handshake: %d bytes",
-                            len(body),
-                        )
+                        logger.warning("spyserver_client_sync_short_handshake bytes=%d", len(body))
                     got_client_sync = True
 
             # Initial settings the user can't override. If the server set
@@ -398,7 +395,7 @@ class SpyServerDevice:
             self._codec.set_recv_timeout(None)
 
             logger.info(
-                "SpyServer %s:%d ready (device=%s, iq_format=%s)",
+                "spyserver_ready host=%s:%d device=%s iq_format=%s",
                 self.host,
                 self.port,
                 _enum_name(DeviceType, self._device_type),
@@ -436,7 +433,7 @@ class SpyServerDevice:
             try:
                 codec.send_setting(Setting.STREAMING_ENABLED, 0)
             except (OSError, DeviceError) as e:
-                logger.debug("SpyServer close: streaming-off send failed: %s", e)
+                logger.debug("spyserver_close_streaming_off_failed error=%r", e)
             # Shutdown is idempotent — interrupt() may have already done it.
             # Either way, the producer is now unblocked and jitter.stop joins.
             codec.shutdown()
@@ -460,7 +457,7 @@ class SpyServerDevice:
         chosen = find_nearest(self._supported_rates, rate)
         if abs(chosen - rate) / rate > 0.01:
             logger.warning(
-                "SpyServer rate %d off by >1%% from nearest supported (%d); using nearest",
+                "spyserver_sample_rate_snapped requested=%d chosen=%d",
                 int(rate),
                 chosen,
             )
@@ -472,7 +469,7 @@ class SpyServerDevice:
         # Resize the jitter ring so capacity tracks the new bytes/second.
         self.jitter.set_sample_rate(self._actual_sample_rate)
         logger.debug(
-            "SpyServer set_sample_rate: requested=%d, chosen=%d, decim=%d",
+            "spyserver_set_sample_rate requested=%d chosen=%d decim=%d",
             int(rate),
             chosen,
             decim,
@@ -532,7 +529,7 @@ class SpyServerDevice:
             self._codec.send_setting(Setting.STREAMING_ENABLED, 1)
             self._streaming = True
             logger.info(
-                "SpyServer streaming enabled (host=%s:%d, sr=%.0f, format=%s)",
+                "spyserver_streaming_enabled host=%s:%d sample_rate=%.0f format=%s",
                 self.host,
                 self.port,
                 self._actual_sample_rate,
@@ -549,19 +546,18 @@ class SpyServerDevice:
                 if sync is not None:
                     self._apply_client_sync(sync)
                 else:
-                    logger.warning("SpyServer CLIENT_SYNC too short: %d bytes", len(body))
+                    logger.warning("spyserver_client_sync_short bytes=%d", len(body))
             elif msg_type == MsgType.DEVICE_INFO:
                 self._apply_device_info(_DeviceInfo.from_bytes(body))
             elif msg_type == MsgType.PONG:
-                logger.debug("SpyServer ← PONG")
+                logger.debug("spyserver_pong")
             elif msg_type not in self._seen_unknown:
                 # Warn once per unknown msg_type so a protocol mismatch (e.g.
                 # server forces a format we don't decode) doesn't silently
                 # stall the read loop.
                 self._seen_unknown.add(msg_type)
                 logger.warning(
-                    "SpyServer received unknown message type %d (mflags=0x%04x, "
-                    "body=%d bytes) — discarding",
+                    "spyserver_unknown_message msg_type=%d mflags=0x%04x bytes=%d",
                     msg_type,
                     mflags,
                     len(body),
@@ -575,7 +571,7 @@ class SpyServerDevice:
         """Log the first IQ message and any mflags transitions thereafter."""
         if self._last_mflags is None:
             logger.info(
-                "SpyServer first IQ message: type=%s mflags=%d body=%d bytes",
+                "spyserver_first_iq type=%s mflags=%d bytes=%d",
                 _enum_name(MsgType, msg_type),
                 mflags,
                 body_size,
@@ -583,7 +579,7 @@ class SpyServerDevice:
             self._last_mflags = mflags
             return
         if mflags != self._last_mflags:
-            logger.debug("SpyServer mflags %d → %d", self._last_mflags, mflags)
+            logger.debug("spyserver_mflags_changed old=%d new=%d", self._last_mflags, mflags)
             self._last_mflags = mflags
 
     def _apply_device_info(self, info: _DeviceInfo) -> None:
@@ -606,9 +602,9 @@ class SpyServerDevice:
         self._rebuild_capabilities()
         fmt_name = _enum_name(IqFormat, info.forced_iq_format) if info.forced_iq_format else "NONE"
         logger.info(
-            "SpyServer DEVICE_INFO: type=%s serial=0x%08x max_sr=%d max_bw=%d "
-            "decim_stages=%d (min=%d) gain_stages=%d max_gain_index=%d "
-            "freq_range=[%d, %d] resolution=%d forced_iq_format=%s",
+            "spyserver_device_info type=%s serial=0x%08x max_sr=%d max_bw=%d "
+            "decim_stages=%d decim_min=%d gain_stages=%d max_gain_index=%d "
+            "freq_min=%d freq_max=%d resolution=%d forced_iq_format=%s",
             _enum_name(DeviceType, info.device_type),
             info.serial,
             info.max_sample_rate,
@@ -623,8 +619,8 @@ class SpyServerDevice:
             fmt_name,
         )
         logger.info(
-            "SpyServer supported sample rates: %s",
-            ", ".join(str(r) for r in self._supported_rates),
+            "spyserver_supported_rates rates=%s",
+            ",".join(str(r) for r in self._supported_rates),
         )
 
     def _apply_client_sync(self, sync: _ClientSync) -> None:
@@ -639,10 +635,10 @@ class SpyServerDevice:
         if sync.min_iq_freq and sync.max_iq_freq:
             self._freq_range = (float(sync.min_iq_freq), float(sync.max_iq_freq))
         self._rebuild_capabilities()
-        logger.info(
-            "SpyServer CLIENT_SYNC: can_control=%s current_gain=%d "
+        logger.debug(
+            "spyserver_client_sync can_control=%s current_gain=%d "
             "device_center=%d iq_center=%d fft_center=%d "
-            "iq_range=[%d, %d] fft_range=[%d, %d]",
+            "iq_min=%d iq_max=%d fft_min=%d fft_max=%d",
             sync.can_control,
             sync.current_gain,
             sync.device_center_freq,

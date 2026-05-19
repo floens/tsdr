@@ -243,9 +243,7 @@ class FLEXDecoder(Demodulator):
                         self._frame_bits = []
                         self._frame_bits_needed = FLEX_POST_SYNC_BITS
                         logger.debug(
-                            "FLEX sync found (inverted=%s, total=%d)",
-                            inverted,
-                            self._syncs_found,
+                            "flex_sync_found inverted=%s total=%d", inverted, self._syncs_found
                         )
                         break
 

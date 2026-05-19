@@ -38,7 +38,10 @@ class EventBus:
                 except Exception as e:
                     # Broad: one bad handler must not break delivery to others.
                     logger.error(
-                        f"Error in event handler for {type(event).__name__}: {e}", exc_info=True
+                        "event_handler_failed event_type=%s error=%r",
+                        type(event).__name__,
+                        e,
+                        exc_info=True,
                     )
 
     def subscribe(

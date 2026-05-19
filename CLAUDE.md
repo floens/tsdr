@@ -243,6 +243,25 @@ Use sparingly. Add comments when:
 - Code contains math/DSP algorithms
 Avoid narrative comments.
 
+## Logging
+
+Every `logger.<level>(...)` call uses the shape `event_name field=value field=value`.
+
+- First token is a stable `snake_case_event_name` — tests grep on it, so treat renames as breaking.
+- Fields are `key=value` pairs, space-separated. Quote values containing spaces (`changes="{'center_frequency': 1.0e8}"`). IDs and small numbers go unquoted (`device=rtl0`, `port=5556`).
+- No prose tail. If you'd write a sentence, pick a better event name (e.g. "Frequency changed, resetting demodulator" → `demodulator_reset reason=frequency_changed`).
+- Namespace event names when ambiguous: `audio_stream_opened`, `pipeline_worker_starting`, `spyserver_ready` — not bare `started` / `error`.
+
+Examples:
+
+```python
+logger.info("device_starting device=%s type=%s", device_id, device_type)
+logger.warning("buffer_underrun device=%s count=%d", source, n)
+logger.error("pipeline_stage_crash device=%s pipeline=%s stage=%s error=%r", ...)
+```
+
+`tests/test_log_event_names.py` enforces the snake_case event-name token across the tree.
+
 ## Verification
 
 - Code: `uv run pre-commit run --all-files`

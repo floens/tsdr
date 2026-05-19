@@ -79,13 +79,16 @@ class AudioOutputWorker:
         self._total_frames_out = 0
         self._stream_start_time: float | None = None
         self._last_stats_time: float | None = None
+        self._last_glitch_underflows = 0
+        self._last_glitch_rebuffers = 0
 
     def _audio_callback(self, outdata, frames, time_info, status):
         self._callback_count += 1
         if status.output_underflow:
             self._underflow_count += 1
             logger.warning(
-                "Audio underflow #%d (callback_queue depth: %d)",
+                "audio_underflow source=%s count=%d cb_q=%d",
+                self.source_id,
                 self._underflow_count,
                 self._callback_queue.qsize(),
             )
@@ -102,10 +105,12 @@ class AudioOutputWorker:
             self._silence_count += 1
             self._rebuffering = True
             self._rebuffer_count += 1
-            logger.warning("Buffer underrun, rebuffering (#%d)", self._rebuffer_count)
+            logger.warning(
+                "buffer_underrun source=%s rebuffer=%d", self.source_id, self._rebuffer_count
+            )
 
     def setup(self, context: WorkerContext) -> None:
-        logger.info(f"Audio output worker starting for source {self.source_id}")
+        logger.info("audio_worker_starting source=%s", self.source_id)
 
         try:
             import sounddevice as sd  # noqa: PLC0415
@@ -113,7 +118,7 @@ class AudioOutputWorker:
             self.sd = sd
         except ImportError as e:
             error_msg = f"sounddevice not available: {e}"
-            logger.error(f"Audio worker {self.source_id}: {error_msg}")
+            logger.error("audio_sounddevice_missing source=%s error=%r", self.source_id, e)
             context.emit_event(AudioOutputErrorEvent(source_id=self.source_id, error=error_msg))
             raise
 
@@ -129,13 +134,18 @@ class AudioOutputWorker:
             )
             # Don't start yet - wait for pre-buffer in run()
             logger.info(
-                f"Audio stream opened for source {self.source_id} "
-                f"(device={self.output_device or 'default'}, rate={self.TARGET_RATE})"
+                "audio_stream_opened source=%s device=%r rate=%d",
+                self.source_id,
+                self.output_device or "default",
+                self.TARGET_RATE,
             )
         except Exception as e:
-            error_msg = f"Failed to open audio device: {e}"
-            logger.error(f"Audio worker {self.source_id}: {error_msg}")
-            context.emit_event(AudioOutputErrorEvent(source_id=self.source_id, error=error_msg))
+            logger.error("audio_stream_open_failed source=%s error=%r", self.source_id, e)
+            context.emit_event(
+                AudioOutputErrorEvent(
+                    source_id=self.source_id, error=f"Failed to open audio device: {e}"
+                )
+            )
             raise
 
     def run(self, context: WorkerContext) -> None:
@@ -163,7 +173,8 @@ class AudioOutputWorker:
                 if requested_blocks > self._pre_buffer_blocks:
                     self._pre_buffer_blocks = requested_blocks
                     logger.info(
-                        "Pre-buffer raised to %d blocks (%.2fs)",
+                        "audio_prebuffer_raised source=%s blocks=%d seconds=%.2f",
+                        self.source_id,
                         self._pre_buffer_blocks,
                         self._pre_buffer_blocks * self.BLOCK_SIZE / self.TARGET_RATE,
                     )
@@ -182,7 +193,8 @@ class AudioOutputWorker:
                         and self._callback_queue.qsize() < self._pre_buffer_blocks
                     ):
                         logger.warning(
-                            "Upstream stall: gap %.3fs >> batch duration %.3fs (cb_q=%d)",
+                            "audio_upstream_stall source=%s gap=%.3f batch_duration=%.3f cb_q=%d",
+                            self.source_id,
                             gap,
                             batch_duration,
                             self._callback_queue.qsize(),
@@ -199,7 +211,9 @@ class AudioOutputWorker:
                         try:
                             audio_resampled = self._resample_streaming(audio_samples, source_rate)
                         except ValueError as e:
-                            logger.warning(f"Resampling failed for {self.source_id}: {e}")
+                            logger.warning(
+                                "audio_resampling_failed source=%s error=%r", self.source_id, e
+                            )
                             audio_resampled = audio_samples
                 else:
                     audio_resampled = audio_samples
@@ -237,7 +251,8 @@ class AudioOutputWorker:
                 if self._rebuffering and self._callback_queue.qsize() >= self._pre_buffer_blocks:
                     self._rebuffering = False
                     logger.info(
-                        "Rebuffer complete (#%d), resuming with %d blocks",
+                        "rebuffer_complete source=%s rebuffer=%d blocks=%d",
+                        self.source_id,
                         self._rebuffer_count,
                         self._callback_queue.qsize(),
                     )
@@ -249,37 +264,35 @@ class AudioOutputWorker:
                     self._stream_start_time = time.perf_counter()
                     self._last_stats_time = self._stream_start_time
                     logger.info(
-                        "Audio stream started (pre-buffered %d blocks, %.2fs)",
+                        "audio_stream_started source=%s blocks=%d seconds=%.2f",
+                        self.source_id,
                         self._callback_queue.qsize(),
                         self._callback_queue.qsize() * self.BLOCK_SIZE / self.TARGET_RATE,
                     )
 
-                # Periodic throughput summary (~5s)
+                # Glitch summary (~5s window). Silent on happy path; INFO only if
+                # underflows or rebuffers ticked in the window.
                 if self._last_stats_time is not None and self._stream_start_time is not None:
                     stats_elapsed = time.perf_counter() - self._last_stats_time
                     if stats_elapsed >= 5.0:
-                        total_elapsed = time.perf_counter() - self._stream_start_time
-                        effective_rate = (
-                            self._total_frames_out / total_elapsed if total_elapsed > 0 else 0
-                        )
-                        drift = self._cumulative_output_duration - self._cumulative_input_duration
-                        residual_size = len(self._residual) if self._residual is not None else 0
-                        logger.debug(
-                            "Stats: elapsed=%.1fs, frames_in=%d, frames_out=%d, "
-                            "rate=%.0fHz, underflows=%d, silences=%d, rebuffers=%d, "
-                            "dropped=%d, cb_q=%d, drift=%.6fs, residual=%d",
-                            total_elapsed,
-                            self._total_frames_in,
-                            self._total_frames_out,
-                            effective_rate,
-                            self._underflow_count,
-                            self._silence_count,
-                            self._rebuffer_count,
-                            self._dropped_blocks,
-                            self._callback_queue.qsize(),
-                            drift,
-                            residual_size,
-                        )
+                        new_underflows = self._underflow_count - self._last_glitch_underflows
+                        new_rebuffers = self._rebuffer_count - self._last_glitch_rebuffers
+                        if new_underflows > 0 or new_rebuffers > 0:
+                            drift = (
+                                self._cumulative_output_duration - self._cumulative_input_duration
+                            )
+                            logger.info(
+                                "audio_glitch device=%s elapsed=%.1f underflows=%d rebuffers=%d "
+                                "silences=%d drift=%.6f",
+                                self.source_id,
+                                stats_elapsed,
+                                new_underflows,
+                                new_rebuffers,
+                                self._silence_count,
+                                drift,
+                            )
+                            self._last_glitch_underflows = self._underflow_count
+                            self._last_glitch_rebuffers = self._rebuffer_count
                         self._last_stats_time = time.perf_counter()
 
     def _resample_streaming(self, audio_samples: np.ndarray, source_rate: float) -> np.ndarray:
@@ -299,8 +312,9 @@ class AudioOutputWorker:
     def teardown(self, context: WorkerContext) -> None:
         elapsed = time.perf_counter() - self._stream_start_time if self._stream_start_time else 0
         logger.info(
-            "Audio teardown: callbacks=%d, underflows=%d, silences=%d, "
-            "rebuffers=%d, dropped=%d, frames_in=%d, frames_out=%d, elapsed=%.1fs",
+            "audio_teardown source=%s callbacks=%d underflows=%d silences=%d rebuffers=%d "
+            "dropped=%d frames_in=%d frames_out=%d elapsed=%.1f",
+            self.source_id,
             self._callback_count,
             self._underflow_count,
             self._silence_count,
@@ -331,9 +345,9 @@ class AudioOutputWorker:
             try:
                 self.stream.stop()
                 self.stream.close()
-                logger.info(f"Audio stream closed for source {self.source_id}")
+                logger.info("audio_stream_closed source=%s", self.source_id)
             except Exception as e:  # noqa: BLE001 - cleanup must not fail
-                logger.warning(f"Error closing audio stream: {e}")
+                logger.warning("audio_stream_close_failed source=%s error=%r", self.source_id, e)
 
     def on_config_change(self, config) -> None:
         self._volume = config.audio_volume
@@ -357,8 +371,8 @@ def list_audio_devices() -> list[dict[str, Any]]:
                 )
         return devices
     except ImportError as e:
-        logger.warning(f"sounddevice not available: {e}")
+        logger.warning("audio_sounddevice_missing error=%r", e)
         return []
     except (OSError, RuntimeError) as e:
-        logger.error(f"Failed to query audio devices: {e}", exc_info=True)
+        logger.error("audio_devices_query_failed error=%r", e, exc_info=True)
         return []

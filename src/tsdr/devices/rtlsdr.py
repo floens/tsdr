@@ -48,7 +48,7 @@ def import_rtlsdr() -> Any:
 
         return rtlsdr
     except (ImportError, OSError, AttributeError) as e:
-        logger.debug("pyrtlsdr not available: %s", e)
+        logger.debug("rtlsdr_pyrtlsdr_missing error=%r", e)
         return None
 
 
@@ -128,7 +128,7 @@ class RTLSDRDevice:
                 tuner_type = self._device.get_tuner_type()
             tuner_name = _TUNER_TYPES.get(tuner_type, f"Unknown ({tuner_type})")
         except OSError as e:
-            logger.debug("RTL-SDR get_tuner_type failed: %s", e)
+            logger.debug("rtlsdr_get_tuner_type_failed error=%r", e)
             tuner_name = "Unknown"
 
         type_label = f"RTL-SDR {tuner_name}" if tuner_name != "Unknown" else "RTL-SDR"
@@ -148,7 +148,7 @@ class RTLSDRDevice:
 
         self._is_open = True
         logger.info(
-            "RTL-SDR opened: tuner=%s, serial=%s, index=%d",
+            "rtlsdr_opened tuner=%s serial=%s index=%d",
             tuner_name,
             self._serial or "(any)",
             self._device_index,
@@ -165,7 +165,7 @@ class RTLSDRDevice:
                 with _silence_stderr():
                     self._device.close()
             except OSError as e:
-                logger.debug("Error closing RTL-SDR: %s", e)
+                logger.debug("rtlsdr_close_failed error=%r", e)
             self._device = None
         self._is_open = False
 
@@ -246,7 +246,7 @@ class RTLSDRDevice:
         if self._device is not None and self._capabilities.bias_tee_supported:
             with _silence_stderr():
                 self._device.set_bias_tee(enable)
-            logger.debug("RTL-SDR: bias-T %s", "on" if enable else "off")
+            logger.debug("rtlsdr_set_bias_tee enabled=%s", enable)
 
     def set_network_buffer_seconds(self, seconds: float) -> None:
         # USB-paced device: no jitter buffer.

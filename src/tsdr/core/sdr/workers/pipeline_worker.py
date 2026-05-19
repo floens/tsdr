@@ -38,7 +38,8 @@ class PipelineWorker:
         self.pipeline_context: PipelineContext | None = None
 
     def setup(self, context: WorkerContext) -> None:
-        logger.info(f"Pipeline worker starting for device {self.device_context.device_id}")
+        device_id = self.device_context.device_id
+        logger.info("pipeline_worker_starting device=%s", device_id)
 
         self.pipeline_context = PipelineContext(
             device_context=self.device_context,
@@ -47,7 +48,7 @@ class PipelineWorker:
             config=self.device_context.get_sdr_config(),
         )
 
-        logger.info(f"Pipeline worker initialized for device {self.device_context.device_id}")
+        logger.debug("pipeline_worker_initialized device=%s", device_id)
 
     def run(self, context: WorkerContext) -> None:
         """Main pipeline loop."""
@@ -78,7 +79,7 @@ class PipelineWorker:
                     try:
                         iq_samples = batch.to_iq_array()
                     except ValueError as e:
-                        logger.error(f"Device {device_id} IQ conversion error: {e}")
+                        logger.error("iq_conversion_failed device=%s error=%r", device_id, e)
                         continue
 
                 pipeline_data = batch.with_changes(
@@ -94,7 +95,13 @@ class PipelineWorker:
                         try:
                             pipeline.execute(pipeline_data, self.pipeline_context)
                         except Exception as e:  # noqa: BLE001 - pipeline stages can fail in various ways
-                            logger.debug(f"Pipeline execution error: {e}")
+                            logger.error(
+                                "pipeline_stage_crash device=%s pipeline=%s error=%r",
+                                device_id,
+                                pipeline_name,
+                                e,
+                                exc_info=True,
+                            )
 
     def teardown(self, context: WorkerContext) -> None:
         pass
@@ -105,7 +112,7 @@ class PipelineWorker:
             return
 
         device_id = self.device_context.device_id
-        logger.debug(f"Applying config update to pipeline stages for {device_id}")
+        logger.debug("pipeline_config_update_applying device=%s", device_id)
 
         current_pipelines = list(self.device_context.pipelines.items())
         for pipeline_name, pipeline in current_pipelines:
@@ -114,5 +121,9 @@ class PipelineWorker:
                     stage.on_config_change(config)
                 except Exception as e:  # noqa: BLE001 - isolate stage errors
                     logger.warning(
-                        f"Pipeline {pipeline_name} stage {type(stage).__name__} config update failed: {e}"
+                        "stage_config_update_failed device=%s pipeline=%s stage=%s error=%r",
+                        device_id,
+                        pipeline_name,
+                        type(stage).__name__,
+                        e,
                     )

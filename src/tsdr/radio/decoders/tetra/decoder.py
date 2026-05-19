@@ -177,7 +177,7 @@ class TETRADecoder(Demodulator):
         if not crc_ok:
             tripped = trackers.record_sync_failure(self._state, _MAX_SB1_FAILURES)
             if tripped:
-                logger.info("Too many SB1 CRC failures, resetting decoder")
+                logger.info("tetra_decoder_reset reason=sb1_crc_failures")
                 self.reset()
             return
 
@@ -191,7 +191,7 @@ class TETRADecoder(Demodulator):
         identity_changed = trackers.record_sb1(self._state, info, timestamp)
         if identity_changed:
             logger.info(
-                "TETRA locked: MCC=%d MNC=%d CC=%d scramble_init=0x%08X",
+                "tetra_locked mcc=%d mnc=%d cc=%d scramble_init=0x%08X",
                 info.mcc,
                 info.mnc,
                 info.colour_code,
@@ -214,7 +214,7 @@ class TETRADecoder(Demodulator):
         sb2_type1, sb2_ok = decode_block(sb.sb2, "SB2", scramble_init)
         trackers.record_quality(self._state, sb2_ok, timestamp)
         if not sb2_ok:
-            logger.debug("SB2 CRC failed")
+            logger.debug("tetra_sb2_crc_failed")
             return
 
         si = parse_sysinfo(sb2_type1)
@@ -254,7 +254,7 @@ class TETRADecoder(Demodulator):
             if ok:
                 self._process_mac_pdu(schf_type1, "SCH/F", timestamp)
             else:
-                logger.debug("SCH/F CRC failed")
+                logger.debug("tetra_schf_crc_failed")
         else:
             for label, blk in [("BKN1", ndb.bkn1), ("BKN2", ndb.bkn2)]:
                 blk_type1, ok = decode_block(blk, "NDB", scramble_init)
@@ -262,7 +262,7 @@ class TETRADecoder(Demodulator):
                 if ok:
                     self._process_mac_pdu(blk_type1, label, timestamp)
                 else:
-                    logger.debug("%s CRC failed", label)
+                    logger.debug("tetra_block_crc_failed label=%s", label)
 
     def _process_traffic_burst(self, ndb: NormalBurst, timestamp: float) -> None:
         """Decode a traffic burst into two ACELP frames and buffer PCM per TN."""
@@ -379,7 +379,7 @@ class TETRADecoder(Demodulator):
             key = (tn, source)
             self._frag_cache[key] = _FragCache(snapshot=outcome.fragment_start, cached_ts=timestamp)
             if key in self._frag_chains:
-                logger.debug("TETRA MAC frag dropped TN=%d source=%s (preempted)", tn, source)
+                logger.debug("tetra_mac_frag_dropped tn=%d source=%s reason=preempted", tn, source)
                 del self._frag_chains[key]
 
         self._emit_mac_result(outcome, timestamp)
@@ -420,7 +420,7 @@ class TETRADecoder(Demodulator):
         self._frag_chains[(tn, source)] = chain
         trackers.record_fragment_started(self._state)
         logger.debug(
-            "TETRA MAC frag start TN=%d source=%s seed_bits=%d",
+            "tetra_mac_frag_start tn=%d source=%s seed_bits=%d",
             tn,
             source,
             len(cache.snapshot.tm_sdu_bits),
@@ -433,14 +433,12 @@ class TETRADecoder(Demodulator):
             return
         chain = self._frag_chains.get((tn, source)) or self._seed_chain(tn, source, timestamp)
         if chain is None:
-            logger.debug(
-                "TETRA MAC frag orphan TN=%d source=%s (no preceding RESOURCE)", tn, source
-            )
+            logger.debug("tetra_mac_frag_orphan tn=%d source=%s reason=no_resource", tn, source)
             return
         chain.extra_pieces.append(frag.tm_sdu_bits)
         chain.last_update_ts = timestamp
         logger.debug(
-            "TETRA MAC frag cont TN=%d source=%s bits=%d (chain pieces=%d)",
+            "tetra_mac_frag_cont tn=%d source=%s bits=%d pieces=%d",
             tn,
             source,
             len(frag.tm_sdu_bits),
@@ -457,7 +455,7 @@ class TETRADecoder(Demodulator):
             chain = self._seed_chain(tn, source, timestamp)
             if chain is None:
                 logger.debug(
-                    "TETRA MAC frag orphan-end TN=%d source=%s (no preceding RESOURCE)",
+                    "tetra_mac_frag_orphan_end tn=%d source=%s reason=no_resource",
                     tn,
                     source,
                 )
@@ -484,7 +482,7 @@ class TETRADecoder(Demodulator):
             [strip_fill_bits(snap.tm_sdu_bits, snap.has_fill), *chain.extra_pieces]
         )
         logger.debug(
-            "TETRA MAC frag end source=%s pieces=%d total_bits=%d",
+            "tetra_mac_frag_end source=%s pieces=%d total_bits=%d",
             chain.source_label,
             1 + len(chain.extra_pieces),
             len(bits),
@@ -519,7 +517,7 @@ class TETRADecoder(Demodulator):
         ]
         for key in stale_chains:
             tn, source = key
-            logger.debug("TETRA MAC frag expired TN=%d source=%s", tn, source)
+            logger.debug("tetra_mac_frag_expired tn=%d source=%s", tn, source)
             del self._frag_chains[key]
         stale_cache = [
             key

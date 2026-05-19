@@ -109,15 +109,14 @@ class CommandInputMixin(MixinBase):
         total = len(self.startup_commands)
         command = self.startup_commands[self._startup_index]
 
-        logger.info(f"Startup command {i}/{total}: {command}")
-
         try:
             result = registry.execute(command)
             registry.last_command_output = f"[Startup {i}/{total}] {result}"
             self.show_status(registry.last_command_output)
-            logger.info(f"Result: {result}")
         except Exception as e:
-            logger.error(f"Startup command failed: {e}", exc_info=True)
+            logger.error(
+                "startup_command_failed index=%d total=%d error=%r", i, total, e, exc_info=True
+            )
             registry.last_command_output = f"[Startup {i}/{total}] Error: {e}"
             self._show_error(str(e))
 

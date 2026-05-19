@@ -91,8 +91,11 @@ class IQFileDevice:
             self._file_size = self._path.stat().st_size
         self._playback_time = time.monotonic()
         logger.debug(
-            f"IQFile opened: {self._path} ({self._file_size} bytes, "
-            f"format={self._sample_format.value}, sample_rate={self._sample_rate})"
+            "iqfile_opened path=%s bytes=%d format=%s sample_rate=%s",
+            self._path,
+            self._file_size,
+            self._sample_format.value,
+            self._sample_rate,
         )
 
     def interrupt(self) -> None:
@@ -129,7 +132,7 @@ class IQFileDevice:
             chunk = self._file.read(remaining)
             if not chunk:
                 self._loop_count += 1
-                logger.debug(f"IQFile EOF loop #{self._loop_count} at read #{self._read_count}")
+                logger.debug("iqfile_eof_loop loop=%d read=%d", self._loop_count, self._read_count)
                 self._file.seek(0)
                 chunk = self._file.read(remaining)
                 if not chunk:
@@ -140,8 +143,11 @@ class IQFileDevice:
         self._read_count += 1
         if self._read_count <= 3 or self._read_count % 100 == 0:
             logger.debug(
-                f"IQFile read #{self._read_count}: {count} bytes, "
-                f"sleep={sleep_time:.4f}s, rate={self._sample_rate}"
+                "iqfile_read read=%d bytes=%d sleep=%.4f rate=%s",
+                self._read_count,
+                count,
+                sleep_time,
+                self._sample_rate,
             )
         return data
 
@@ -149,7 +155,7 @@ class IQFileDevice:
         pass
 
     def set_sample_rate(self, rate: float) -> None:
-        logger.debug(f"IQFile set_sample_rate: {self._sample_rate} -> {rate}")
+        logger.debug("iqfile_set_sample_rate old=%s new=%s", self._sample_rate, rate)
         self._sample_rate = rate
 
     @property

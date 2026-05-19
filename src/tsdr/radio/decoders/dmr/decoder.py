@@ -434,7 +434,7 @@ class DMRDecoder(Demodulator):
             ts.voice_burst_count = 0
             ts.voice_sync_type = sync_type
             self._dirty = True
-            logger.debug("Voice call started on slot %d (%s)", timeslot, sync_type)
+            logger.debug("dmr_voice_call_started slot=%d sync_type=%s", timeslot, sync_type)
 
         ts.voice_burst_count += 1
         ts.last_voice_ts = timestamp
@@ -442,7 +442,7 @@ class DMRDecoder(Demodulator):
         if not ts.confirmed and ts.voice_burst_count >= _VOICE_CONFIDENCE_BURSTS:
             ts.confirmed = True
             logger.debug(
-                "Voice call confirmed on slot %d after %d bursts", timeslot, ts.voice_burst_count
+                "dmr_voice_call_confirmed slot=%d bursts=%d", timeslot, ts.voice_burst_count
             )
 
         if ts.confirmed:
@@ -501,9 +501,7 @@ class DMRDecoder(Demodulator):
             ts.last_voice_ts = timestamp
             self._dirty = True
         elif slot_type.data_type == DataType.TERMINATOR_WITH_LC and ts.in_voice_call:
-            logger.debug(
-                "Voice call ended on slot %d after %d bursts", timeslot, ts.voice_burst_count
-            )
+            logger.debug("dmr_voice_call_ended slot=%d bursts=%d", timeslot, ts.voice_burst_count)
             ts.in_voice_call = False
             ts.confirmed = False
             self._dirty = True
@@ -516,7 +514,7 @@ class DMRDecoder(Demodulator):
 
         if self._bursts_decoded <= 5 or self._bursts_decoded % 100 == 0:
             logger.debug(
-                "Burst #%d: %s slot=%d cc=%d type=%s",
+                "dmr_burst index=%d sync_type=%s slot=%d cc=%d type=%s",
                 self._bursts_decoded,
                 sync_type,
                 timeslot,

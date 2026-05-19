@@ -48,7 +48,14 @@ class ProcessingPipeline:
                     break
                 current_data = stage.process(current_data, context)
             except Exception as e:  # noqa: BLE001 - stages can fail in arbitrary ways
-                logger.error("Pipeline error", exc_info=True)
+                logger.error(
+                    "pipeline_stage_error device=%s pipeline=%s stage=%s error=%r",
+                    self.device_id,
+                    self.pipeline_id,
+                    type(stage).__name__,
+                    e,
+                    exc_info=True,
+                )
                 context.event_bus.publish(
                     PipelineErrorEvent(
                         source_id=f"pipeline_{self.pipeline_id}",
