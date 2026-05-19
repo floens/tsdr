@@ -6,7 +6,7 @@ This is the main entry point for all SDR operations from the UI layer.
 
 import logging
 from dataclasses import replace
-from queue import Queue
+from queue import Empty, Queue
 from types import MappingProxyType
 from typing import Any, Unpack
 
@@ -438,6 +438,17 @@ class SDREngine:
             return
 
         context = self.devices[device_id]
+
+        dropped = 0
+        try:
+            while True:
+                context.audio_queue.get_nowait()
+                dropped += 1
+        except Empty:
+            pass
+        if dropped:
+            logger.info("audio_queue_drained device=%s batches=%d", device_id, dropped)
+
         worker = AudioOutputWorker(
             source_id=device_id,
             audio_queue=context.audio_queue,
