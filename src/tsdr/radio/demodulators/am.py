@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 
 from tsdr.core.sdr.datatypes import SignalInfo
-from tsdr.radio.demodulators import Demodulator
+from tsdr.radio.demodulators import NYQUIST_MARGIN, Demodulator
 from tsdr.radio.dsp import (
     AGC,
     DCBlocker,
@@ -31,6 +31,7 @@ class AMDemodulator(Demodulator):
     has_audio = True
 
     DEFAULT_CHANNEL_BANDWIDTH = 10_000
+    MAX_CHANNEL_BANDWIDTH = 48_000 * NYQUIST_MARGIN
 
     def __init__(
         self,
@@ -56,6 +57,7 @@ class AMDemodulator(Demodulator):
     def _build_filters(self) -> None:
         self.channel_decimation = max(1, int(self.sample_rate // self.audio_rate))
         self.decimated_rate = self.sample_rate / self.channel_decimation
+        self.channel_bandwidth = min(self.channel_bandwidth, self.decimated_rate * NYQUIST_MARGIN)
 
         # Anti-alias decimator: input rate -> ~audio_rate. Wide cutoff just
         # below audio Nyquist; this is not the channel filter.
@@ -83,7 +85,7 @@ class AMDemodulator(Demodulator):
         )
 
     def set_channel_bandwidth(self, bandwidth: float) -> None:
-        self.channel_bandwidth = float(bandwidth)
+        self.channel_bandwidth = min(float(bandwidth), self.decimated_rate * NYQUIST_MARGIN)
         # Rebuild only bandwidth-dependent filters; keep DC/AGC envelope state.
         self._channel = self._build_channel_filter(self.channel_bandwidth)
         self._audio_lpf = self._build_audio_lpf(self.channel_bandwidth)

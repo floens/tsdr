@@ -552,6 +552,11 @@ class SDREngine:
 
         new_cls = DEMODULATOR_CLASSES.get(mode.upper())
         new_has_audio = new_cls is not None and new_cls.has_audio
+        new_bw = (
+            new_cls.bandwidth_override_on_mode_switch(context.config.channel_bandwidth)
+            if new_cls is not None
+            else None
+        )
 
         can_swap_in_place = (
             device_id in self._audio_workers
@@ -571,12 +576,17 @@ class SDREngine:
                 fm_deviation_hz=fm_deviation_hz,
             )
             new_pipelines = MappingProxyType(dict(context.config.pipelines) | {"audio": new_pc})
-            self.update_device_config(device_id, pipelines=new_pipelines)
+            changes: dict[str, Any] = {"pipelines": new_pipelines}
+            if new_bw is not None:
+                changes["channel_bandwidth"] = new_bw
+            self.update_device_config(device_id, **changes)
             self._publish_pipeline_changed(device_id, "audio", active=True)
             return
 
         self.stop_audio_output(device_id)
         self.remove_pipeline(device_id, "audio")
+        if new_bw is not None:
+            self.update_device_config(device_id, channel_bandwidth=new_bw)
         self.add_pipeline(
             device_id,
             "audio",

@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 
 from tsdr.core.sdr.datatypes import SignalInfo
-from tsdr.radio.demodulators import Demodulator
+from tsdr.radio.demodulators import NYQUIST_MARGIN, Demodulator
 from tsdr.radio.dsp import (
     FMDiscriminator,
     SquelchGate,
@@ -37,6 +37,7 @@ class NarrowbandFMDemodulator(Demodulator):
 
     # Default channel bandwidth for NFM (12.5 kHz standard channel spacing)
     DEFAULT_CHANNEL_BANDWIDTH = 12_500
+    MAX_CHANNEL_BANDWIDTH = 48_000 * NYQUIST_MARGIN
 
     def __init__(
         self,
@@ -77,6 +78,7 @@ class NarrowbandFMDemodulator(Demodulator):
         """
         self.channel_decimation = max(1, int(self.sample_rate // self.audio_rate))
         self.decimated_rate = self.sample_rate / self.channel_decimation
+        self.channel_bandwidth = min(self.channel_bandwidth, self.decimated_rate * NYQUIST_MARGIN)
 
         aa_cutoff = self.audio_rate * 0.45
         self._decim = StreamingDecimFilter(
@@ -103,10 +105,10 @@ class NarrowbandFMDemodulator(Demodulator):
         Args:
             bandwidth: New channel bandwidth in Hz
         """
-        self.channel_bandwidth = bandwidth
-        self._channel = self._build_channel_filter(bandwidth)
+        self.channel_bandwidth = min(float(bandwidth), self.decimated_rate * NYQUIST_MARGIN)
+        self._channel = self._build_channel_filter(self.channel_bandwidth)
         if self._deviation_override is None:
-            self.deviation = bandwidth / 2.0
+            self.deviation = self.channel_bandwidth / 2.0
             self._fm_discrim.set_deviation(self.decimated_rate, self.deviation)
 
     def set_sample_rate(self, rate: float) -> None:

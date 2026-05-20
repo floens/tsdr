@@ -100,8 +100,8 @@ def test_nfm_set_deviation_updates_scaling():
     assert d._fm_discrim._scale == pytest.approx(2.0 * scale_before)
 
 
-def test_am_set_sample_rate_raises_on_bandwidth_above_nyquist():
+def test_am_set_sample_rate_clamps_bandwidth_above_nyquist():
     d = AMDemodulator(sample_rate=384_000, audio_rate=48_000, channel_bandwidth=40_000)
     d.channel_bandwidth = 60_000
-    with pytest.raises(ValueError):
-        d.set_sample_rate(48_000)
+    d.set_sample_rate(48_000)
+    assert d.channel_bandwidth == pytest.approx(48_000 * 0.95)

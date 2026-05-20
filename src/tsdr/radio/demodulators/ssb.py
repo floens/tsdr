@@ -24,7 +24,7 @@ from __future__ import annotations
 import numpy as np
 
 from tsdr.core.sdr.datatypes import SignalInfo
-from tsdr.radio.demodulators import Demodulator
+from tsdr.radio.demodulators import NYQUIST_MARGIN, Demodulator
 from tsdr.radio.dsp import (
     AGC,
     DCBlocker,
@@ -44,6 +44,7 @@ class SSBDemodulator(Demodulator):
 
     # Audio passband upper cutoff in Hz; matches SDRangel default.
     DEFAULT_CHANNEL_BANDWIDTH = 3_000
+    MAX_CHANNEL_BANDWIDTH = 48_000 * NYQUIST_MARGIN
 
     # DC blocker / sub-audio HPF cutoff in Hz.
     DC_BLOCKER_CUTOFF = 100.0
@@ -80,6 +81,7 @@ class SSBDemodulator(Demodulator):
     def _setup_channel_filter(self) -> None:
         self.channel_decimation = max(1, int(self.sample_rate // self.audio_rate))
         self.decimated_rate = self.sample_rate / self.channel_decimation
+        self.channel_bandwidth = min(self.channel_bandwidth, self.decimated_rate * NYQUIST_MARGIN)
 
         aa_cutoff = self.audio_rate * 0.45
         self._decim = StreamingDecimFilter(
@@ -112,7 +114,7 @@ class SSBDemodulator(Demodulator):
         Args:
             bandwidth: New audio passband upper cutoff in Hz.
         """
-        self.channel_bandwidth = float(bandwidth)
+        self.channel_bandwidth = min(float(bandwidth), self.decimated_rate * NYQUIST_MARGIN)
         self._channel = self._build_channel_filter(self.channel_bandwidth)
 
     def set_sample_rate(self, rate: float) -> None:

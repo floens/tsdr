@@ -6,12 +6,21 @@ import numpy as np
 from tsdr.core.events.events import DecodedMessage
 from tsdr.core.sdr.datatypes import AudioBatch, SignalInfo
 
+# Fraction of Nyquist below which a post-decimation channel filter's cutoff
+# must sit to keep the FIR transition band inside the passband.
+NYQUIST_MARGIN = 0.95
+
 
 class Demodulator(ABC):
     """Base class for all demodulators and decoders."""
 
     stereo_detected: bool = False
     has_audio: ClassVar[bool] = False
+    DEFAULT_CHANNEL_BANDWIDTH: ClassVar[float] = 12_500
+    # Post-decimation demods override with their decimated audio Nyquist cap;
+    # the inf default applies to WFM (filters at native sample rate) and to
+    # protocol decoders that ignore channel_bandwidth.
+    MAX_CHANNEL_BANDWIDTH: ClassVar[float] = float("inf")
 
     def __init__(self) -> None:
         self._audio_batches: list[AudioBatch] = []
@@ -30,6 +39,19 @@ class Demodulator(ABC):
         fields updated by the worker on writes.
         """
         ...
+
+    @classmethod
+    def bandwidth_override_on_mode_switch(cls, current_bw: float | None) -> float | None:
+        """Return ``DEFAULT_CHANNEL_BANDWIDTH`` if `current_bw` doesn't fit this demod, else None.
+
+        Used by the engine when the audio demod is swapped, to detect when an
+        inherited bandwidth from the previous mode would exceed this demod's
+        ``MAX_CHANNEL_BANDWIDTH`` (e.g. 200 kHz inherited from WFM into AM).
+        Returning None means "keep the user's current bandwidth."
+        """
+        if current_bw is None or current_bw <= cls.MAX_CHANNEL_BANDWIDTH:
+            return None
+        return cls.DEFAULT_CHANNEL_BANDWIDTH
 
     def reset(self) -> None:
         self._audio_batches.clear()

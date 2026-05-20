@@ -34,7 +34,7 @@ import numpy as np
 from tsdr.core.events.events import DecodedMessage
 from tsdr.core.sdr.datatypes import SignalInfo
 from tsdr.radio.decoders.morse import MorseDecoder
-from tsdr.radio.demodulators import Demodulator
+from tsdr.radio.demodulators import NYQUIST_MARGIN, Demodulator
 from tsdr.radio.dsp import (
     AGC,
     SquelchGate,
@@ -52,6 +52,7 @@ class CWDemodulator(Demodulator):
     has_audio = True
 
     DEFAULT_CHANNEL_BANDWIDTH = 200.0
+    MAX_CHANNEL_BANDWIDTH = 48_000 * NYQUIST_MARGIN
     DEFAULT_TONE_HZ = 700.0
 
     def __init__(
@@ -85,6 +86,7 @@ class CWDemodulator(Demodulator):
     def _setup_channel_filter(self) -> None:
         self.channel_decimation = max(1, int(self.sample_rate // self.audio_rate))
         self.decimated_rate = self.sample_rate / self.channel_decimation
+        self.channel_bandwidth = min(self.channel_bandwidth, self.decimated_rate * NYQUIST_MARGIN)
 
         aa_cutoff = self.audio_rate * 0.45
         self._decim = StreamingDecimFilter(
@@ -105,7 +107,7 @@ class CWDemodulator(Demodulator):
         )
 
     def set_channel_bandwidth(self, bandwidth: float) -> None:
-        self.channel_bandwidth = float(bandwidth)
+        self.channel_bandwidth = min(float(bandwidth), self.decimated_rate * NYQUIST_MARGIN)
         self._channel = self._build_channel_filter(self.channel_bandwidth)
 
     def set_sample_rate(self, rate: float) -> None:
