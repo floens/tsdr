@@ -228,6 +228,15 @@ class TuningMixin(MixinBase):
             )
             store.set_register(key, new_idx, reg)
 
+        rng = device.device.capabilities.frequency_range
+        if rng is not None and not (rng[0] <= reg.frequency <= rng[1]):
+            self._show_error(
+                f"Band {stack.band.name}: "
+                f"{format_hz(reg.frequency, interval=1.0, long_suffix=True)} "
+                f"out of device range"
+            )
+            return
+
         save_previous_tune_state(device)
 
         engine = get_engine()
@@ -238,11 +247,15 @@ class TuningMixin(MixinBase):
                 except SDRException as e:
                     self._show_error(str(e))
                     return
-            engine.update_device_config(
-                device.device_id,
-                center_frequency=float(reg.frequency),
-                channel_bandwidth=int(reg.bandwidth),
-            )
+            try:
+                engine.update_device_config(
+                    device.device_id,
+                    center_frequency=float(reg.frequency),
+                    channel_bandwidth=int(reg.bandwidth),
+                )
+            except ValueError as e:
+                self._show_error(str(e))
+                return
         store.set_current_idx(key, new_idx)
         ts.current_band_key = key
         ts.step = None
