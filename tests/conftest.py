@@ -1,5 +1,5 @@
-import sys
 import time
+from collections import deque
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -10,43 +10,50 @@ from tsdr.core.devices import init_device_store
 from tsdr.core.events.events import Event
 from tsdr.core.sdr.config import DeviceConfig, PipelineConfig, StageType
 from tsdr.core.sdr.engine import SDREngine
+from tsdr.core.sdr.workers import audio_worker as audio_worker_module
 from tsdr.devices import IQFileParams
 
 
-class _SilentOutputStream:
-    """Stand-in for sounddevice.OutputStream that never touches the hardware."""
+class _FakeSpeaker:
+    """SoundCard speaker stand-in that never opens a real audio device."""
 
-    def __init__(self, **_kwargs) -> None:
-        pass
+    def __init__(self, id_: str = "fake-default", name: str = "Fake Speaker") -> None:
+        self.id = id_
+        self.name = name
+        self.channels = 2
 
-    def start(self) -> None:
-        pass
+    def player(self, **_kwargs) -> _FakePlayerCM:
+        return _FakePlayerCM()
 
-    def stop(self) -> None:
-        pass
 
-    def close(self) -> None:
-        pass
+class _FakePlayer:
+    """SoundCard _Player stand-in with the public-ish ``_queue`` attribute."""
 
-    def abort(self) -> None:
-        pass
+    def __init__(self) -> None:
+        self._queue: deque = deque()
 
-    def write(self, *_args, **_kwargs) -> None:
-        pass
+    def play(self, _data, wait: bool = True) -> None:
+        # Mimic SoundCard: append to internal queue. We don't actually play.
+        self._queue.append(None)
 
-    @property
-    def active(self) -> bool:
-        return False
+
+class _FakePlayerCM:
+    def __enter__(self) -> _FakePlayer:
+        return _FakePlayer()
+
+    def __exit__(self, *_args) -> None:
+        return None
 
 
 @pytest.fixture(autouse=True)
 def _block_audio_output(monkeypatch: pytest.MonkeyPatch) -> None:
     """Prevent tests from opening a real audio output stream."""
-    fake_sd = SimpleNamespace(
-        OutputStream=_SilentOutputStream,
-        query_devices=lambda *a, **kw: [],
+    fake_sc = SimpleNamespace(
+        default_speaker=lambda: _FakeSpeaker(),
+        get_speaker=lambda spec: _FakeSpeaker(id_=spec, name=spec),
+        all_speakers=lambda: [_FakeSpeaker()],
     )
-    monkeypatch.setitem(sys.modules, "sounddevice", fake_sd)
+    monkeypatch.setattr(audio_worker_module, "soundcard", fake_sc)
 
 
 @pytest.fixture(autouse=True)

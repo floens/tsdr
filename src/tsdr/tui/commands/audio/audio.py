@@ -19,7 +19,7 @@ class AudioCommand(Command):
         device_sub = device_p.add_subparsers(dest="device_action")
         device_sub.add_parser("list")
         set_p = device_sub.add_parser("set")
-        set_p.add_argument("device_spec", help="Device name, index, or 'default'")
+        set_p.add_argument("device_spec", help="Device name (substring match), id, or 'default'")
 
         # sources
         sub.add_parser("sources")
@@ -47,25 +47,15 @@ class AudioCommand(Command):
                 return "No audio output devices found"
             lines = [header("Audio Output Devices")]
             for dev in devices:
-                params = (
-                    f"{field('channels', f'[cyan]{dev["channels"]}[/]')}, "
-                    f"{field('rate', f'[yellow]{dev["sample_rate"]} Hz[/]')}"
-                )
-                lines.append(f"  [dim]{dev['index']}:[/] [bold]{dev['name']}[/] [dim]({params})[/]")
+                params = f"{field('channels', f'[cyan]{dev["channels"]}[/]')}"
+                lines.append(f"  [bold]{dev['name']}[/] [dim]({params})[/]")
             return "\n".join(lines)
 
         elif args.device_action == "set":
             device_spec = args.device_spec
-            device_name: str | int | None
-            if device_spec.lower() == "default":
-                device_name = None
-            elif device_spec.isdigit():
-                device_name = int(device_spec)
-            else:
-                device_name = device_spec
-            device_str_or_none = str(device_name) if isinstance(device_name, int) else device_name
-            engine.set_audio_output_device(device_str_or_none)
-            shown = "default" if device_name is None else str(device_name)
+            device_name = None if device_spec.lower() == "default" else device_spec
+            engine.set_audio_output_device(device_name)
+            shown = "default" if device_name is None else device_name
             return success(f"Set audio output device to [bold cyan]{safe(shown)}[/]")
 
         raise ConfigurationError(f"Unknown device action '{args.device_action}'")

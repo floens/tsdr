@@ -5,6 +5,7 @@ from math import gcd
 from typing import Any
 
 import numpy as np
+import soundcard
 
 from tsdr.core.events.events import AudioOutputErrorEvent
 from tsdr.core.tracing import span
@@ -13,26 +14,15 @@ from tsdr.radio.dsp._kernels import StreamingPolyphaseResampler
 
 logger = logging.getLogger(__name__)
 
-BLOCK_SIZE = 2048  # frames per callback invocation
+# SoundCard's CoreAudio backend caps blocksize at 512 frames.
+BLOCK_SIZE = 512
 _DEFAULT_PREBUFFER_SECONDS = 0.15
-# Cap callback queue depth at this multiple of the pre-buffer target so a
-# transient producer overrun doesn't drift playback forward by seconds.
 _MAX_DEPTH_FACTOR = 4
+_DEFAULT_CHECK_INTERVAL_SECONDS = 1.0
 
 
 class AudioOutputWorker:
-    """Audio output worker for playing demodulated audio.
-
-    Uses sounddevice callback-based OutputStream for glitch-free playback.
-    PortAudio pulls from a queue of fixed-size blocks; empty queue: silence.
-
-    Thread Safety:
-        - Reads from audio_queue (thread-safe Queue)
-        - Callback reads from _callback_queue (thread-safe Queue)
-        - Emits events via EventBus (thread-safe)
-    """
-
-    TARGET_RATE = 48000  # Target sample rate for output
+    TARGET_RATE = 48000
     BLOCK_SIZE = BLOCK_SIZE
 
     def __init__(
@@ -45,129 +35,65 @@ class AudioOutputWorker:
         self.audio_queue = audio_queue
         self.output_device = output_device
 
-        # Resources initialized in setup()
-        self.stream: Any | None = None  # sounddevice.OutputStream
-        self.sd: Any | None = None  # sounddevice module
+        self._player_cm: Any | None = None
+        self.player: Any | None = None
+        self._speaker_id: Any | None = None
+        self._last_default_check = 0.0
 
-        # Callback-based output state
-        self._callback_queue: queue.Queue[np.ndarray] = queue.Queue(maxsize=64)
         self._residual: np.ndarray | None = None
-        self._started = False
-        self._rebuffering = False
-        self._needs_flush = False
         self._pre_buffer_blocks = max(
             1, int(_DEFAULT_PREBUFFER_SECONDS * self.TARGET_RATE / self.BLOCK_SIZE)
         )
+        # SoundCard's audio thread starts draining player._queue on __enter__,
+        # so we can't defer its start. Hold the first _pre_buffer_blocks here
+        # and flush them all at once; the audio thread plays silence meanwhile.
+        self._pending_blocks: list[np.ndarray] = []
+        self._prebuffered = False
+        self._needs_flush = False
 
-        # Streaming polyphase resampler state
         self._resample_source_rate: float = 0.0
         self._resampler: StreamingPolyphaseResampler | None = None
 
-        # Cumulative duration tracking for drift detection
         self._cumulative_input_duration: float = 0.0
         self._cumulative_output_duration: float = 0.0
 
         self._volume: float = 0.0
 
-        # Debug tracking state
+        self._push_count = 0
         self._underflow_count = 0
-        self._silence_count = 0
-        self._callback_count = 0
-        self._rebuffer_count = 0
-        self._dropped_blocks = 0
+        self._underrunning = False
+        self._drop_count = 0
         self._last_batch_time: float | None = None
         self._total_frames_in = 0
         self._total_frames_out = 0
         self._stream_start_time: float | None = None
         self._last_stats_time: float | None = None
         self._last_glitch_underflows = 0
-        self._last_glitch_rebuffers = 0
-
-    def _audio_callback(self, outdata, frames, time_info, status):
-        self._callback_count += 1
-        if status.output_underflow:
-            self._underflow_count += 1
-            logger.warning(
-                "audio_underflow source=%s count=%d cb_q=%d",
-                self.source_id,
-                self._underflow_count,
-                self._callback_queue.qsize(),
-            )
-        if self._rebuffering:
-            outdata[:] = 0
-            self._silence_count += 1
-            return
-        try:
-            block = self._callback_queue.get_nowait()
-            outdata[:] = block * (self._volume**2)
-            self._total_frames_out += frames
-        except queue.Empty:
-            outdata[:] = 0
-            self._silence_count += 1
-            self._rebuffering = True
-            self._rebuffer_count += 1
-            logger.warning(
-                "buffer_underrun source=%s rebuffer=%d", self.source_id, self._rebuffer_count
-            )
 
     def setup(self, context: WorkerContext) -> None:
         logger.info("audio_worker_starting source=%s", self.source_id)
-
         try:
-            import sounddevice as sd  # noqa: PLC0415
-
-            self.sd = sd
-        except ImportError as e:
-            error_msg = f"sounddevice not available: {e}"
-            logger.error("audio_sounddevice_missing source=%s error=%r", self.source_id, e)
-            context.emit_event(AudioOutputErrorEvent(source_id=self.source_id, error=error_msg))
-            raise
-
-        try:
-            self.stream = self.sd.OutputStream(
-                device=self.output_device,
-                channels=2,
-                samplerate=self.TARGET_RATE,
-                blocksize=self.BLOCK_SIZE,
-                dtype=np.float32,
-                latency="high",
-                callback=self._audio_callback,
-            )
-            # Don't start yet - wait for pre-buffer in run()
-            logger.info(
-                "audio_stream_opened source=%s device=%r rate=%d",
-                self.source_id,
-                self.output_device or "default",
-                self.TARGET_RATE,
-            )
-        except Exception as e:
+            self._open_player()
+        except Exception as e:  # noqa: BLE001 - soundcard surfaces opaque OS errors
             logger.error("audio_stream_open_failed source=%s error=%r", self.source_id, e)
             context.emit_event(
                 AudioOutputErrorEvent(
-                    source_id=self.source_id, error=f"Failed to open audio device: {e}"
+                    source_id=self.source_id,
+                    error=f"Failed to open audio device: {e}",
                 )
             )
             raise
 
     def run(self, context: WorkerContext) -> None:
-        """Main audio output loop."""
-        assert self.sd is not None, "sounddevice must be set in setup()"
-        assert self.stream is not None, "audio stream must be set in setup()"
+        assert self.player is not None, "player must be set in setup()"
+        self._stream_start_time = time.perf_counter()
+        self._last_stats_time = self._stream_start_time
 
         while context.should_continue():
             with span("audio_worker"):
                 if self._needs_flush:
-                    dropped = 0
-                    while True:
-                        try:
-                            self._callback_queue.get_nowait()
-                            dropped += 1
-                        except queue.Empty:
-                            break
-                    self._residual = None
-                    self._rebuffering = True
-                    self._needs_flush = False
-                    logger.info("audio_flush source=%s dropped=%d", self.source_id, dropped)
+                    self._flush_pending_audio()
+                self._maybe_follow_default()
 
                 with span("audio.queue_get"):
                     try:
@@ -179,7 +105,6 @@ class AudioOutputWorker:
                 audio_samples = audio_batch.samples
                 source_rate = audio_batch.sample_rate
 
-                # Monotonic-max: bump pre-buffer if batch requests more
                 requested_blocks = max(
                     1,
                     int(audio_batch.prebuffer_seconds * self.TARGET_RATE / self.BLOCK_SIZE),
@@ -193,30 +118,12 @@ class AudioOutputWorker:
                         self._pre_buffer_blocks * self.BLOCK_SIZE / self.TARGET_RATE,
                     )
 
-                # Log batch arrival and queue stats
                 batch_frames = audio_samples.shape[0]
                 batch_duration = batch_frames / source_rate
-                if self._last_batch_time is not None:
-                    gap = now - self._last_batch_time
-                    # Bursty IO produces large instantaneous gaps without
-                    # actual underrun risk; only warn when the playback buffer
-                    # is also low.
-                    if (
-                        gap > batch_duration * 1.5
-                        and gap > 0.1
-                        and self._callback_queue.qsize() < self._pre_buffer_blocks
-                    ):
-                        logger.warning(
-                            "audio_upstream_stall source=%s gap=%.3f batch_duration=%.3f cb_q=%d",
-                            self.source_id,
-                            gap,
-                            batch_duration,
-                            self._callback_queue.qsize(),
-                        )
+                self._maybe_log_upstream_stall(now, batch_duration)
                 self._last_batch_time = now
                 self._total_frames_in += batch_frames
 
-                # Upmix mono to stereo if needed (e.g. NFM, AM demodulators)
                 if audio_samples.ndim == 1:
                     audio_samples = np.column_stack([audio_samples, audio_samples])
 
@@ -232,7 +139,6 @@ class AudioOutputWorker:
                 else:
                     audio_resampled = audio_samples
 
-                # Track cumulative duration drift
                 self._cumulative_input_duration += batch_frames / source_rate
                 self._cumulative_output_duration += audio_resampled.shape[0] / self.TARGET_RATE
 
@@ -240,77 +146,173 @@ class AudioOutputWorker:
                     np.clip(audio_resampled, -1.0, 1.0), dtype=np.float32
                 )
 
-                # Prepend residual from previous iteration
                 if self._residual is not None:
                     audio_output = np.concatenate([self._residual, audio_output])
                     self._residual = None
 
                 n_blocks = len(audio_output) // self.BLOCK_SIZE
                 max_depth = self._pre_buffer_blocks * _MAX_DEPTH_FACTOR
+                gain = self._volume**2
                 for i in range(n_blocks):
                     block = audio_output[i * self.BLOCK_SIZE : (i + 1) * self.BLOCK_SIZE]
-                    while self._callback_queue.qsize() >= max_depth:
-                        try:
-                            self._callback_queue.get_nowait()
-                            self._dropped_blocks += 1
-                        except queue.Empty:
-                            break
-                    self._callback_queue.put_nowait(block)
+                    self._push_block(block, max_depth, gain)
 
                 remainder = len(audio_output) % self.BLOCK_SIZE
                 if remainder:
                     self._residual = audio_output[n_blocks * self.BLOCK_SIZE :]
 
-                # Resume after rebuffering
-                if self._rebuffering and self._callback_queue.qsize() >= self._pre_buffer_blocks:
-                    self._rebuffering = False
-                    logger.info(
-                        "rebuffer_complete source=%s rebuffer=%d blocks=%d",
-                        self.source_id,
-                        self._rebuffer_count,
-                        self._callback_queue.qsize(),
-                    )
+                self._maybe_emit_glitch_aggregate()
 
-                # Start stream once pre-buffer is filled
-                if not self._started and self._callback_queue.qsize() >= self._pre_buffer_blocks:
-                    self.stream.start()
-                    self._started = True
-                    self._stream_start_time = time.perf_counter()
-                    self._last_stats_time = self._stream_start_time
-                    logger.info(
-                        "audio_stream_started source=%s blocks=%d seconds=%.2f",
-                        self.source_id,
-                        self._callback_queue.qsize(),
-                        self._callback_queue.qsize() * self.BLOCK_SIZE / self.TARGET_RATE,
-                    )
+    def _push_block(self, block: np.ndarray, max_depth: int, gain: float = 1.0) -> None:
+        if not self._prebuffered:
+            self._pending_blocks.append(block)
+            if len(self._pending_blocks) >= self._pre_buffer_blocks:
+                for pending in self._pending_blocks:
+                    self._raw_push(pending, max_depth, gain)
+                self._pending_blocks.clear()
+                self._prebuffered = True
+                logger.info(
+                    "audio_prebuffered source=%s blocks=%d seconds=%.2f",
+                    self.source_id,
+                    self._pre_buffer_blocks,
+                    self._pre_buffer_blocks * self.BLOCK_SIZE / self.TARGET_RATE,
+                )
+            return
 
-                # Glitch summary (~5s window). Silent on happy path; INFO only if
-                # underflows or rebuffers ticked in the window.
-                if self._last_stats_time is not None and self._stream_start_time is not None:
-                    stats_elapsed = time.perf_counter() - self._last_stats_time
-                    if stats_elapsed >= 5.0:
-                        new_underflows = self._underflow_count - self._last_glitch_underflows
-                        new_rebuffers = self._rebuffer_count - self._last_glitch_rebuffers
-                        if new_underflows > 0 or new_rebuffers > 0:
-                            drift = (
-                                self._cumulative_output_duration - self._cumulative_input_duration
-                            )
-                            logger.info(
-                                "audio_glitch device=%s elapsed=%.1f underflows=%d rebuffers=%d "
-                                "silences=%d drift=%.6f",
-                                self.source_id,
-                                stats_elapsed,
-                                new_underflows,
-                                new_rebuffers,
-                                self._silence_count,
-                                drift,
-                            )
-                            self._last_glitch_underflows = self._underflow_count
-                            self._last_glitch_rebuffers = self._rebuffer_count
-                        self._last_stats_time = time.perf_counter()
+        depth = self._queue_depth()
+        if depth == 0:
+            self._underflow_count += 1
+            if not self._underrunning:
+                self._underrunning = True
+                logger.warning(
+                    "audio_underflow_began source=%s count=%d",
+                    self.source_id,
+                    self._underflow_count,
+                )
+        elif self._underrunning:
+            self._underrunning = False
+            logger.info(
+                "audio_underflow_resolved source=%s total=%d depth=%d",
+                self.source_id,
+                self._underflow_count,
+                depth,
+            )
+
+        self._raw_push(block, max_depth, gain)
+
+    def _raw_push(self, block: np.ndarray, max_depth: int, gain: float = 1.0) -> None:
+        q = getattr(self.player, "_queue", None)
+        if q is not None:
+            while len(q) >= max_depth:
+                try:
+                    q.popleft()
+                    self._drop_count += 1
+                except IndexError:
+                    break
+
+        assert self.player is not None
+        self.player.play(block * gain, wait=False)
+        self._push_count += 1
+        self._total_frames_out += self.BLOCK_SIZE
+
+    def _queue_depth(self) -> int:
+        q = getattr(self.player, "_queue", None)
+        return len(q) if q is not None else 0
+
+    def _maybe_log_upstream_stall(self, now: float, batch_duration: float) -> None:
+        if self._last_batch_time is None:
+            return
+        gap = now - self._last_batch_time
+        if gap <= batch_duration * 1.5 or gap <= 0.1:
+            return
+        depth = self._queue_depth()
+        if depth >= self._pre_buffer_blocks:
+            return
+        logger.warning(
+            "audio_upstream_stall source=%s gap=%.3f batch_duration=%.3f depth=%d",
+            self.source_id,
+            gap,
+            batch_duration,
+            depth,
+        )
+
+    def _maybe_emit_glitch_aggregate(self) -> None:
+        if self._last_stats_time is None:
+            return
+        stats_elapsed = time.perf_counter() - self._last_stats_time
+        if stats_elapsed < 5.0:
+            return
+        new_underflows = self._underflow_count - self._last_glitch_underflows
+        if new_underflows > 0:
+            drift = self._cumulative_output_duration - self._cumulative_input_duration
+            logger.info(
+                "audio_glitch device=%s elapsed=%.1f underflows=%d dropped=%d drift=%.6f",
+                self.source_id,
+                stats_elapsed,
+                new_underflows,
+                self._drop_count,
+                drift,
+            )
+            self._last_glitch_underflows = self._underflow_count
+        self._last_stats_time = time.perf_counter()
+
+    def _open_player(self) -> None:
+        speaker = (
+            soundcard.default_speaker()
+            if self.output_device is None
+            else soundcard.get_speaker(_coerce_speaker_spec(self.output_device))
+        )
+        self._speaker_id = speaker.id
+        self._player_cm = speaker.player(
+            samplerate=self.TARGET_RATE,
+            channels=2,
+            blocksize=self.BLOCK_SIZE,
+        )
+        self.player = self._player_cm.__enter__()
+        logger.info(
+            "audio_stream_opened source=%s device=%r speaker_id=%r rate=%d",
+            self.source_id,
+            speaker.name,
+            self._speaker_id,
+            self.TARGET_RATE,
+        )
+
+    def _close_player(self) -> None:
+        if self._player_cm is None:
+            return
+        try:
+            self._player_cm.__exit__(None, None, None)
+            logger.info("audio_stream_closed source=%s", self.source_id)
+        except Exception as e:  # noqa: BLE001 - cleanup must not fail
+            logger.warning("audio_stream_close_failed source=%s error=%r", self.source_id, e)
+        self._player_cm = None
+        self.player = None
+        self._speaker_id = None
+
+    def _maybe_follow_default(self) -> None:
+        if self.output_device is not None:
+            return
+        now = time.monotonic()
+        if now - self._last_default_check < _DEFAULT_CHECK_INTERVAL_SECONDS:
+            return
+        self._last_default_check = now
+        try:
+            new_speaker = soundcard.default_speaker()
+        except Exception as e:  # noqa: BLE001 - soundcard surfaces opaque OS errors
+            logger.warning("audio_default_query_failed source=%s error=%r", self.source_id, e)
+            return
+        if new_speaker.id == self._speaker_id:
+            return
+        logger.info(
+            "audio_default_changed source=%s old=%s new=%s",
+            self.source_id,
+            self._speaker_id,
+            new_speaker.id,
+        )
+        self._close_player()
+        self._open_player()
 
     def _resample_streaming(self, audio_samples: np.ndarray, source_rate: float) -> np.ndarray:
-        """Resample using a streaming polyphase FIR filter."""
         if source_rate != self._resample_source_rate:
             g = gcd(int(self.TARGET_RATE), int(source_rate))
             up = int(self.TARGET_RATE) // g
@@ -326,55 +328,56 @@ class AudioOutputWorker:
     def teardown(self, context: WorkerContext) -> None:
         elapsed = time.perf_counter() - self._stream_start_time if self._stream_start_time else 0
         logger.info(
-            "audio_teardown source=%s callbacks=%d underflows=%d silences=%d rebuffers=%d "
-            "dropped=%d frames_in=%d frames_out=%d elapsed=%.1f",
+            "audio_teardown source=%s pushes=%d underflows=%d dropped=%d "
+            "frames_in=%d frames_out=%d elapsed=%.1f",
             self.source_id,
-            self._callback_count,
+            self._push_count,
             self._underflow_count,
-            self._silence_count,
-            self._rebuffer_count,
-            self._dropped_blocks,
+            self._drop_count,
             self._total_frames_in,
             self._total_frames_out,
             elapsed,
         )
-
-        if self.stream:
-            try:
-                self.stream.abort()
-                self.stream.close()
-                logger.info("audio_stream_closed source=%s", self.source_id)
-            except Exception as e:  # noqa: BLE001 - cleanup must not fail
-                logger.warning("audio_stream_close_failed source=%s error=%r", self.source_id, e)
+        self._close_player()
 
     def on_config_change(self, config) -> None:
         self._volume = config.audio_volume
 
+    def _flush_pending_audio(self) -> None:
+        dropped = 0
+        q = getattr(self.player, "_queue", None)
+        if q is not None:
+            while True:
+                try:
+                    q.popleft()
+                    dropped += 1
+                except IndexError:
+                    break
+        self._pending_blocks.clear()
+        self._residual = None
+        self._prebuffered = False
+        self._needs_flush = False
+        logger.info("audio_flush source=%s dropped=%d", self.source_id, dropped)
+
     def request_flush(self) -> None:
-        """Discard already-resampled audio; the callback emits silence until prebuffer refills."""
         self._needs_flush = True
 
 
-def list_audio_devices() -> list[dict[str, Any]]:
-    """List available audio output devices."""
-    import sounddevice as sd  # noqa: PLC0415
-
+def _coerce_speaker_spec(spec: str) -> str | int:
+    # SoundCard's get_speaker takes either an int id or a name substring;
+    # stringified ints ("86") don't match either path.
     try:
-        devices = []
-        for i, dev in enumerate(sd.query_devices()):
-            if dev["max_output_channels"] > 0:
-                devices.append(
-                    {
-                        "index": i,
-                        "name": dev["name"],
-                        "channels": dev["max_output_channels"],
-                        "sample_rate": dev["default_samplerate"],
-                    }
-                )
-        return devices
-    except ImportError as e:
-        logger.warning("audio_sounddevice_missing error=%r", e)
-        return []
-    except (OSError, RuntimeError) as e:
+        return int(spec)
+    except ValueError:
+        return spec
+
+
+def list_audio_devices() -> list[dict[str, Any]]:
+    try:
+        return [
+            {"id": sp.id, "name": sp.name, "channels": sp.channels}
+            for sp in soundcard.all_speakers()
+        ]
+    except Exception as e:  # noqa: BLE001 - soundcard surfaces opaque OS errors
         logger.error("audio_devices_query_failed error=%r", e, exc_info=True)
         return []
