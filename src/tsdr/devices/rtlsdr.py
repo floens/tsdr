@@ -96,6 +96,7 @@ class RTLSDRDevice:
         self._identity = DeviceIdentity(type_label="RTL-SDR", serial=None)
         self._capabilities = DeviceCapabilities(
             frequency_range=(24e6, 1766e6),
+            frequency_controllable=True,
             sample_rates=None,
             gain_supported=True,
             gain_range=(0.0, 49.6),
@@ -138,6 +139,7 @@ class RTLSDRDevice:
         )
         self._capabilities = DeviceCapabilities(
             frequency_range=self._capabilities.frequency_range,
+            frequency_controllable=True,
             sample_rates=None,
             gain_supported=True,
             gain_range=self._capabilities.gain_range,

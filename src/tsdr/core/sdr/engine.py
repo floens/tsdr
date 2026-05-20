@@ -344,7 +344,11 @@ class SDREngine:
         if device_id not in self.devices:
             raise SDRException(f"Device {device_id} not found")
 
+        if self.focused_device == device_id:
+            return
+
         self.focused_device = device_id
+        self.event_bus.publish(ConfigChangedEvent(device_id=device_id, source_id="focus"))
 
     def get_device(self, device_id: str) -> SDRDeviceContext:
         """Get a device context by ID.

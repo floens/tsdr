@@ -26,6 +26,7 @@ def _make_context(
     device = MagicMock()
     device.capabilities = DeviceCapabilities(
         frequency_range=None,
+        frequency_controllable=True,
         sample_rates=None,
         gain_supported=gain_range != (0.0, 0.0),
         gain_range=gain_range,

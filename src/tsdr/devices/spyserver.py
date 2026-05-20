@@ -361,16 +361,24 @@ class SpyServerDevice:
         self._max_gain_index: int = 0
         self._supported_rates: list[int] = []
 
-        # Operator-facing state (may change mid-stream via CLIENT_SYNC)
+        # DEVICE_INFO range: full hardware tunable range. Stays fixed for the session.
+        self._device_freq_range: tuple[float, float] | None = None
+        # CLIENT_SYNC IQ-center window: the bounds the server will honor as IQ_CENTER
+        # without retuning the hardware. Narrower than _device_freq_range, but only
+        # gates tuning when we lack CanControl (the controlling client retunes hw on
+        # an out-of-window IQ_FREQUENCY request).
+        self._iq_window: tuple[float, float] | None = None
+        # Effective tunable range surfaced via capabilities. Derived from the two above.
         self._freq_range: tuple[float, float] | None = None
-        # CLIENT_SYNC reports whether this client may issue SET_SETTING (gain).
-        # The server can flip this mid-stream if another client takes control.
+        # CLIENT_SYNC reports whether this client may issue SET_SETTING (gain) and
+        # implicitly retune the hardware. Server can flip mid-stream.
         self._can_control: bool = False
         self._actual_sample_rate: float = 0.0
 
         self._identity = DeviceIdentity(type_label="SpyServer", serial=None)
         self._capabilities = DeviceCapabilities(
             frequency_range=None,
+            frequency_controllable=False,
             sample_rates=None,
             gain_supported=False,
             gain_range=(0.0, 0.0),
@@ -636,7 +644,8 @@ class SpyServerDevice:
             )
         if info.forced_iq_format:
             self._iq_format = info.forced_iq_format
-        self._freq_range = (float(info.min_freq), float(info.max_freq))
+        self._device_freq_range = (float(info.min_freq), float(info.max_freq))
+        self._recompute_freq_range()
         # Supported rates: max_sr >> n for n in min_iq_decim..decimation_stage_count
         self._supported_rates = [
             info.max_sample_rate >> n
@@ -675,12 +684,9 @@ class SpyServerDevice:
             return
         self._last_client_sync = sync
         self._can_control = sync.can_control
-        # CLIENT_SYNC narrows the tunable range to what the *user* can request
-        # via IQ_FREQUENCY (vs the DEVICE_INFO range which is hardware-wide).
-        # If both are present, use the IQ range — that's what set_frequency
-        # actually controls.
         if sync.min_iq_freq and sync.max_iq_freq:
-            self._freq_range = (float(sync.min_iq_freq), float(sync.max_iq_freq))
+            self._iq_window = (float(sync.min_iq_freq), float(sync.max_iq_freq))
+        self._recompute_freq_range()
         self._rebuild_capabilities()
         logger.debug(
             "spyserver_client_sync can_control=%s current_gain=%d "
@@ -697,9 +703,19 @@ class SpyServerDevice:
             sync.max_fft_freq,
         )
 
+    def _recompute_freq_range(self) -> None:
+        # With CanControl we can request any frequency in the hardware range —
+        # the server retunes the hardware to accommodate. Without it, we're
+        # confined to wherever the controlling client has parked the IQ window.
+        if self._can_control or self._iq_window is None:
+            self._freq_range = self._device_freq_range
+        else:
+            self._freq_range = self._iq_window
+
     def _rebuild_capabilities(self) -> None:
         self._capabilities = DeviceCapabilities(
             frequency_range=self._freq_range,
+            frequency_controllable=self._can_control,
             sample_rates=tuple(float(r) for r in self._supported_rates)
             if self._supported_rates
             else None,

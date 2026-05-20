@@ -83,6 +83,7 @@ class EventHandlerMixin(MixinBase):
     @on(DeviceStateChanged)
     def handle_device_state_changed(self, message: DeviceStateChanged) -> None:
         self._forward(TunerWidget, "update_running_state", message.event)
+        self._forward(StatsWidget, "update_config")
 
     @on(DeviceCapabilitiesChanged)
     def handle_device_capabilities_changed(self, message: DeviceCapabilitiesChanged) -> None:

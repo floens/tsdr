@@ -37,6 +37,11 @@ class DeviceIdentity:
 @dataclass(frozen=True)
 class DeviceCapabilities:
     frequency_range: tuple[float, float] | None
+    # True when this client owns the hardware tuning. When False (e.g. shared
+    # SpyServer where another client has CanControl), `frequency_range` is the
+    # narrower IQ window we're locked inside and any tune outside it will be
+    # refused by the server.
+    frequency_controllable: bool
     sample_rates: tuple[float, ...] | None
 
     gain_supported: bool

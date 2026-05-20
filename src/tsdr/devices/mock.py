@@ -9,6 +9,7 @@ from tsdr.devices.base import DeviceCapabilities, DeviceIdentity, DeviceParams
 _MOCK_IDENTITY = DeviceIdentity(type_label="Mock", serial=None)
 _MOCK_CAPABILITIES = DeviceCapabilities(
     frequency_range=None,
+    frequency_controllable=True,
     sample_rates=None,
     gain_supported=True,
     gain_range=(0.0, 0.0),

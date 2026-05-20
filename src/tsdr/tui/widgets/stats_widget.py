@@ -8,10 +8,21 @@ from tsdr.core.events.events import (
     StatsUpdateEvent,
 )
 from tsdr.core.sdr.datatypes import SignalInfo
+from tsdr.core.sdr.device_context import DeviceState
 from tsdr.core.sdr.engine import get_engine
+from tsdr.core.units import format_hz
 from tsdr.devices import NetworkDeviceParams
 
 logger = logging.getLogger(__name__)
+
+
+_STATE_COLORS = {
+    DeviceState.STOPPED: "dim",
+    DeviceState.STARTING: "yellow",
+    DeviceState.RUNNING: "green",
+    DeviceState.STOPPING: "yellow",
+    DeviceState.ERROR: "red",
+}
 
 
 class StatsWidget(Static):
@@ -26,6 +37,9 @@ class StatsWidget(Static):
         self._network_address: str | None = None
         self._identity_label: str | None = None
         self._identity_serial: str | None = None
+        self._frequency_range: tuple[float, float] | None = None
+        self._frequency_controllable: bool = False
+        self._device_state: DeviceState | None = None
 
     def on_mount(self) -> None:
         self._read_config()
@@ -46,6 +60,10 @@ class StatsWidget(Static):
         identity = device.device.identity
         self._identity_label = identity.type_label
         self._identity_serial = identity.serial
+        caps = device.device.capabilities
+        self._frequency_range = caps.frequency_range
+        self._frequency_controllable = caps.frequency_controllable
+        self._device_state = device.state
 
     def update_stats(self, event: StatsUpdateEvent) -> None:
         self.current_event = event
@@ -71,11 +89,6 @@ class StatsWidget(Static):
 
     def _render_stats(self) -> list[str]:
         """Render statistics as formatted text with Rich markup."""
-        if not self.current_event:
-            return ["[dim]Statistics: No data[/dim]"]
-
-        event = self.current_event
-
         if not self._device_id:
             return ["[dim]Statistics: No data[/dim]"]
 
@@ -87,6 +100,23 @@ class StatsWidget(Static):
             if self._identity_serial is not None:
                 id_line += f" [dim]#{self._identity_serial}[/dim]"
             lines.append(id_line)
+        if self._device_state is not None:
+            state_color = _STATE_COLORS[self._device_state]
+            lines.append(
+                f"  State:         [{state_color}]{self._device_state.value.upper()}[/{state_color}]"
+            )
+        if self._frequency_range is not None:
+            lo, hi = self._frequency_range
+            range_str = f"{format_hz(lo, decimals=3, long_suffix=True)} – {format_hz(hi, decimals=3, long_suffix=True)}"
+            label = f"{'Range' if self._frequency_controllable else 'Locked'}:"
+            lines.append(f"  {label:<15}[white]{range_str}[/white]")
+        if self._network_address is not None:
+            lines.append(f"  Endpoint:      [white]{self._network_address}[/white]")
+
+        event = self.current_event
+        if event is None:
+            return lines
+
         lines.append("[bold cyan]Signal:[/bold cyan]")
         # IQ amplitude (shows ADC utilization and clipping)
         if event.iq_rms is not None:
@@ -149,14 +179,10 @@ class StatsWidget(Static):
         lines.append(f"  Size:          {event.queue_size:>4} / {event.queue_capacity:>4}")
         lines.append(f"  Utilization:   [{util_color}]{queue_util:>7.1f}[/{util_color}] %")
 
-        # Network section (only for network-source devices).
         has_jitter = self._jitter is not None and self._jitter.target_seconds > 0
-        if has_jitter or self._network_address is not None:
-            lines.append("[bold cyan]Network:[/bold cyan]")
-        if self._network_address is not None:
-            lines.append(f"  Connected:     [white]{self._network_address}[/white]")
         if has_jitter:
             assert self._jitter is not None
+            lines.append("[bold cyan]Network:[/bold cyan]")
             lines.append(f"  Buffer Target: [white]{self._jitter.target_seconds:>5.2f}[/white] s")
             pct = self._jitter.fill_fraction * 100
             if self._jitter.rebuffering or pct < 10:

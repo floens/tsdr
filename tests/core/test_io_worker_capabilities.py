@@ -17,6 +17,7 @@ _IDENTITY = DeviceIdentity(type_label="MutableTest", serial=None)
 def _make_caps(*, gain_supported: bool) -> DeviceCapabilities:
     return DeviceCapabilities(
         frequency_range=(24e6, 1766e6),
+        frequency_controllable=True,
         sample_rates=None,
         gain_supported=gain_supported,
         gain_range=(0.0, 49.6),

@@ -14,6 +14,7 @@ from tsdr.devices.base import DeviceCapabilities, DeviceIdentity
 _TEST_IDENTITY = DeviceIdentity(type_label="Test", serial=None)
 _TEST_CAPABILITIES = DeviceCapabilities(
     frequency_range=None,
+    frequency_controllable=True,
     sample_rates=None,
     gain_supported=True,
     gain_range=(0.0, 49.6),

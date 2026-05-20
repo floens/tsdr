@@ -93,6 +93,7 @@ class RTLTCPDevice:
         self._identity = DeviceIdentity(type_label="RTL-TCP", serial=None)
         self._capabilities = DeviceCapabilities(
             frequency_range=None,
+            frequency_controllable=True,
             sample_rates=None,
             gain_supported=True,
             gain_range=(self.R820T_GAINS[0] / 10.0, self.R820T_GAINS[-1] / 10.0),

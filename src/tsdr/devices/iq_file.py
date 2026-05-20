@@ -14,6 +14,7 @@ from tsdr.devices.base import DeviceCapabilities, DeviceIdentity, DeviceParams
 _IQFILE_IDENTITY = DeviceIdentity(type_label="IQ file", serial=None)
 _IQFILE_CAPABILITIES = DeviceCapabilities(
     frequency_range=None,
+    frequency_controllable=False,
     sample_rates=None,
     gain_supported=False,
     gain_range=(0.0, 0.0),

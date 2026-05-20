@@ -132,6 +132,7 @@ class SoapySDRDevice:
         )
         self._capabilities = DeviceCapabilities(
             frequency_range=None,
+            frequency_controllable=True,
             sample_rates=None,
             gain_supported=True,
             gain_range=(0.0, 49.6),
@@ -196,6 +197,7 @@ class SoapySDRDevice:
         self._identity = DeviceIdentity(type_label=hw or "Soapy", serial=self._serial or None)
         self._capabilities = DeviceCapabilities(
             frequency_range=None,
+            frequency_controllable=True,
             sample_rates=None,
             gain_supported=True,
             gain_range=gain_range,

@@ -60,6 +60,7 @@ def _caps(
 ) -> DeviceCapabilities:
     return DeviceCapabilities(
         frequency_range=freq_range,
+        frequency_controllable=True,
         sample_rates=sample_rates,
         gain_supported=gain_supported,
         gain_range=gain_range,

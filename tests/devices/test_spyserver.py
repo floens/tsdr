@@ -93,16 +93,39 @@ def test_client_sync_flips_gain_supported():
     assert dev.capabilities.gain_supported is False
 
 
-def test_client_sync_narrows_frequency_range():
+def test_client_sync_keeps_device_range_when_controllable():
     dev = _device()
     dev._apply_device_info(_make_device_info())
-    dev._apply_client_sync(_make_client_sync(can_control=True))
+    dev._apply_client_sync(
+        _make_client_sync(can_control=True, min_iq_freq=88_000_000, max_iq_freq=108_000_000)
+    )
     assert dev.capabilities.frequency_range == (24_000_000.0, 1_766_000_000.0)
+    assert dev.capabilities.frequency_controllable is True
+
+
+def test_client_sync_narrows_to_iq_window_when_locked():
+    dev = _device()
+    dev._apply_device_info(_make_device_info())
+    dev._apply_client_sync(
+        _make_client_sync(can_control=False, min_iq_freq=88_000_000, max_iq_freq=108_000_000)
+    )
+    assert dev.capabilities.frequency_range == (88_000_000.0, 108_000_000.0)
+    assert dev.capabilities.frequency_controllable is False
+
+
+def test_freq_range_re_widens_when_control_returns():
+    dev = _device()
+    dev._apply_device_info(_make_device_info())
+    dev._apply_client_sync(
+        _make_client_sync(can_control=False, min_iq_freq=88_000_000, max_iq_freq=108_000_000)
+    )
+    assert dev.capabilities.frequency_range == (88_000_000.0, 108_000_000.0)
 
     dev._apply_client_sync(
         _make_client_sync(can_control=True, min_iq_freq=88_000_000, max_iq_freq=108_000_000)
     )
-    assert dev.capabilities.frequency_range == (88_000_000.0, 108_000_000.0)
+    assert dev.capabilities.frequency_range == (24_000_000.0, 1_766_000_000.0)
+    assert dev.capabilities.frequency_controllable is True
 
 
 def test_min_iq_decimation_truncates_sample_rate_list():
