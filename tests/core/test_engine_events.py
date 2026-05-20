@@ -86,6 +86,13 @@ def test_capabilities_change_clamps_out_of_range_gain() -> None:
     assert engine.devices["rtl0"].config.rf_gain == 8.0
 
 
+def test_capabilities_change_clamps_gain_to_degenerate_range() -> None:
+    engine = SDREngine()
+    engine.add_device("rtl0", "mock", MockParams(), DeviceConfig(rf_gain=30.0))
+    _publish_caps(engine, gain_range=(0.0, 0.0))
+    assert engine.devices["rtl0"].config.rf_gain == 0.0
+
+
 def test_capabilities_change_leaves_in_range_gain_alone() -> None:
     engine = SDREngine()
     engine.add_device("rtl0", "mock", MockParams(), DeviceConfig(rf_gain=20.0))

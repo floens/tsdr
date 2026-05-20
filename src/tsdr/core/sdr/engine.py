@@ -621,12 +621,12 @@ class SDREngine:
         config = context.config
         changes: dict[str, Any] = {}
 
-        if caps.gain_supported and caps.gain_range[0] != caps.gain_range[1]:
+        if caps.gain_supported:
             lo, hi = caps.gain_range
             clamped = max(lo, min(config.rf_gain, hi))
             if clamped != config.rf_gain:
                 changes["rf_gain"] = clamped
-        elif not caps.gain_supported and config.enable_agc:
+        elif config.enable_agc:
             changes["enable_agc"] = False
 
         freq_range = caps.frequency_range
