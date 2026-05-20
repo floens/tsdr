@@ -63,6 +63,7 @@ class MsgType(IntEnum):
     PONG = 2
     UINT8_IQ = 100
     INT16_IQ = 101
+    INT24_IQ = 102
     FLOAT_IQ = 103
 
 
@@ -87,6 +88,11 @@ class DeviceType(IntEnum):
     RTLSDR = 3
 
 
+_DECODABLE_FORCED_FORMATS = frozenset(
+    {IqFormat.UINT8, IqFormat.INT16, IqFormat.INT24, IqFormat.FLOAT}
+)
+
+
 # DEVICE_INFO body is 12 × uint32 = 48 bytes
 _DEVICE_INFO_LAYOUT = "<12I"
 # CLIENT_SYNC body is 9 × uint32 = 36 bytes
@@ -102,6 +108,27 @@ def _enum_name(cls: type[IntEnum], value: int) -> str:
         return cls(value).name
     except ValueError:
         return f"UNKNOWN({value})"
+
+
+def _format_connect_error(host: str, port: int, exc: BaseException) -> str:
+    target = f"{host}:{port}"
+    if isinstance(exc, socket.gaierror):
+        return f"SpyServer host unresolvable: {host}"
+    if isinstance(exc, ConnectionRefusedError):
+        return f"SpyServer at {target} refused connection (no server, or wrong port)"
+    if isinstance(exc, (TimeoutError, socket.timeout)):
+        return f"SpyServer at {target} did not respond within 10s (host unreachable or firewalled)"
+    if isinstance(exc, DeviceError) and "closed by server" in str(exc):
+        return (
+            f"SpyServer at {target} dropped the connection during handshake "
+            f"(likely server full, IP restricted, or protocol version mismatch)"
+        )
+    if isinstance(exc, DeviceError):
+        # _apply_device_info raises DeviceError with a complete message; don't re-wrap.
+        return str(exc)
+    if isinstance(exc, struct.error):
+        return f"SpyServer at {target} returned malformed handshake: {exc}"
+    return f"SpyServer at {target} connect failed: {exc}"
 
 
 @dataclass(frozen=True)
@@ -234,6 +261,20 @@ class _SpyServerCodec:
             if u8.size % 2:
                 u8 = u8[:-1]
             return ((u8.astype(np.float32) - 128.0) * scale).view(np.complex64).tobytes()
+        if msg_type == MsgType.INT24_IQ:
+            scale = self._mflags_scale(mflags, 8388608.0)
+            u8 = np.frombuffer(body, dtype=np.uint8)
+            n_components = (len(u8) // 3) & ~1
+            if n_components == 0:
+                return b""
+            u8 = u8[: n_components * 3].reshape(-1, 3)
+            # (u8^0x80)-0x80 sign-extends the top byte; .view(np.int8) would need contiguous memory.
+            i32 = (
+                u8[:, 0].astype(np.int32)
+                | (u8[:, 1].astype(np.int32) << 8)
+                | (((u8[:, 2].astype(np.int32) ^ 0x80) - 0x80) << 16)
+            )
+            return (i32.astype(np.float32) * scale).view(np.complex64).tobytes()
         if msg_type == MsgType.FLOAT_IQ:
             # Wire format is already float32 IQ pairs; mflags still applies.
             scale = self._mflags_scale(mflags, 1.0)
@@ -401,13 +442,13 @@ class SpyServerDevice:
                 _enum_name(DeviceType, self._device_type),
                 _enum_name(IqFormat, self._iq_format),
             )
-        except (OSError, struct.error) as e:
+        except (OSError, struct.error, DeviceError) as e:
             if self._codec is not None:
                 self._codec.close()
                 self._codec = None
             elif sock is not None:
                 sock.close()
-            raise DeviceError(f"SpyServer connect failed ({self.host}:{self.port}): {e}")
+            raise DeviceError(_format_connect_error(self.host, self.port, e)) from e
 
         try:
             self.jitter.start(self._read_raw)
@@ -538,7 +579,7 @@ class SpyServerDevice:
 
         while len(self._iq_buf) < count:
             msg_type, mflags, body = self._codec.recv_message()
-            if msg_type in (MsgType.INT16_IQ, MsgType.UINT8_IQ, MsgType.FLOAT_IQ):
+            if msg_type in (MsgType.INT16_IQ, MsgType.INT24_IQ, MsgType.UINT8_IQ, MsgType.FLOAT_IQ):
                 self._note_iq_message(msg_type, mflags, len(body))
                 self._iq_buf.extend(self._codec.decode_iq(msg_type, mflags, body))
             elif msg_type == MsgType.CLIENT_SYNC:
@@ -587,6 +628,12 @@ class SpyServerDevice:
         self._max_sample_rate = info.max_sample_rate
         self._max_gain_index = info.max_gain_index
         self._min_iq_decim = info.min_iq_decimation
+        if info.forced_iq_format and info.forced_iq_format not in _DECODABLE_FORCED_FORMATS:
+            raise DeviceError(
+                f"SpyServer forces unsupported IQ format "
+                f"{_enum_name(IqFormat, info.forced_iq_format)}; "
+                f"only UINT8/INT16/INT24/FLOAT are decodable"
+            )
         if info.forced_iq_format:
             self._iq_format = info.forced_iq_format
         self._freq_range = (float(info.min_freq), float(info.max_freq))

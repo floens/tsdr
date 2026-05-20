@@ -1,7 +1,16 @@
+import socket
+
+import numpy as np
+import pytest
+
+from tsdr.core.sdr.exceptions import DeviceError
 from tsdr.devices.spyserver import (
+    IqFormat,
+    MsgType,
     SpyServerDevice,
     _ClientSync,
     _DeviceInfo,
+    _SpyServerCodec,
 )
 
 
@@ -15,6 +24,7 @@ def _make_device_info(
     max_gain_index: int = 28,
     min_freq: int = 24_000_000,
     max_freq: int = 1_766_000_000,
+    forced_iq_format: int = 0,
 ) -> _DeviceInfo:
     return _DeviceInfo(
         device_type=device_type,
@@ -28,7 +38,7 @@ def _make_device_info(
         max_freq=max_freq,
         resolution=1,
         min_iq_decimation=min_iq_decimation,
-        forced_iq_format=0,
+        forced_iq_format=forced_iq_format,
     )
 
 
@@ -113,3 +123,55 @@ def test_capabilities_swap_yields_new_object_identity():
 
     assert caps_before is not caps_after
     assert caps_before != caps_after
+
+
+def _encode_int24_le(values: list[int]) -> bytes:
+    out = bytearray()
+    for v in values:
+        u = v & 0xFFFFFF
+        out.append(u & 0xFF)
+        out.append((u >> 8) & 0xFF)
+        out.append((u >> 16) & 0xFF)
+    return bytes(out)
+
+
+def test_decode_int24_iq_roundtrip():
+    a, b = socket.socketpair()
+    try:
+        codec = _SpyServerCodec(a)
+        values = [0, 1, -1, 2, -2, 0x7FFFFF, -0x800000, 12345]
+        body = _encode_int24_le(values)
+        out = codec.decode_iq(MsgType.INT24_IQ, mflags=0, body=body)
+        floats = np.frombuffer(out, dtype=np.complex64).view(np.float32)
+        expected = np.array(values, dtype=np.float32) / np.float32(8388608.0)
+        np.testing.assert_allclose(floats, expected, rtol=0, atol=1e-9)
+    finally:
+        a.close()
+        b.close()
+
+
+def test_decode_int24_iq_drops_trailing_partial_pair():
+    a, b = socket.socketpair()
+    try:
+        codec = _SpyServerCodec(a)
+        body = _encode_int24_le([10, 20, 30])
+        out = codec.decode_iq(MsgType.INT24_IQ, mflags=0, body=body)
+        assert len(out) == 8
+        floats = np.frombuffer(out, dtype=np.complex64).view(np.float32)
+        expected = np.array([10, 20], dtype=np.float32) / np.float32(8388608.0)
+        np.testing.assert_allclose(floats, expected, rtol=0, atol=1e-9)
+    finally:
+        a.close()
+        b.close()
+
+
+def test_forced_iq_format_int24_accepted():
+    dev = _device()
+    dev._apply_device_info(_make_device_info(forced_iq_format=IqFormat.INT24))
+    assert dev._iq_format == IqFormat.INT24
+
+
+def test_forced_iq_format_dint4_rejected():
+    dev = _device()
+    with pytest.raises(DeviceError, match="DINT4"):
+        dev._apply_device_info(_make_device_info(forced_iq_format=IqFormat.DINT4))
