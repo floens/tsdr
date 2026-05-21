@@ -1,4 +1,6 @@
+from datetime import UTC
 from typing import ClassVar, Literal, cast
+from zoneinfo import ZoneInfo
 
 from rich.align import Align, AlignMethod
 from rich.console import Console, ConsoleOptions
@@ -16,6 +18,7 @@ from textual.widgets import Digits as DigitsWidget
 from textual.widgets import Static
 
 from tsdr.core.band_stack import get_band_stack
+from tsdr.core.clock_sync import get_clock_sync_monitor, now
 from tsdr.core.events.events import DeviceStateChangedEvent, SignalInfoEvent, StatsUpdateEvent
 from tsdr.core.preferences import save_device
 from tsdr.core.sdr.datatypes import SignalInfo
@@ -26,6 +29,7 @@ from tsdr.core.tuning import resolve_auto_step
 from tsdr.core.tuning_state import get_tuning_state
 from tsdr.core.units import format_hz
 from tsdr.tui.commands._format import format_rate
+from tsdr.tui.state import get_ui_state
 from tsdr.tui.widgets.snr_widget import SNRWidget
 
 Half = Literal["top", "bottom"]
@@ -221,6 +225,71 @@ class HoverableDigits(DigitsWidget):
         event.stop()
 
 
+_SYNC_DOT = {
+    "synced": "[green]●[/]",
+    "drift": "[yellow]●[/]",
+    "unsynced": "[red]●[/]",
+}
+
+
+class ClockWidget(Static):
+    """Live 3-line clock with configurable display timezone.
+
+    Hardware-transceiver aesthetic:
+      * blinking colon (HH<:>MM<:>SS toggles every 500 ms — universal
+        radio "alive" indicator)
+      * accent color on the changing field (SS bold yellow)
+      * SNTP-sync LED next to the time (green/yellow/red), opt-in:
+        hidden entirely when probing is disabled
+
+    Line 1  HH:MM:SS [●] TZ
+    Line 2  HH:MM:SS UTC
+    Line 3  YYYY-MM-DD
+
+    Tick at 4 Hz: enough for a crisp colon blink and second-boundary
+    refresh (≤250 ms latency on SS digit changes — well within any
+    digital-mode slot tolerance).
+    """
+
+    def __init__(self, *, id: str | None = None) -> None:
+        super().__init__(id=id)
+        self._last_markup: str = ""
+
+    def on_mount(self) -> None:
+        self._tick()
+        self.set_interval(0.25, self._tick)
+
+    def _tick(self) -> None:
+        ui = get_ui_state()
+        self.display = ui.clock_visible
+        if not ui.clock_visible:
+            return
+        tz_name = ui.timezone
+        local = now(ZoneInfo(tz_name)) if tz_name else now()
+        utc = now(UTC)
+        tz_short = (local.strftime("%Z") or "LOC")[:4]
+        sep = "[b]:[/b]" if local.microsecond < 500_000 else " "
+
+        monitor = get_clock_sync_monitor()
+        server = monitor.server
+        if server is None:
+            dot_section = ""
+        else:
+            state = monitor.get().state_for(server)
+            dot_section = f" {_SYNC_DOT[state]}" if state in _SYNC_DOT else ""
+
+        markup = (
+            f"[b]{local:%H}[/b]{sep}[b]{local:%M}[/b]{sep}"
+            f"[b yellow]{local:%S}[/b yellow]"
+            f"{dot_section} [dim]{tz_short}[/]\n"
+            f"[dim]{utc:%H:%M:%S} UTC[/]\n"
+            f"[dim]{local:%Y-%m-%d}[/]"
+        )
+        if markup != self._last_markup:
+            self._last_markup = markup
+            self.update(markup, layout=False)
+
+
 class TunerWidget(Vertical):
     """Displays the current tuned frequency with sample rate, gain, and SNR."""
 
@@ -240,6 +309,7 @@ class TunerWidget(Vertical):
             yield HoverableDigits("---.---.--- Hz", id="tuner-frequency")
             with Horizontal(id="tuner-right"):
                 yield SNRWidget(id="tuner-meter")
+                yield ClockWidget(id="tuner-clock")
 
     def on_mount(self) -> None:
         self._read_config()

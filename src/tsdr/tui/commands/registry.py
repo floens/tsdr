@@ -128,6 +128,7 @@ from tsdr.tui.commands.builtin.echo import EchoCommand  # noqa: E402
 from tsdr.tui.commands.builtin.exit import ExitCommand  # noqa: E402
 from tsdr.tui.commands.builtin.help import HelpCommand  # noqa: E402
 from tsdr.tui.commands.builtin.paths import PathsCommand  # noqa: E402
+from tsdr.tui.commands.builtin.time import TimeCommand  # noqa: E402
 from tsdr.tui.commands.builtin.trace import TraceCommand  # noqa: E402
 from tsdr.tui.commands.sdr.add import SDRAddCommand  # noqa: E402
 from tsdr.tui.commands.sdr.bandplan import BandplanCommand  # noqa: E402
@@ -151,6 +152,7 @@ register("exit", ExitCommand())
 register("quit", ExitCommand())
 register("help", HelpCommand())
 register("paths", PathsCommand())
+register("time", TimeCommand())
 register("trace", TraceCommand())
 register("add", SDRAddCommand())
 register("remove", SDRRemoveCommand())

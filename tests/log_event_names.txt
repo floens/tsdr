@@ -35,6 +35,8 @@ bandplan_bands_not_array
 bandplan_empty
 bandplan_invalid_top_level
 bandplan_top_level_invalid
+clock_sync_probe_failed
+clock_sync_probe_ok
 command
 control_queue_full
 dab_service_selected

@@ -9,6 +9,7 @@ import tsdr.tui.commands  # noqa: F401  # trigger command self-registration
 import tsdr.tui.tty  # noqa: F401  # install APC-aware XTermParser
 from tsdr.core.band_stack import init_band_stack
 from tsdr.core.bandplans import get_bandplan_store, init_bandplan_store
+from tsdr.core.clock_sync import get_clock_sync_monitor, init_clock_sync_monitor
 from tsdr.core.devices import init_device_store
 from tsdr.core.events.events import BandplanChangedEvent, MemoriesChangedEvent
 from tsdr.core.memories import get_memory_store, init_memory_store
@@ -29,7 +30,7 @@ from tsdr.tui.commands.registry import MenuItem
 from tsdr.tui.console import CommandInputMixin
 from tsdr.tui.event_handlers import EventHandlerMixin
 from tsdr.tui.keyboard import KeyboardMixin
-from tsdr.tui.state import UIState
+from tsdr.tui.state import init_ui_state
 from tsdr.tui.textual_adapter import TextualEventAdapter
 from tsdr.tui.tuning_mixin import TuningMixin
 from tsdr.tui.widgets import (
@@ -80,12 +81,16 @@ class TSDRApp(App[None], KeyboardMixin, TuningMixin, CommandInputMixin, EventHan
 
             self._pending_oob_escapes: list[str] = []
 
-            self.ui_state = UIState()
+            self.ui_state = init_ui_state()
             self._latest_fft_by_device = {}
 
             # Restore saved preferences
             self._saved_prefs = load_preferences()
             restore_ui_state(self.ui_state, self._saved_prefs)
+
+            clock_sync = init_clock_sync_monitor()
+            if self.ui_state.ntp_server:
+                clock_sync.set_server(self.ui_state.ntp_server)
 
             sdr_engine = SDREngine()
             restore_engine_config(self._saved_prefs)
@@ -256,6 +261,8 @@ class TSDRApp(App[None], KeyboardMixin, TuningMixin, CommandInputMixin, EventHan
             get_engine().shutdown(timeout=2.0)
         except Exception as e:
             logger.error("app_engine_shutdown_failed error=%r", e, exc_info=True)
+
+        get_clock_sync_monitor().shutdown()
 
         logger.info("app_cleanup_complete")
 

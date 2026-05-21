@@ -58,6 +58,9 @@ def save_ui_state(ui_state: UIState) -> None:
         "db_max": ui_state.db_max,
         "image_mode": ui_state.image_mode,
         "active_panel": ui_state.active_panel or "",
+        "timezone": ui_state.timezone or "",
+        "clock_visible": ui_state.clock_visible,
+        "ntp_server": ui_state.ntp_server or "",
     }
     save_preferences(prefs)
 
@@ -187,6 +190,12 @@ def restore_ui_state(ui_state: UIState, prefs: dict[str, Any]) -> None:
         ui_state.image_mode = bool(ui["image_mode"])
     if ui.get("active_panel"):
         ui_state.active_panel = str(ui["active_panel"])
+    if ui.get("timezone"):
+        ui_state.timezone = str(ui["timezone"])
+    if "clock_visible" in ui:
+        ui_state.clock_visible = bool(ui["clock_visible"])
+    if ui.get("ntp_server"):
+        ui_state.ntp_server = str(ui["ntp_server"])
 
 
 def _build_params(device: PersistedDevice) -> DeviceParams | None:

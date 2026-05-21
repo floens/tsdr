@@ -7,6 +7,7 @@ from argparse import Namespace
 import tsdr.tui.commands  # noqa: F401  # trigger command self-registration
 from tsdr.core.band_stack import init_band_stack
 from tsdr.core.bandplans import init_bandplan_store
+from tsdr.core.clock_sync import get_clock_sync_monitor, init_clock_sync_monitor
 from tsdr.core.devices import init_device_store
 from tsdr.core.events.events import (
     DecoderOutputEvent,
@@ -23,6 +24,7 @@ from tsdr.core.sdr.engine import SDREngine
 from tsdr.core.tuning_state import init_tuning_state
 from tsdr.tui.commands.base import Command
 from tsdr.tui.commands.registry import COMMANDS, execute
+from tsdr.tui.state import init_ui_state
 
 logger = logging.getLogger(__name__)
 
@@ -133,6 +135,8 @@ def run_headless(startup_commands: list[str]) -> int:
     init_bandplan_store()
     init_device_store()
     init_tuning_state()
+    init_ui_state()
+    init_clock_sync_monitor()
 
     COMMANDS["exit"] = _HeadlessExitCommand()
     COMMANDS["quit"] = _HeadlessExitCommand()
@@ -159,5 +163,7 @@ def run_headless(startup_commands: list[str]) -> int:
         engine.shutdown(timeout=2.0)
     except Exception as e:  # noqa: BLE001 - last-resort cleanup
         logger.error("headless_shutdown_failed error=%r", e, exc_info=True)
+
+    get_clock_sync_monitor().shutdown()
 
     return 0

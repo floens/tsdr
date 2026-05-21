@@ -16,6 +16,9 @@ class UIState:
     zoom: float = 1.0
     db_min: float = -90.0
     db_max: float = -45.0
+    timezone: str | None = None  # IANA zone name; None = system local
+    clock_visible: bool = True
+    ntp_server: str | None = None  # SNTP probe target; None = disabled
 
     def adjust_zoom(self, direction: int) -> None:
         """Zoom in (direction=1) or out (direction=-1) by factor 1.5."""
@@ -51,3 +54,18 @@ class UIState:
         self.current_hint = ""
         self.hint_index = -1
         self.filtered_commands = []
+
+
+_state: UIState | None = None
+
+
+def get_ui_state() -> UIState:
+    if _state is None:
+        raise RuntimeError("UIState not initialized")
+    return _state
+
+
+def init_ui_state() -> UIState:
+    global _state
+    _state = UIState()
+    return _state
