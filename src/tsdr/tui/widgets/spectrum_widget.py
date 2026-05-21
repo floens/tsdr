@@ -48,26 +48,17 @@ class _MemoryEdit:
     buffer: InlineEditBuffer
 
 
-# Quadrant block lookup: index by 4-bit pattern
-# (upper_left << 3) | (upper_right << 2) | (lower_left << 1) | lower_right
-_QUADRANT_BLOCKS = (
-    " ",
-    "▗",
-    "▖",
-    "▄",
-    "▝",
-    "▐",
-    "▞",
-    "▟",
-    "▘",
-    "▚",
-    "▌",
-    "▙",
-    "▀",
-    "▜",
-    "▛",
-    "█",
-)
+# Braille lookup: each cell holds 2 cols × 4 rows of dots, indexed by the
+# 8-bit dot pattern. Bit layout:
+#   col 0 col 1
+#   0x01  0x08   (dot row 0, top)
+#   0x02  0x10   (dot row 1)
+#   0x04  0x20   (dot row 2)
+#   0x40  0x80   (dot row 3, bottom)
+_BRAILLE_BASE = 0x2800
+_BRAILLE_CHARS = tuple(chr(_BRAILLE_BASE | i) for i in range(256))
+_BRAILLE_LEFT_BITS = np.array([0x01, 0x02, 0x04, 0x40], dtype=np.uint8)
+_BRAILLE_RIGHT_BITS = np.array([0x08, 0x10, 0x20, 0x80], dtype=np.uint8)
 
 _STYLE_NONE = Style()
 _STYLE_DIM = Style(dim=True)
@@ -86,7 +77,7 @@ class SpectrumFrame:
     """Pre-computed frame ready for rendering."""
 
     header: str
-    cells: tuple[tuple[int, ...], ...]  # rows of cell indices (0-15)
+    cells: tuple[tuple[int, ...], ...]  # rows of cell indices (0-255)
     width: int
     height: int
     freq_axis_labels: tuple[tuple[int, str], ...]  # (col, label) pairs
@@ -102,7 +93,7 @@ class SpectrumFrame:
 class SpectrumWidget(ImageModeMixin, Widget):
     """Display power spectrum with blue bars, bandwidth indicator, and frequency axis.
 
-    Uses quadrant block characters for 2x2 resolution per terminal cell.
+    Uses braille characters for 2×4 resolution per terminal cell.
     Supports Kitty image mode for line plot rendering.
     """
 
@@ -440,28 +431,39 @@ class SpectrumWidget(ImageModeMixin, Widget):
             )
             normalized = normalize_spectrum(spectrum, self._ui_state.db_min, self._ui_state.db_max)
 
-        # Build cell grid using vectorized operations
-        rows_arr = np.arange(bars_height)
-        threshold_upper = 1.0 - (rows_arr * 2 + 1) / (bars_height * 2)
-        threshold_lower = 1.0 - (rows_arr * 2 + 2) / (bars_height * 2)
+        # Build braille cell grid as a line trace: each dot column lights one
+        # row at the normalized value, and consecutive columns are joined by a
+        # vertical segment so the line stays connected across steep steps
+        # (matches the image-mode trace rendering in `render_spectrum_to_buf`).
+        total_dots = bars_height * 4
+        y = np.clip(
+            np.round((1.0 - normalized) * (total_dots - 1)).astype(np.int32),
+            0,
+            total_dots - 1,
+        )
+        y_prev = np.empty_like(y)
+        y_prev[0] = y[0]
+        y_prev[1:] = y[:-1]
+        y_lo = np.minimum(y_prev, y)
+        y_hi = np.maximum(y_prev, y)
 
-        left_vals = normalized[0::2]
-        right_vals = normalized[1::2]
+        rows_idx = np.arange(total_dots)
+        lit = (rows_idx[np.newaxis, :] >= y_lo[:, np.newaxis]) & (
+            rows_idx[np.newaxis, :] <= y_hi[:, np.newaxis]
+        )
+        lit_cells = lit.reshape(-1, bars_height, 4)
 
-        # Broadcast comparisons: (width, 1) > (bars_height,) -> (width, bars_height)
-        upper_left = left_vals[:, np.newaxis] > threshold_upper
-        upper_right = right_vals[:, np.newaxis] > threshold_upper
-        lower_left = left_vals[:, np.newaxis] > threshold_lower
-        lower_right = right_vals[:, np.newaxis] > threshold_lower
+        # Max per-cell sum is 0x40|0x04|0x02|0x01 = 0x47 (71); uint8 is sufficient
+        # and avoids the default uint64 promotion on the reduction.
+        left_bits = (
+            lit_cells[0::2].astype(np.uint8) * _BRAILLE_LEFT_BITS[np.newaxis, np.newaxis, :]
+        ).sum(axis=2, dtype=np.uint8)
+        right_bits = (
+            lit_cells[1::2].astype(np.uint8) * _BRAILLE_RIGHT_BITS[np.newaxis, np.newaxis, :]
+        ).sum(axis=2, dtype=np.uint8)
+        cells = (left_bits | right_bits).T
 
-        cells = (
-            upper_left.astype(np.uint8) << 3
-            | upper_right.astype(np.uint8) << 2
-            | lower_left.astype(np.uint8) << 1
-            | lower_right.astype(np.uint8)
-        ).T
-
-        rows = tuple(tuple(row) for row in cells)
+        rows = tuple(map(tuple, cells.tolist()))
 
         freq_axis_labels = self._compute_freq_labels(width, freq_min, freq_max)
         bandwidth_range = self._compute_bandwidth_range(width, freq_min, freq_max)
@@ -517,7 +519,7 @@ class SpectrumWidget(ImageModeMixin, Widget):
         run_len = 0
 
         for cell_idx in cells:
-            char = _QUADRANT_BLOCKS[cell_idx]
+            char = _BRAILLE_CHARS[cell_idx]
             style = _STYLE_BLUE if cell_idx != 0 else base
 
             if char == run_char and style is run_style:
