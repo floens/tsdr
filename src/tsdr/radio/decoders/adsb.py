@@ -1049,7 +1049,7 @@ class ADSBDecoder(Demodulator):
         self._df17_count = 0
         self._tracker = AircraftTracker()
 
-    def demodulate(self, iq_samples: np.ndarray, timestamp: float) -> None:
+    def demodulate(self, iq_samples: np.ndarray, capture_utc_s: float) -> None:
         mag = magnitude_complex(iq_samples)
         if len(self._overlap) > 0:
             mag = np.concatenate([self._overlap, mag])

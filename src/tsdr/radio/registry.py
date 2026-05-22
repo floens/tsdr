@@ -1,4 +1,5 @@
 from collections.abc import Callable
+from functools import partial
 
 from tsdr.radio.demodulators import Demodulator
 
@@ -81,3 +82,10 @@ register("FLEX", FLEXDecoder, lambda sample_rate, **_: FLEXDecoder(sample_rate=s
 from tsdr.radio.decoders.tetra import TETRADecoder  # noqa: E402
 
 register("TETRA", TETRADecoder, lambda sample_rate, **_: TETRADecoder(sample_rate=sample_rate))
+
+# WSJT-X family demodulators (FT8, FT4). Slot-based 4/8-FSK with LDPC FEC.
+from tsdr.radio.demodulators.wsjt import SUPPORTED_MODES as _WSJT_MODES  # noqa: E402
+from tsdr.radio.demodulators.wsjt import WSJTDemodulator  # noqa: E402
+
+for _mode in _WSJT_MODES:
+    register(_mode, WSJTDemodulator, partial(WSJTDemodulator, mode=_mode))

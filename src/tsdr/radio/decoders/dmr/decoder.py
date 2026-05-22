@@ -234,7 +234,7 @@ class DMRDecoder(Demodulator):
         self._dirty = False
         self._last_snapshot_ts: float = 0.0
 
-    def demodulate(self, iq_samples: np.ndarray, timestamp: float) -> None:
+    def demodulate(self, iq_samples: np.ndarray, capture_utc_s: float) -> None:
         filtered = self._antialias.process(iq_samples)
         n_before = len(filtered)
         decimated = filtered[self._decim_phase :: self._decimation]
@@ -274,14 +274,14 @@ class DMRDecoder(Demodulator):
 
             match self._state:
                 case DecoderState.SEARCHING:
-                    self._do_sync_search(timestamp)
+                    self._do_sync_search(capture_utc_s)
                 case DecoderState.COLLECTING:
-                    self._do_collect(timestamp)
+                    self._do_collect(capture_utc_s)
                 case DecoderState.LOCKED:
-                    self._do_locked(timestamp)
+                    self._do_locked(capture_utc_s)
 
-        self._flush_selected_audio(timestamp)
-        self._maybe_emit_snapshot(timestamp)
+        self._flush_selected_audio(capture_utc_s)
+        self._maybe_emit_snapshot(capture_utc_s)
 
     # Burst framing state machine
 
@@ -629,7 +629,6 @@ class DMRDecoder(Demodulator):
             AudioBatch(
                 samples=np.clip(samples, -1.0, 1.0),
                 sample_rate=_DMR_PCM_RATE,
-                timestamp=timestamp,
                 stereo=False,
                 prebuffer_seconds=self.audio_prebuffer_seconds,
             )

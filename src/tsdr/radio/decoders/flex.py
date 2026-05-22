@@ -200,8 +200,7 @@ class FLEXDecoder(Demodulator):
         # Accumulated output
         self._pending_messages: list[DecodedMessage] = []
 
-    def demodulate(self, iq_samples: np.ndarray, timestamp: float) -> None:
-        """Process IQ samples and accumulate decoded messages."""
+    def demodulate(self, iq_samples: np.ndarray, capture_utc_s: float) -> None:
         # Anti-alias filter + decimate
         filtered = self._antialias.process(iq_samples)
         n_before = len(filtered)

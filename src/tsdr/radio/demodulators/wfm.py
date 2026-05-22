@@ -269,13 +269,7 @@ class WidebandFMDemodulator(Demodulator):
             self._audio_lpf_taps, decimation=self.audio_decimation_factor
         )
 
-    def demodulate(self, iq_samples: np.ndarray, timestamp: float) -> None:
-        """Demodulate IQ samples to stereo audio.
-
-        Args:
-            iq_samples: Complex IQ samples (numpy array, complex64/128)
-            timestamp: Capture timestamp from original IQ data
-        """
+    def demodulate(self, iq_samples: np.ndarray, capture_utc_s: float) -> None:
         if len(iq_samples) == 0:
             return
 
@@ -304,7 +298,7 @@ class WidebandFMDemodulator(Demodulator):
                         summary_parts.append(rds_data.radio_text)
                     summary = " | ".join(summary_parts) if summary_parts else "RDS"
                     self._messages.append(
-                        DecodedMessage(text=summary, timestamp=timestamp, data=rds_data)
+                        DecodedMessage(text=summary, timestamp=capture_utc_s, data=rds_data)
                     )
 
         # Clip for audio output (after RDS extraction, in-place)
@@ -333,7 +327,6 @@ class WidebandFMDemodulator(Demodulator):
         self._emit_audio(
             audio_samples,
             self.output_sample_rate,
-            timestamp,
             stereo=self.stereo_detected,
         )
 

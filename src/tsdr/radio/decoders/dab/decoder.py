@@ -333,8 +333,7 @@ class DABDecoder(Demodulator):
             return None
         return points, "DQPSK"
 
-    def demodulate(self, iq_samples: np.ndarray, timestamp: float) -> None:
-        """Process IQ samples and accumulate decoded messages."""
+    def demodulate(self, iq_samples: np.ndarray, capture_utc_s: float) -> None:
         self._buffer = np.concatenate([self._buffer, iq_samples.astype(np.complex64)])
 
         while len(self._buffer) >= 2 * T_FRAME:
@@ -489,7 +488,6 @@ class DABDecoder(Demodulator):
                 AudioBatch(
                     samples=combined,
                     sample_rate=self._aac_decoder.output_rate,
-                    timestamp=time.time(),
                     prebuffer_seconds=self.audio_prebuffer_seconds,
                 )
             )

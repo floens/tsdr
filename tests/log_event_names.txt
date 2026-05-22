@@ -208,3 +208,5 @@ worker_stopped
 worker_stopping
 worker_teardown_crashed
 worker_thread_exiting
+wsjt_decode
+wsjt_slot_summary

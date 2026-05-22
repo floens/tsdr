@@ -262,6 +262,11 @@ logger.error("pipeline_stage_crash device=%s pipeline=%s stage=%s error=%r", ...
 
 `tests/test_log_event_names.py` enforces the snake_case event-name token across the tree.
 
+## Time
+
+- Wall clock: `tsdr.core.clock_sync.now()` returns an NTP-corrected `datetime` when a sync server is configured, otherwise system time. Use it instead of `datetime.now()` / `time.time()` whenever the timestamp may be user- or protocol-visible (decoded message rows, slot framing, log labels). For hot paths that just need the float seconds, use `clock_sync.now_utc_seconds()` (skips the datetime allocation).
+- Capture time: every `SamplesBatch` carries `capture_utc_s` — UTC seconds since the Unix epoch at the *first* sample of the batch, populated in `io_worker` via `clock_sync.now_utc_seconds()`. Demodulators receive it as the second argument to `demodulate(iq, capture_utc_s)` and can pass it to `DecodedMessage(timestamp=...)` directly.
+
 ## Verification
 
 - Code: `uv run pre-commit run --all-files`

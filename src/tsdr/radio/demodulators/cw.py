@@ -139,7 +139,7 @@ class CWDemodulator(Demodulator):
     def set_squelch(self, enabled: bool, threshold_db: float, hang_ms: float) -> None:
         self._squelch.configure(enabled=enabled, threshold_db=threshold_db, hang_ms=hang_ms)
 
-    def demodulate(self, iq_samples: np.ndarray, timestamp: float) -> None:
+    def demodulate(self, iq_samples: np.ndarray, capture_utc_s: float) -> None:
         if len(iq_samples) == 0:
             return
 
@@ -152,7 +152,7 @@ class CWDemodulator(Demodulator):
 
         # Morse text decoder consumes the keying envelope (post-LPF magnitude).
         env = np.abs(iq_filt).astype(np.float32, copy=False)
-        self._morse.process(env, timestamp)
+        self._morse.process(env, capture_utc_s)
 
         iq_shifted, self._bfo_phase = apply_freq_shift_c64(
             iq_filt, -self.tone_hz, self.decimated_rate, self._bfo_phase
@@ -166,7 +166,7 @@ class CWDemodulator(Demodulator):
         if gate is not None:
             audio *= gate
 
-        self._emit_audio(audio, self.decimated_rate, timestamp)
+        self._emit_audio(audio, self.decimated_rate)
 
     def get_messages(self) -> list[DecodedMessage]:
         return self._morse.get_messages()

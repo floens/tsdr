@@ -3,6 +3,7 @@ import queue
 import time
 from typing import TYPE_CHECKING
 
+from tsdr.core import clock_sync
 from tsdr.core.events.events import (
     DeviceCapabilitiesChangedEvent,
     DeviceErrorEvent,
@@ -227,7 +228,12 @@ class IOWorker:
                         )
                         time.sleep(0.1)
                         continue
-                timestamp = time.perf_counter()
+                # Backdate to the first sample of the buffer.
+                sample_count = len(raw_bytes) // self.sample_format.bytes_per_sample
+                actual_rate = device.actual_sample_rate
+                capture_utc_s = clock_sync.now_utc_seconds() - (
+                    sample_count / actual_rate if actual_rate > 0 else 0.0
+                )
 
                 batch = SamplesBatch(
                     raw_samples=raw_bytes,
@@ -235,7 +241,7 @@ class IOWorker:
                     center_frequency=config.center_frequency,
                     sample_rate=device.actual_sample_rate,
                     rf_gain=config.rf_gain,
-                    timestamp=timestamp,
+                    capture_utc_s=capture_utc_s,
                 )
 
                 with span("queue_put"):

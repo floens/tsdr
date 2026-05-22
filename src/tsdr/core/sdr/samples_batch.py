@@ -66,8 +66,9 @@ class SamplesBatch:
     sample_rate: float = 0.0
     rf_gain: float = 0.0
 
-    # Timing
-    timestamp: float = 0.0
+    # Capture time of the FIRST sample in this batch, UTC seconds since the
+    # Unix epoch, NTP-corrected via clock_sync.now() at I/O read time.
+    capture_utc_s: float = 0.0
 
     # Processing hints
     stage_name: str = "unknown"

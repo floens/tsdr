@@ -154,13 +154,7 @@ class NarrowbandFMDemodulator(Demodulator):
             dtype=np.float64,
         )
 
-    def demodulate(self, iq_samples: np.ndarray, timestamp: float) -> None:
-        """Demodulate IQ samples to audio.
-
-        Args:
-            iq_samples: Complex IQ samples
-            timestamp: Capture timestamp
-        """
+    def demodulate(self, iq_samples: np.ndarray, capture_utc_s: float) -> None:
         if len(iq_samples) == 0:
             return
 
@@ -182,7 +176,7 @@ class NarrowbandFMDemodulator(Demodulator):
         envelope = self._squelch.process(power_db, len(audio_samples))
         if envelope is not None:
             audio_samples *= envelope
-        self._emit_audio(audio_samples, self.decimated_rate, timestamp)
+        self._emit_audio(audio_samples, self.decimated_rate)
 
     def _apply_deemphasis(self, audio: np.ndarray) -> np.ndarray:
         """Apply de-emphasis filter.

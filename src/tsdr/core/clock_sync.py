@@ -199,6 +199,24 @@ def get_clock_sync_monitor() -> ClockSyncMonitor:
     return _monitor
 
 
+def _ntp_offset_seconds() -> float:
+    monitor = _monitor
+    if monitor is None:
+        return 0.0
+    snap = monitor.get()
+    if snap.offset_s is None or not snap.is_current(monitor.server):
+        return 0.0
+    return snap.offset_s
+
+
+def now_utc_seconds() -> float:
+    """NTP-corrected UTC seconds since the Unix epoch.
+
+    Equivalent to ``now(UTC).timestamp()`` but skips the datetime allocation.
+    """
+    return time.time() + _ntp_offset_seconds()
+
+
 def now(tz: tzinfo | None = None) -> datetime:
     """Current time, NTP-corrected when the SNTP monitor has a result.
 
@@ -210,11 +228,5 @@ def now(tz: tzinfo | None = None) -> datetime:
     tz=UTC  → UTC.
     tz=ZoneInfo("...") → that zone.
     """
-    ts = time.time()
-    monitor = _monitor
-    if monitor is not None:
-        snap = monitor.get()
-        if snap.offset_s is not None and snap.is_current(monitor.server):
-            ts += snap.offset_s
-    aware = datetime.fromtimestamp(ts, UTC)
+    aware = datetime.fromtimestamp(now_utc_seconds(), UTC)
     return aware.astimezone() if tz is None else aware.astimezone(tz)

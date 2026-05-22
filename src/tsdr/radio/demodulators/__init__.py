@@ -26,7 +26,7 @@ class Demodulator(ABC):
         self._audio_batches: list[AudioBatch] = []
 
     @abstractmethod
-    def demodulate(self, iq_samples: np.ndarray, timestamp: float) -> None: ...
+    def demodulate(self, iq_samples: np.ndarray, capture_utc_s: float) -> None: ...
 
     @abstractmethod
     def info(self) -> SignalInfo:
@@ -97,7 +97,6 @@ class Demodulator(ABC):
         self,
         samples: np.ndarray,
         sample_rate: float,
-        timestamp: float,
         *,
         stereo: bool = False,
     ) -> None:
@@ -106,7 +105,6 @@ class Demodulator(ABC):
             AudioBatch(
                 samples=samples,
                 sample_rate=sample_rate,
-                timestamp=timestamp,
                 stereo=stereo,
                 prebuffer_seconds=self.audio_prebuffer_seconds,
             )

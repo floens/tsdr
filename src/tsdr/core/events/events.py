@@ -198,7 +198,7 @@ class DecoderOutputEvent(Event):
 
 @dataclass(frozen=True)
 class ConstellationUpdateEvent(Event):
-    """Constellation points from a decoder for visualization."""
+    """Constellation scatter from a demod for visualization."""
 
     device_id: str
     points: NDArray[np.complex64]

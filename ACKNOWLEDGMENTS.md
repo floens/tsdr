@@ -46,3 +46,10 @@ TSDR includes code derived from or inspired by the following projects:
 
 - **fldigi** by W1HKJ et al.
   https://github.com/w1hkj/fldigi
+
+## FT8 / FT4 (WSJT-X family) Decoder
+
+- **ft8_lib** by Karlis Goba (YL3JG)
+  https://github.com/kgoba/ft8_lib
+- **WSJT-X** by Joe Taylor (K1JT) et al.
+  https://wsjt.sourceforge.io

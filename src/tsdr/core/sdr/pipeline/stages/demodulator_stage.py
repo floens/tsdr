@@ -47,7 +47,7 @@ class DemodulatorStage:
             )
 
         with span("demodulate"):
-            self._demodulator.demodulate(data.iq_samples, data.timestamp)
+            self._demodulator.demodulate(data.iq_samples, data.capture_utc_s)
 
         # Drain audio
         if context.audio_queue is not None:

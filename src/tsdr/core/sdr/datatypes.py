@@ -10,16 +10,10 @@ class AudioBatch:
 
     Immutable container for audio samples passed from demodulator
     to audio output thread.
-
-    Attributes:
-        samples: Float audio samples (-1.0 to 1.0)
-        sample_rate: Sample rate in Hz (e.g., 48000)
-        timestamp: Capture timestamp from original IQ data
     """
 
     samples: np.ndarray  # Float audio samples (-1.0 to 1.0)
     sample_rate: float  # Sample rate (e.g., 48000)
-    timestamp: float  # Capture timestamp
     stereo: bool = False  # Whether audio is stereo
     prebuffer_seconds: float = 0.15  # Desired prebuffer before playback starts
 

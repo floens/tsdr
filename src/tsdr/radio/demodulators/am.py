@@ -115,7 +115,7 @@ class AMDemodulator(Demodulator):
     def set_squelch(self, enabled: bool, threshold_db: float, hang_ms: float) -> None:
         self._squelch.configure(enabled=enabled, threshold_db=threshold_db, hang_ms=hang_ms)
 
-    def demodulate(self, iq_samples: np.ndarray, timestamp: float) -> None:
+    def demodulate(self, iq_samples: np.ndarray, capture_utc_s: float) -> None:
         if len(iq_samples) == 0:
             return
 
@@ -133,7 +133,7 @@ class AMDemodulator(Demodulator):
         if gate is not None:
             audio *= gate
 
-        self._emit_audio(audio, self.decimated_rate, timestamp)
+        self._emit_audio(audio, self.decimated_rate)
 
     def reset(self) -> None:
         super().reset()

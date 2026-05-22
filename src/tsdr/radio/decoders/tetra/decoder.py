@@ -149,23 +149,23 @@ class TETRADecoder(Demodulator):
     def set_tuned_frequency(self, frequency_hz: int) -> None:
         trackers.set_tuned_frequency(self._state, int(frequency_hz))
 
-    def demodulate(self, iq_samples: np.ndarray, timestamp: float) -> None:
+    def demodulate(self, iq_samples: np.ndarray, capture_utc_s: float) -> None:
         symbols = self._demod.process_symbols(iq_samples)
         if len(symbols) == 0:
             return
 
         for burst in self._sync.process(symbols):
-            trackers.record_burst(self._state, burst.burst_type, timestamp)
+            trackers.record_burst(self._state, burst.burst_type, capture_utc_s)
 
             if burst.burst_type == "sync":
-                self._handle_sync_burst(burst, timestamp)
+                self._handle_sync_burst(burst, capture_utc_s)
             elif burst.burst_type in ("normal_1", "normal_2"):
-                self._handle_normal_burst(burst, timestamp)
+                self._handle_normal_burst(burst, capture_utc_s)
 
             trackers.advance_tdma(self._state)
 
-        self._flush_selected_audio(timestamp)
-        self._maybe_emit_snapshot(timestamp)
+        self._flush_selected_audio(capture_utc_s)
+        self._maybe_emit_snapshot(capture_utc_s)
 
     # burst handlers
 
@@ -349,7 +349,6 @@ class TETRADecoder(Demodulator):
             AudioBatch(
                 samples=np.clip(samples, -1.0, 1.0),
                 sample_rate=_TETRA_PCM_RATE,
-                timestamp=timestamp,
                 stereo=False,
                 prebuffer_seconds=self.audio_prebuffer_seconds,
             )
