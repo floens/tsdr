@@ -126,9 +126,15 @@ class StatsWidget(Static):
             lines.append(f"  Endpoint:      [white]{self._network_address}[/white]")
 
         event = self.current_event
-        if event is None:
-            return lines
+        if event is not None:
+            self._render_event_sections(lines, event)
 
+        if self._network_address is not None:
+            self._render_network_section(lines)
+
+        return lines
+
+    def _render_event_sections(self, lines: list[str], event: StatsUpdateEvent) -> None:
         lines.append("[bold cyan]Signal:[/bold cyan]")
         # IQ amplitude (shows ADC utilization and clipping)
         if event.iq_rms is not None:
@@ -142,13 +148,11 @@ class StatsWidget(Static):
                 iq_color = "yellow"
             else:
                 iq_color = "red"
-            iq_line = (
+            lines.append(
                 f"  IQ Amplitude:  [{iq_color}]{event.iq_rms:>5.3f}[/{iq_color}]/"
                 f"[{iq_color}]{event.iq_peak:>5.3f}[/{iq_color}] rms/peak"
             )
-            lines.append(iq_line)
 
-        # Processing statistics
         lines.append("[bold cyan]Processing:[/bold cyan]")
         lines.append(
             f"  Window:        [white]{event.fft_window}/{event.spectrum_bins} bins[/white]"
@@ -156,7 +160,6 @@ class StatsWidget(Static):
         if event.update_rate_fps > 0:
             lines.append(f"  Update Rate:   [white]{event.update_rate_fps:>5} fps[/white]")
 
-        # Calculate frequency resolution
         if event.spectrum_bins > 0:
             freq_res = event.sample_rate / event.spectrum_bins
             if freq_res >= 1000:
@@ -165,7 +168,6 @@ class StatsWidget(Static):
                 freq_res_str = f"{freq_res:.1f} Hz"
             lines.append(f"  Freq Res:      [white]{freq_res_str:>8}[/white]")
 
-        # Audio section (only show if demodulating)
         if event.demod_mode != "RAW":
             lines.append("[bold cyan]Audio:[/bold cyan]")
             lines.append(f"  Mode:          [white]{event.demod_mode:>8}[/white]")
@@ -176,45 +178,34 @@ class StatsWidget(Static):
                 bw_khz = self._signal_info.channel_bandwidth / 1000
                 lines.append(f"  Bandwidth:     [green]{bw_khz:>7.1f}[/green] kHz")
 
-        # Queue statistics
         lines.append("[bold cyan]Queue:[/bold cyan]")
         queue_util = (event.queue_size / max(event.queue_capacity, 1)) * 100
-
-        # Color-code queue utilization
         if queue_util < 50:
             util_color = "green"
         elif queue_util < 80:
             util_color = "yellow"
         else:
             util_color = "red"
-
         lines.append(f"  Size:          {event.queue_size:>4} / {event.queue_capacity:>4}")
         lines.append(f"  Utilization:   [{util_color}]{queue_util:>7.1f}[/{util_color}] %")
 
-        has_jitter = self._jitter is not None and self._jitter.target_seconds > 0
-        if has_jitter:
-            assert self._jitter is not None
-            lines.append("[bold cyan]Network:[/bold cyan]")
-            lines.append(f"  Buffer Target: [white]{self._jitter.target_seconds:>5.2f}[/white] s")
-            pct = self._jitter.fill_fraction * 100
-            if self._jitter.rebuffering or pct < 10:
-                fill_color = "red"
-            elif pct < 50:
-                fill_color = "yellow"
-            else:
-                fill_color = "green"
-            lines.append(
-                f"  Fill:          [{fill_color}]{self._jitter.fill_seconds:>5.2f}[/{fill_color}] s"
-                f"  ([{fill_color}]{pct:>3.0f}%[/{fill_color}])"
-            )
-            if self._jitter.rebuffering:
-                rb_color = "red"
-            elif self._jitter.rebuffer_count > 0:
-                rb_color = "yellow"
-            else:
-                rb_color = "green"
-            lines.append(
-                f"  Rebuffers:     [{rb_color}]{self._jitter.rebuffer_count:>4}[/{rb_color}]"
-            )
-
-        return lines
+    def _render_network_section(self, lines: list[str]) -> None:
+        # JitterBufferUpdateEvent is coalesced source-side and may not arrive
+        # for a moment after mount; render dim zeros until the first one lands
+        # so the placeholder isn't mistaken for a buffer-underrun alarm.
+        lines.append("[bold cyan]Network:[/bold cyan]")
+        j = self._jitter
+        if j is None:
+            lines.append("  Buffer Target: [dim] 0.00[/dim] s")
+            lines.append("  Fill:          [dim] 0.00[/dim] s  ([dim]  0%[/dim])")
+            lines.append("  Rebuffers:     [dim]   0[/dim]")
+            return
+        pct = j.fill_fraction * 100
+        fill_color = "red" if j.rebuffering or pct < 10 else "yellow" if pct < 50 else "green"
+        rb_color = "red" if j.rebuffering else "yellow" if j.rebuffer_count > 0 else "green"
+        lines.append(f"  Buffer Target: [white]{j.target_seconds:>5.2f}[/white] s")
+        lines.append(
+            f"  Fill:          [{fill_color}]{j.fill_seconds:>5.2f}[/{fill_color}] s"
+            f"  ([{fill_color}]{pct:>3.0f}%[/{fill_color}])"
+        )
+        lines.append(f"  Rebuffers:     [{rb_color}]{j.rebuffer_count:>4}[/{rb_color}]")
