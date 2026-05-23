@@ -5,12 +5,12 @@ import numpy as np
 from numpy.typing import NDArray
 from rich.segment import Segment
 from rich.style import Style
+from textual.reactive import reactive
 from textual.strip import Strip
 from textual.widget import Widget
 
 from tsdr.core.events.events import FFTUpdateEvent
 from tsdr.core.tracing import traced
-from tsdr.tui.state import UIState
 from tsdr.tui.widgets.dsp_utils import (
     decimate_spectrum,
     normalize_spectrum,
@@ -128,11 +128,19 @@ class WaterfallWidget(ImageModeMixin, Widget):
       are cropped/removed as they scroll off-screen.
 
     Both modes share zoom, dB range controls, and the SDR# Classic colormap LUT.
+
+    Reactive props:
+      zoom, db_min, db_max: float — invalidates text-mode buffer when any change.
+      image_mode: bool — toggles between text and kitty image rendering.
     """
 
-    def __init__(self, ui_state: UIState) -> None:
+    zoom = reactive(1.0)
+    db_min = reactive(-90.0)
+    db_max = reactive(-45.0)
+    image_mode = reactive(False)
+
+    def __init__(self) -> None:
         super().__init__()
-        self._ui_state = ui_state
         self.current_event: FFTUpdateEvent | None = None
         self._buffer: NDArray[np.uint8] | None = None  # Rolling buffer of color indices
         self._write_pos: int = 0  # Circular write position
@@ -146,6 +154,21 @@ class WaterfallWidget(ImageModeMixin, Widget):
 
     def on_mount(self) -> None:
         self._mount_kitty()
+
+    def watch_zoom(self, _zoom: float) -> None:
+        self.invalidate_text_buffer()
+
+    def watch_db_min(self, _db_min: float) -> None:
+        self.invalidate_text_buffer()
+
+    def watch_db_max(self, _db_max: float) -> None:
+        self.invalidate_text_buffer()
+
+    def watch_image_mode(self, enabled: bool) -> None:
+        if enabled:
+            self._on_image_mode_enabled()
+        else:
+            self._on_image_mode_disabled()
 
     @traced("waterfall")
     def update_waterfall(self, event: FFTUpdateEvent) -> None:
@@ -190,7 +213,7 @@ class WaterfallWidget(ImageModeMixin, Widget):
         self.refresh()
 
     def _status_strip(self) -> Strip:
-        return status_strip(self.size.width, self._ui_state, self.rich_style)
+        return status_strip(self.size.width, self.zoom, self.db_min, self.db_max, self.rich_style)
 
     def _render_waterfall_image(self, event: FFTUpdateEvent) -> None:
         full_w, full_h = self._kitty.full_pixel_size
@@ -224,9 +247,9 @@ class WaterfallWidget(ImageModeMixin, Widget):
         scale = self._pixel_scale
         w = w - (w % scale)
 
-        zoomed = zoom_spectrum(event.spectrum, self._ui_state.zoom)
+        zoomed = zoom_spectrum(event.spectrum, self.zoom)
         line = decimate_spectrum(zoomed, w // scale)
-        normalized = normalize_spectrum(line, self._ui_state.db_min, self._ui_state.db_max)
+        normalized = normalize_spectrum(line, self.db_min, self.db_max)
         indices = (normalized * 255).astype(np.intp)
         row = np.repeat(_RGBA_LUT[indices], scale, axis=0)
 
@@ -403,9 +426,9 @@ class WaterfallWidget(ImageModeMixin, Widget):
             self._write_pos = 0
             self._strip_cache = {}
 
-        zoomed = zoom_spectrum(spectrum, self._ui_state.zoom)
+        zoomed = zoom_spectrum(spectrum, self.zoom)
         line = decimate_spectrum(zoomed, width)
-        normalized = normalize_spectrum(line, self._ui_state.db_min, self._ui_state.db_max)
+        normalized = normalize_spectrum(line, self.db_min, self.db_max)
         color_indices = (normalized * 255).astype(np.uint8)
 
         # Write to circular buffer

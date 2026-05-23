@@ -7,6 +7,7 @@ from rich.segment import Segment
 from rich.style import Style
 from textual import events
 from textual.events import Click, MouseScrollDown, MouseScrollUp
+from textual.reactive import reactive
 from textual.strip import Strip
 from textual.timer import Timer
 from textual.widget import Widget
@@ -18,7 +19,7 @@ from tsdr.core.events.events import (
     MemoriesChangedEvent,
 )
 from tsdr.core.memories import Memory, get_memory_store, memory_color, recall_memory
-from tsdr.core.preferences import save_device, save_ui_state
+from tsdr.core.preferences import save_device
 from tsdr.core.sdr.device_context import DeviceState
 from tsdr.core.sdr.engine import get_engine
 from tsdr.core.sdr.exceptions import SDRException
@@ -26,7 +27,8 @@ from tsdr.core.tracing import traced
 from tsdr.core.tuning import save_previous_tune_state
 from tsdr.core.units import format_hz
 from tsdr.tui.inline_edit import InlineEditBuffer
-from tsdr.tui.state import UIState
+from tsdr.tui.model import adjusted_zoom
+from tsdr.tui.model.store import get_ui_store
 from tsdr.tui.widgets.dsp_utils import (
     decimate_spectrum,
     normalize_spectrum,
@@ -35,7 +37,6 @@ from tsdr.tui.widgets.dsp_utils import (
     zoom_spectrum,
 )
 from tsdr.tui.widgets.image_mode_mixin import ImageModeMixin
-from tsdr.tui.widgets.waterfall_widget import WaterfallWidget
 
 logger = logging.getLogger(__name__)
 
@@ -95,11 +96,19 @@ class SpectrumWidget(ImageModeMixin, Widget):
 
     Uses braille characters for 2×4 resolution per terminal cell.
     Supports Kitty image mode for line plot rendering.
+
+    Reactive props:
+      zoom, db_min, db_max: float — invalidates frame buffer on change.
+      image_mode: bool — switches to kitty image rendering.
     """
 
-    def __init__(self, ui_state: UIState) -> None:
+    zoom = reactive(1.0)
+    db_min = reactive(-90.0)
+    db_max = reactive(-45.0)
+    image_mode = reactive(False)
+
+    def __init__(self) -> None:
         super().__init__()
-        self._ui_state = ui_state
         self.current_event: FFTUpdateEvent | None = None
         self._channel_bandwidth: float | None = None
         self._sideband: str | None = None
@@ -118,6 +127,26 @@ class SpectrumWidget(ImageModeMixin, Widget):
         if not self.image_mode:
             self._rebuild_strips()
         self.refresh()
+
+    def on_unmount(self) -> None:
+        if self._edit_blink_timer is not None:
+            self._edit_blink_timer.stop()
+            self._edit_blink_timer = None
+
+    def watch_zoom(self, _zoom: float) -> None:
+        self.invalidate_frame_buffer()
+
+    def watch_db_min(self, _db_min: float) -> None:
+        self.invalidate_frame_buffer()
+
+    def watch_db_max(self, _db_max: float) -> None:
+        self.invalidate_frame_buffer()
+
+    def watch_image_mode(self, enabled: bool) -> None:
+        if enabled:
+            self._on_image_mode_enabled()
+        else:
+            self._on_image_mode_disabled()
 
     def update_spectrum(self, event: FFTUpdateEvent) -> None:
         """Update spectrum display from event."""
@@ -304,7 +333,7 @@ class SpectrumWidget(ImageModeMixin, Widget):
         return Strip.blank(self.size.width, self.rich_style)
 
     def _status_strip(self) -> Strip:
-        return status_strip(self.size.width, self._ui_state, self.rich_style)
+        return status_strip(self.size.width, self.zoom, self.db_min, self.db_max, self.rich_style)
 
     # Image mode rendering
 
@@ -329,10 +358,10 @@ class SpectrumWidget(ImageModeMixin, Widget):
             return
         freq_min, freq_max = live
 
-        zoomed = zoom_spectrum(event.spectrum, self._ui_state.zoom)
+        zoomed = zoom_spectrum(event.spectrum, self.zoom)
         e_fmin, e_fmax = self._actual_freq_range(event)
         line = self._shift_spectrum_to_live(zoomed, e_fmin, e_fmax, freq_min, freq_max, w)
-        normalized = normalize_spectrum(line, self._ui_state.db_min, self._ui_state.db_max)
+        normalized = normalize_spectrum(line, self.db_min, self.db_max)
 
         buf = np.zeros((plot_h, w, 4), dtype=np.uint8)
 
@@ -424,12 +453,12 @@ class SpectrumWidget(ImageModeMixin, Widget):
         if event is None:
             normalized = np.zeros(target, dtype=np.float32)
         else:
-            zoomed = zoom_spectrum(event.spectrum, self._ui_state.zoom)
+            zoomed = zoom_spectrum(event.spectrum, self.zoom)
             e_fmin, e_fmax = self._actual_freq_range(event)
             spectrum = self._shift_spectrum_to_live(
                 zoomed, e_fmin, e_fmax, freq_min, freq_max, target
             )
-            normalized = normalize_spectrum(spectrum, self._ui_state.db_min, self._ui_state.db_max)
+            normalized = normalize_spectrum(spectrum, self.db_min, self.db_max)
 
         # Build braille cell grid as a line trace: each dot column lights one
         # row at the normalized value, and consecutive columns are joined by a
@@ -467,7 +496,7 @@ class SpectrumWidget(ImageModeMixin, Widget):
 
         freq_axis_labels = self._compute_freq_labels(width, freq_min, freq_max)
         bandwidth_range = self._compute_bandwidth_range(width, freq_min, freq_max)
-        header = f"Zoom: {self._ui_state.zoom:.1f}x | Min: {self._ui_state.db_min:.0f} dB | Max: {self._ui_state.db_max:.0f} dB"
+        header = f"Zoom: {self.zoom:.1f}x | Min: {self.db_min:.0f} dB | Max: {self.db_max:.0f} dB"  # noqa: E501
         memory_labels = self._compute_memory_labels(width, freq_min, freq_max)
         bandplan_segments = self._compute_bandplan_segments(width, freq_min, freq_max)
 
@@ -737,10 +766,8 @@ class SpectrumWidget(ImageModeMixin, Widget):
         event.stop()
 
     def _scroll_zoom(self, direction: int) -> None:
-        self._ui_state.adjust_zoom(direction)
-        self.invalidate_frame_buffer()
-        self.screen.query_one(WaterfallWidget).invalidate_text_buffer()
-        save_ui_state(self._ui_state)
+        store = get_ui_store()
+        store.update(zoom=adjusted_zoom(store.model.zoom, direction))
 
     def _scroll_tune(self, direction: int) -> None:
         engine = get_engine()
@@ -750,7 +777,7 @@ class SpectrumWidget(ImageModeMixin, Widget):
         # Pixel-relative step: visible span / display width × 2 (2 pixels per notch).
         # Falls back to 1 Hz minimum so we never lose visible motion.
         sample_rate = device.config.sample_rate
-        visible_span = sample_rate / self._ui_state.zoom
+        visible_span = sample_rate / self.zoom
         w = self.size.width
         pixel_hz = visible_span / w if w > 0 else 1.0
         step = max(pixel_hz * 2, 1.0)
@@ -762,7 +789,7 @@ class SpectrumWidget(ImageModeMixin, Widget):
 
     def _actual_freq_range(self, event: FFTUpdateEvent) -> tuple[float, float]:
         """Return (freq_min, freq_max) for the captured FFT event, accounting for zoom."""
-        visible_bw = event.sample_rate / self._ui_state.zoom
+        visible_bw = event.sample_rate / self.zoom
         freq_min = event.center_frequency - visible_bw / 2
         freq_max = event.center_frequency + visible_bw / 2
         return freq_min, freq_max
@@ -787,7 +814,7 @@ class SpectrumWidget(ImageModeMixin, Widget):
             return self._actual_freq_range(self.current_event)
         cf = device.config.center_frequency
         sr = device.config.sample_rate
-        visible_bw = sr / self._ui_state.zoom
+        visible_bw = sr / self.zoom
         return cf - visible_bw / 2, cf + visible_bw / 2
 
     def _shift_spectrum_to_live(

@@ -32,19 +32,9 @@ class RDSWidget(Horizontal):
 
     def on_mount(self) -> None:
         self.border_title = "RDS"
-        self.display = False
-
-    def clear(self) -> None:
-        """Reset all RDS state and clear display."""
-        self._current_rds = None
-        self._group_grid.clear()
-        self._refresh_display()
 
     def update_messages(self, event: DecoderOutputEvent) -> None:
         """Update widget with new RDS data from DecoderOutputEvent."""
-        if not self.display:
-            return
-
         # Find the last message with RDSData payload
         rds_data = None
         for msg in event.messages:

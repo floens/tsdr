@@ -36,6 +36,14 @@ class StatusBar(Static):
         # (device_id, fill_seconds, target_seconds), or None when not buffering.
         self._buffering_state: tuple[str, float, float] | None = None
 
+    def on_unmount(self) -> None:
+        if self._error_timer is not None:
+            self._error_timer.stop()
+            self._error_timer = None
+        if self._output_timer is not None:
+            self._output_timer.stop()
+            self._output_timer = None
+
     def show_output(self, message: str) -> None:
         """Show command output (auto-clears after DISPLAY_DURATION)."""
         if self._error_timer is not None:

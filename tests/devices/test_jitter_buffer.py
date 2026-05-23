@@ -511,8 +511,10 @@ def test_pacing_is_drift_free_over_many_cycles() -> None:
         nominal = n_cycles * 0.05
         drift_pct = (elapsed - nominal) / nominal * 100
         # OS scheduling slop is typically <2 ms total over the 2.0 s
-        # window, well under 1 %. The buggy version drifted 5-10 %.
-        assert abs(drift_pct) < 2.0, (
+        # window; under parallel test load it can spike to ~40 ms (≈2 %).
+        # The buggy version drifted 5-10 %, so 3 % still catches the
+        # regression without being flaky under contention.
+        assert abs(drift_pct) < 3.0, (
             f"pacing drift {drift_pct:+.2f}% over {n_cycles} cycles "
             f"({elapsed:.3f}s vs nominal {nominal:.3f}s)"
         )

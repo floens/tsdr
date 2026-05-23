@@ -35,7 +35,6 @@ if TYPE_CHECKING:
     from tsdr.core.sdr.device_context import SDRDeviceContext
     from tsdr.core.sdr.engine import SDREngine
     from tsdr.core.tuning_state import TuningState
-    from tsdr.tui.state import UIState
 
 logger = logging.getLogger(__name__)
 
@@ -48,21 +47,6 @@ def load_preferences() -> dict[str, Any]:
 
 def save_preferences(data: dict[str, Any]) -> None:
     storage.save_toml(PREFERENCES_FILE, data)
-
-
-def save_ui_state(ui_state: UIState) -> None:
-    prefs = load_preferences()
-    prefs["ui"] = {
-        "zoom": ui_state.zoom,
-        "db_min": ui_state.db_min,
-        "db_max": ui_state.db_max,
-        "image_mode": ui_state.image_mode,
-        "active_panel": ui_state.active_panel or "",
-        "timezone": ui_state.timezone or "",
-        "clock_visible": ui_state.clock_visible,
-        "ntp_server": ui_state.ntp_server or "",
-    }
-    save_preferences(prefs)
 
 
 def save_engine_config(engine: SDREngine) -> None:
@@ -176,26 +160,6 @@ def restore_tuning_state(state: TuningState, prefs: dict[str, Any]) -> None:
         )
     if "current_band_key" in tuning:
         state.current_band_key = int(tuning["current_band_key"])
-
-
-def restore_ui_state(ui_state: UIState, prefs: dict[str, Any]) -> None:
-    ui = prefs.get("ui", {})
-    if "zoom" in ui:
-        ui_state.zoom = float(ui["zoom"])
-    if "db_min" in ui:
-        ui_state.db_min = float(ui["db_min"])
-    if "db_max" in ui:
-        ui_state.db_max = float(ui["db_max"])
-    if "image_mode" in ui:
-        ui_state.image_mode = bool(ui["image_mode"])
-    if ui.get("active_panel"):
-        ui_state.active_panel = str(ui["active_panel"])
-    if ui.get("timezone"):
-        ui_state.timezone = str(ui["timezone"])
-    if "clock_visible" in ui:
-        ui_state.clock_visible = bool(ui["clock_visible"])
-    if ui.get("ntp_server"):
-        ui_state.ntp_server = str(ui["ntp_server"])
 
 
 def _build_params(device: PersistedDevice) -> DeviceParams | None:

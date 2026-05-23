@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from tsdr.core.events.events import (
-    ConfigChangedEvent,
+    DeviceAddedEvent,
     DeviceCapabilitiesChangedEvent,
+    DeviceRemovedEvent,
+    FocusChangedEvent,
 )
 from tsdr.core.sdr.config import DeviceConfig
 from tsdr.core.sdr.engine import SDREngine
@@ -10,22 +12,15 @@ from tsdr.devices import MockParams
 from tsdr.devices.base import DeviceCapabilities
 
 
-def test_add_device_publishes_config_changed() -> None:
-    """Without this event, UI widgets stay blank until the user pokes something.
-
-    The tuner widget mounts before the device is restored (restore is scheduled
-    via call_after_refresh from on_mount). Its on_mount sees no focused device
-    and bails. The only way it can populate afterwards is by receiving a
-    ConfigChangedEvent once the device exists.
-    """
+def test_add_device_publishes_device_added() -> None:
     engine = SDREngine()
-    received: list[ConfigChangedEvent] = []
+    received: list[DeviceAddedEvent] = []
 
     def handler(event: object) -> None:
-        assert isinstance(event, ConfigChangedEvent)
+        assert isinstance(event, DeviceAddedEvent)
         received.append(event)
 
-    engine.event_bus.subscribe(ConfigChangedEvent, handler)
+    engine.event_bus.subscribe(DeviceAddedEvent, handler)
 
     engine.add_device("rtl0", "mock", MockParams(), DeviceConfig())
 
@@ -33,21 +28,82 @@ def test_add_device_publishes_config_changed() -> None:
     assert received[0].device_id == "rtl0"
 
 
+def test_first_add_publishes_focus_changed() -> None:
+    """Adding the first device implicitly focuses it; a FocusChangedEvent
+    fires so the UI can re-seed without waiting for the next pipeline event."""
+    engine = SDREngine()
+    received: list[FocusChangedEvent] = []
+    engine.event_bus.subscribe(FocusChangedEvent, lambda e: received.append(e))  # type: ignore[arg-type]
+
+    engine.add_device("rtl0", "mock", MockParams(), DeviceConfig())
+
+    assert [e.focused_device_id for e in received] == ["rtl0"]
+
+
+def test_second_add_does_not_publish_focus_changed() -> None:
+    engine = SDREngine()
+    engine.add_device("rtl0", "mock", MockParams(), DeviceConfig())
+    received: list[FocusChangedEvent] = []
+    engine.event_bus.subscribe(FocusChangedEvent, lambda e: received.append(e))  # type: ignore[arg-type]
+
+    engine.add_device("rtl1", "mock", MockParams(), DeviceConfig())
+
+    assert received == []
+
+
 def test_add_device_sets_focused_before_event() -> None:
-    """Handlers read engine.get_focused_device(); it must be set by the time
-    they run, otherwise they bail and stay blank."""
+    """Handlers depend on engine.focused_device being set by the time the
+    DeviceAdded event reaches them."""
     engine = SDREngine()
     observed_focused: list[str | None] = []
 
     def handler(event: object) -> None:
-        assert isinstance(event, ConfigChangedEvent)
+        assert isinstance(event, DeviceAddedEvent)
         observed_focused.append(engine.focused_device)
 
-    engine.event_bus.subscribe(ConfigChangedEvent, handler)
+    engine.event_bus.subscribe(DeviceAddedEvent, handler)
 
     engine.add_device("rtl0", "mock", MockParams(), DeviceConfig())
 
     assert observed_focused == ["rtl0"]
+
+
+def test_set_focused_device_publishes_focus_changed() -> None:
+    engine = SDREngine()
+    engine.add_device("rtl0", "mock", MockParams(), DeviceConfig())
+    engine.add_device("rtl1", "mock", MockParams(), DeviceConfig())
+    received: list[FocusChangedEvent] = []
+    engine.event_bus.subscribe(FocusChangedEvent, lambda e: received.append(e))  # type: ignore[arg-type]
+
+    engine.set_focused_device("rtl1")
+
+    assert [e.focused_device_id for e in received] == ["rtl1"]
+
+
+def test_remove_device_publishes_device_removed_and_focus_changed() -> None:
+    engine = SDREngine()
+    engine.add_device("rtl0", "mock", MockParams(), DeviceConfig())
+    removed: list[DeviceRemovedEvent] = []
+    focus: list[FocusChangedEvent] = []
+    engine.event_bus.subscribe(DeviceRemovedEvent, lambda e: removed.append(e))  # type: ignore[arg-type]
+    engine.event_bus.subscribe(FocusChangedEvent, lambda e: focus.append(e))  # type: ignore[arg-type]
+
+    engine.remove_device("rtl0")
+
+    assert [e.device_id for e in removed] == ["rtl0"]
+    assert [e.focused_device_id for e in focus] == [None]
+
+
+def test_remove_unfocused_device_does_not_publish_focus_changed() -> None:
+    engine = SDREngine()
+    engine.add_device("rtl0", "mock", MockParams(), DeviceConfig())
+    engine.add_device("rtl1", "mock", MockParams(), DeviceConfig())
+    focus: list[FocusChangedEvent] = []
+    engine.event_bus.subscribe(FocusChangedEvent, lambda e: focus.append(e))  # type: ignore[arg-type]
+
+    engine.remove_device("rtl1")  # rtl0 is focused
+
+    assert focus == []
 
 
 def _caps(

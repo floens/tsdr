@@ -1,5 +1,6 @@
 import logging
 
+from textual.reactive import reactive
 from textual.widgets import Static
 
 from tsdr.core.events.events import (
@@ -26,7 +27,13 @@ _STATE_COLORS = {
 
 
 class StatsWidget(Static):
-    """Display device and signal statistics."""
+    """Display device and signal statistics.
+
+    Reactive props:
+      focused_device_id: str | None — re-reads engine config on change.
+    """
+
+    focused_device_id: reactive[str | None] = reactive(None)
 
     def __init__(self):
         super().__init__("Statistics: No data")
@@ -44,13 +51,18 @@ class StatsWidget(Static):
     def on_mount(self) -> None:
         self._read_config()
 
+    def watch_focused_device_id(self, _device_id: str | None) -> None:
+        # Reconciler set a new focused device on us; re-read engine config.
+        # (Engine has already been told about the focus change via the command site.)
+        self._read_config()
+        self._update()
+
     def _read_config(self) -> None:
         engine = get_engine()
         device = engine.get_focused_device()
         if device is None:
             return
         if device.device_id != self._device_id:
-            # Focus shifted; stale jitter state belongs to the old device.
             self._jitter = None
         self._device_id = device.device_id
         if isinstance(device.params, NetworkDeviceParams):

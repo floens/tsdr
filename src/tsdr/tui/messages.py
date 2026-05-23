@@ -13,10 +13,13 @@ from tsdr.core.events.events import (
     ConfigChangedEvent,
     ConstellationUpdateEvent,
     DecoderOutputEvent,
+    DeviceAddedEvent,
     DeviceCapabilitiesChangedEvent,
     DeviceErrorEvent,
+    DeviceRemovedEvent,
     DeviceStateChangedEvent,
     FFTUpdateEvent,
+    FocusChangedEvent,
     JitterBufferUpdateEvent,
     MemoriesChangedEvent,
     PipelineChangedEvent,
@@ -97,6 +100,30 @@ class DeviceStateChanged(Message):
     """Wrapper for DeviceStateChangedEvent."""
 
     def __init__(self, event: DeviceStateChangedEvent) -> None:
+        super().__init__()
+        self.event = event
+
+
+class DeviceAdded(Message):
+    """Wrapper for DeviceAddedEvent."""
+
+    def __init__(self, event: DeviceAddedEvent) -> None:
+        super().__init__()
+        self.event = event
+
+
+class DeviceRemoved(Message):
+    """Wrapper for DeviceRemovedEvent."""
+
+    def __init__(self, event: DeviceRemovedEvent) -> None:
+        super().__init__()
+        self.event = event
+
+
+class FocusChanged(Message):
+    """Wrapper for FocusChangedEvent."""
+
+    def __init__(self, event: FocusChangedEvent) -> None:
         super().__init__()
         self.event = event
 

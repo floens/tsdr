@@ -484,15 +484,11 @@ class ADSBWidget(Horizontal):
 
     def on_mount(self) -> None:
         self.border_title = "ADS-B"
-        self.display = False
+        # Widget is only mounted while ADS-B decoder is active; tick the
+        # age refresh as long as we're alive.
+        self._refresh_timer = self.set_interval(1.0, self._tick_ages)
 
-    def on_show(self) -> None:
-        """Start the age refresh timer when becoming visible."""
-        if self._refresh_timer is None:
-            self._refresh_timer = self.set_interval(1.0, self._tick_ages)
-
-    def on_hide(self) -> None:
-        """Stop the age refresh timer when hidden."""
+    def on_unmount(self) -> None:
         if self._refresh_timer is not None:
             self._refresh_timer.stop()
             self._refresh_timer = None
@@ -503,9 +499,6 @@ class ADSBWidget(Horizontal):
         self._table.refresh_ages()
 
     def update_messages(self, event: DecoderOutputEvent) -> None:
-        if not self.display:
-            return
-
         adsb_data = None
         for msg in event.messages:
             if isinstance(msg.data, ADSBData):
@@ -516,7 +509,3 @@ class ADSBWidget(Horizontal):
 
         self._map.update_data(adsb_data)
         self._table.update_data(adsb_data)
-
-    def clear(self) -> None:
-        self._map.clear_data()
-        self._table.clear_data()

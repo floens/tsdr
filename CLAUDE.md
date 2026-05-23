@@ -24,6 +24,10 @@ src/tsdr/
 │   ├── decoders/     - Protocol decoders (RDS, FLEX, ADSB, DAB, DMR, TETRA, Morse)
 │   └── vocoder/      - Speech codecs (AMBE, ACELP)
 └── tui/
+    ├── app.py        - TSDRApp wiring; minimal compose(), on_mount boot
+    ├── model/        - UIModel (frozen) + UIStore (mutations + subscribers)
+    ├── view/         - derive_tree (UIModel → WidgetSpec), Reconciler, factory
+    ├── events/       - EventRouter (engine events), engine_sync, prefs_sync
     ├── commands/     - Command framework, registry, and all commands
     ├── console/      - Console widget and terminal input
     └── widgets/      - Textual widgets
@@ -80,13 +84,69 @@ compound slop. Use them freely for event rate-limiting.
 
 ## UI and Event System
 
-Textual app with custom widgets: SpectrumWidget, StatsWidget, TunerWidget, StatusBar.
+Reactive view layer: a frozen `UIModel` describes what widgets should exist;
+a key-based `Reconciler` diffs that against the live tree and
+mounts/removes/updates to match.
 
-**EventBus**: Type-based pub-sub system. Workers publish events directly.
+```
+EventRouter ──► UIStore (frozen UIModel) ──► derive_tree ──► Reconciler ──► widgets
+                       │
+                       ├──► EngineSync  (UIModel → engine.update_*)
+                       └──► PrefsSync   (UIModel → persisted prefs, debounced)
+```
 
-**TextualEventAdapter**: Bridges EventBus to Textual messages.
+Inbound funnel is `EventRouter` (engine events, commands, keys). Outbound
+funnel for structure is `UIStore`. `TextualEventAdapter` marshals EventBus
+events onto the Textual message loop so all handlers run on the main thread.
 
-Event flow: Worker → EventBus → TextualEventAdapter → Textual Message → Widget
+`UIModel` (`tui/model/__init__.py`) holds *only* structural decisions and UI
+prefs — never stream data (FFT frames, configs, decoder messages, audio
+stats). Widgets read stream data from existing stores in their `update_*`
+methods.
+
+`derive_tree` (`tui/view/tree.py`) is a pure function `UIModel → WidgetSpec`.
+The only place that decides which widgets exist. Must be deterministic and
+build child tuples explicitly (no dict/set iteration).
+
+`EventRouter` (`tui/events/router.py`) splits events two ways: structural
+events mutate `UIStore` (currently only `PipelineChanged`, which calls
+`seed_from_engine()` to refresh devices/focus/decoder kind); stream events
+push to widgets via `reconciler.get(key).<method>(event)`.
+
+### Widget contract
+
+Each widget exposes:
+- **Reactive attrs** (`reactive(default)`) for every prop `derive_tree` sets;
+  `watch_<name>` handlers redraw or invalidate caches.
+- **Stream methods** that the `EventRouter` calls.
+- **`on_mount`** seeds initial display from engine/stores — the reconciler
+  may mount mid-session, so don't rely on a startup event to populate.
+- **`on_unmount`** stops owned timers and clears kitty images.
+
+No widget calls `query_one` outside its own subtree, reads/writes other
+widgets, or sets its own `.display`.
+
+### Gotchas
+
+- **Don't hardcode `id=` in a widget's `__init__`** — the reconciler assigns
+  ids from the spec key, and Textual disallows changing `id` once set.
+- **Keys double as CSS ids** (after `_safe_id` swaps `:` → `--`). Use dashed
+  form for keys that map to existing `app.tcss` selectors.
+- **Stream events for unmounted widgets are silently dropped** — every router
+  handler using `reconciler.get(key)` must guard with `if w is not None:`.
+- **`EngineSync` pushes initial state in `__init__`** because subscribers
+  only fire on change; without it, prefs-derived engine values (e.g. FPS
+  from `image_mode`) stay at engine defaults until the user toggles.
+- **`compose()` yields nothing** — a placeholder Container would sit as an
+  unkeyed sibling of the reconciler tree and steal layout space.
+- **The four `_force_refresh_all` timers in `TSDRApp.on_mount`** work around
+  a terminal-IO drop bug on startup. Not a mount race — keep them.
+
+### Debug
+
+`UIStore.recent_mutations()` returns the last 200 mutations; each is also
+logged at DEBUG as `ui_store_mutation`. Reconciler diffs log as
+`reconcile_diff parent=… added=… removed=…`.
 
 ## Command System
 
@@ -97,7 +157,7 @@ Commands extend the `Command` ABC from `tui/commands/base.py`. Required: `descri
 `tui/commands/registry.py` exposes a module-level `COMMANDS: dict[str, Command]`, `register(name, command)`, and `execute(input_line)` which shlex-splits the line and dispatches to the matching command's `Command.execute(argv)`. Autocomplete uses fuzzy subsequence matching with priority for exact / prefix matches.
 
 Commands are organized by domain:
-- `tui/commands/builtin/` — echo, exit, help, paths, trace
+- `tui/commands/builtin/` — echo, exit, help, paths, time, trace
 - `tui/commands/sdr/` — add, bandplan, config, dab, demod, focus, frequency, list, memory, pipeline, record, remove, scan, squelch, start, stop
 - `tui/commands/audio/` — audio
 
@@ -270,5 +330,7 @@ logger.error("pipeline_stage_crash device=%s pipeline=%s stage=%s error=%r", ...
 ## Verification
 
 - Code: `uv run pre-commit run --all-files`
-- UI: Manual testing by user (agent cannot test UI)
+- UI behavior: run via `tsdr/headless.py` to drive the app without a TUI;
+  it executes startup commands and prints events to stdout, so the agent can
+  exercise demod/decoder/pipeline paths against real samples or live devices.
 - Logs: `tsdr.log` in the platformdirs user config dir (see `config_dir()` in `core/storage.py`)

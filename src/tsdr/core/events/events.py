@@ -133,6 +133,27 @@ class DeviceStateChangedEvent(Event):
 
 
 @dataclass(frozen=True)
+class DeviceAddedEvent(Event):
+    """Emitted when a device is added to the engine's device set."""
+
+    device_id: str
+
+
+@dataclass(frozen=True)
+class DeviceRemovedEvent(Event):
+    """Emitted when a device is removed from the engine's device set."""
+
+    device_id: str
+
+
+@dataclass(frozen=True)
+class FocusChangedEvent(Event):
+    """Emitted when the engine's focused device changes (including to/from None)."""
+
+    focused_device_id: str | None
+
+
+@dataclass(frozen=True)
 class DeviceCapabilitiesChangedEvent(Event):
     device_id: str
     capabilities: DeviceCapabilities

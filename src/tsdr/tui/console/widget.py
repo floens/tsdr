@@ -2,6 +2,7 @@ from rich.style import Style
 from rich.text import Text
 from textual.app import ComposeResult
 from textual.containers import Vertical
+from textual.reactive import reactive
 from textual.widgets import RichLog, Static
 
 from tsdr.core.sdr.engine import get_engine
@@ -9,6 +10,7 @@ from tsdr.core.units import format_hz
 from tsdr.tui.commands.registry import MenuItem
 from tsdr.tui.console.highlight import highlight_command
 from tsdr.tui.console.terminal_input import TerminalInput
+from tsdr.tui.model import ConsoleUIState
 
 _MATCH_STYLE = Style(bold=True, color="yellow")
 _DESC_STYLE = Style(dim=True)
@@ -26,7 +28,15 @@ class _HistoryLog(RichLog):
 
 
 class ConsoleWidget(Vertical):
-    """Shell-like console with scrollable history, autocomplete overlay, and inline prompt."""
+    """Shell-like console with scrollable history, autocomplete overlay, and inline prompt.
+
+    Reactive props:
+      console_state — full autocomplete state (visible/items/index). One reactive
+        instead of three avoids stale-companion reads when multiple fields
+        change in the same reconcile batch.
+    """
+
+    console_state: reactive[ConsoleUIState] = reactive(ConsoleUIState())
 
     def compose(self) -> ComposeResult:
         yield _HistoryLog(id="console-history", wrap=True, markup=True)
@@ -35,6 +45,12 @@ class ConsoleWidget(Vertical):
             placeholder=" ` console  space run  ←→ tune  ↑↓ bw  d demod  gG gain  ⇧↕ vol  1-9 band  mM^m mem  kj zoom  hl/HL db  i image",
             id="command-input",
         )
+
+    def watch_console_state(self, state: ConsoleUIState) -> None:
+        if state.autocomplete_visible and state.autocomplete_items:
+            self.show_autocomplete(list(state.autocomplete_items), state.selected_index)
+        else:
+            self.clear_autocomplete()
 
     def write_command(self, cmd: str, output: str, prompt: list[tuple[str, Style]]) -> None:
         """Echo a command and its output into the history log."""

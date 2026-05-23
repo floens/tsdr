@@ -38,18 +38,10 @@ class DMRWidget(Horizontal):
 
     def on_mount(self) -> None:
         self.border_title = "DMR"
-        self.display = False
-
-    def clear(self) -> None:
-        self._snapshot = None
-        self._snr_db = None
-        self._refresh()
 
     # event handlers
 
     def update_messages(self, event: DecoderOutputEvent) -> None:
-        if not self.display:
-            return
         latest: DMRSnapshot | None = None
         for msg in event.messages:
             if isinstance(msg.data, DMRSnapshot):

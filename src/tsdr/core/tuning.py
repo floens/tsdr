@@ -13,6 +13,7 @@ from tsdr.core.band_stack import (
 from tsdr.core.events.events import (
     ConfigChangedEvent,
     Event,
+    FocusChangedEvent,
     TuningStateChangedEvent,
 )
 from tsdr.core.preferences import save_tuning_state
@@ -144,23 +145,34 @@ _writeback_last_save_ts = 0.0
 _writeback_pending = False
 
 
-def _on_config_changed_writeback(event: Event) -> None:
+def _on_writeback_trigger(event: Event) -> None:
     """Mirror focused-device config into the active band-stack register.
 
-    Any freq/mode/bandwidth change to the focused device while on a band updates
-    that band's active register. Tuning out of the band clears `current_band_key`.
+    Fires on:
+      - ConfigChangedEvent for the focused device — freq/mode/bw changed
+        while on a band.
+      - FocusChangedEvent — focus moved to another device; the active band's
+        register should reflect the newly-focused device's tuning, and if the
+        new device is tuned outside the current band, `current_band_key` must
+        be cleared so subsequent ConfigChangedEvents don't corrupt that band's
+        register.
+
     Suppressed during band recall (see `suspended_writeback`).
     """
-    assert isinstance(event, ConfigChangedEvent)
     if is_writeback_suspended():
         return
     engine = get_engine()
-    if event.device_id != engine.focused_device:
+    focused_id = engine.focused_device
+    if focused_id is None:
+        return
+    # ConfigChangedEvent for a non-focused device is irrelevant; FocusChangedEvent
+    # always applies (focus just moved to focused_id).
+    if isinstance(event, ConfigChangedEvent) and event.device_id != focused_id:
         return
     ts = get_tuning_state()
     if ts.current_band_key is None:
         return
-    device = engine.devices.get(event.device_id)
+    device = engine.devices.get(focused_id)
     if device is None:
         return
     store = get_band_stack()
@@ -205,4 +217,5 @@ def flush_band_stack_writeback() -> None:
 
 def subscribe_band_stack_writeback(engine: SDREngine) -> None:
     """Wire the band-stack writeback subscriber to the engine's event bus."""
-    engine.event_bus.subscribe(ConfigChangedEvent, _on_config_changed_writeback)
+    engine.event_bus.subscribe(ConfigChangedEvent, _on_writeback_trigger)
+    engine.event_bus.subscribe(FocusChangedEvent, _on_writeback_trigger)

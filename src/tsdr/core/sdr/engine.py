@@ -14,9 +14,12 @@ from tsdr.core.events.bus import EventBus
 from tsdr.core.events.events import (
     AGCGainChangeEvent,
     ConfigChangedEvent,
+    DeviceAddedEvent,
     DeviceCapabilitiesChangedEvent,
+    DeviceRemovedEvent,
     DeviceStateChangedEvent,
     Event,
+    FocusChangedEvent,
     PipelineChangedEvent,
     RecordingFinishedEvent,
 )
@@ -129,10 +132,15 @@ class SDREngine:
 
         self.devices[device_id] = context
 
-        if self.focused_device is None:
+        focus_assigned = self.focused_device is None
+        if focus_assigned:
             self.focused_device = device_id
 
-        self.event_bus.publish(ConfigChangedEvent(device_id=device_id, source_id="engine"))
+        self.event_bus.publish(DeviceAddedEvent(device_id=device_id, source_id="engine"))
+        if focus_assigned:
+            self.event_bus.publish(
+                FocusChangedEvent(focused_device_id=device_id, source_id="engine")
+            )
 
     def remove_device(self, device_id: str) -> None:
         """Remove a device (must be stopped first).
@@ -155,9 +163,15 @@ class SDREngine:
         self.stop_audio_output(device_id)
         del self.devices[device_id]
 
-        # Update focused device
-        if self.focused_device == device_id:
+        focus_changed = self.focused_device == device_id
+        if focus_changed:
             self.focused_device = next(iter(self.devices.keys()), None)
+
+        self.event_bus.publish(DeviceRemovedEvent(device_id=device_id, source_id="engine"))
+        if focus_changed:
+            self.event_bus.publish(
+                FocusChangedEvent(focused_device_id=self.focused_device, source_id="engine")
+            )
 
     def reconfigure_device_params(self, device_id: str, params: DeviceParams) -> None:
         """Swap the underlying SDRDevice with one built from new params.
@@ -256,6 +270,7 @@ class SDREngine:
             raise SDRException(f"Device {device_id} not found")
 
         context = self.devices[device_id]
+        old_pipelines = context.config.pipelines
 
         caps = context.device.capabilities
 
@@ -282,6 +297,18 @@ class SDREngine:
         context.update_config(**changes)
 
         self.event_bus.publish(ConfigChangedEvent(device_id=device_id, source_id=device_id))
+
+        # Pipelines mutated → publish PipelineChangedEvent per affected pipeline
+        # so the UI can reseed active_decoder_kind / has_audio_pipeline. Without
+        # this, callers that touch pipelines via update_device_config directly
+        # (e.g. `pipeline add/remove`, replace_pipeline_stage) leave the model
+        # stale. add_pipeline/remove_pipeline/set_audio_demod also publish, so
+        # those paths see a (harmless) duplicate event.
+        if "pipelines" in changes:
+            new_pipelines = context.config.pipelines
+            for name in set(old_pipelines) | set(new_pipelines):
+                if old_pipelines.get(name) != new_pipelines.get(name):
+                    self._publish_pipeline_changed(device_id, name, active=name in new_pipelines)
 
     def update_global_config(self, **changes: Unpack[GlobalConfigChanges]) -> None:
         """Update engine-global configuration (processing/display parameters).
@@ -348,7 +375,7 @@ class SDREngine:
             return
 
         self.focused_device = device_id
-        self.event_bus.publish(ConfigChangedEvent(device_id=device_id, source_id="focus"))
+        self.event_bus.publish(FocusChangedEvent(focused_device_id=device_id, source_id="engine"))
 
     def get_device(self, device_id: str) -> SDRDeviceContext:
         """Get a device context by ID.

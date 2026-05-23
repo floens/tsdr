@@ -69,6 +69,8 @@ engine_stop_device_failed
 engine_stop_workers_failed
 engine_stopping_device
 engine_stopping_remaining_workers
+engine_sync_constellation
+engine_sync_rate
 event_adapter_stop_failed
 event_handler_failed
 flex_sync_found
@@ -127,8 +129,11 @@ preferences_iq_file_missing_path
 preferences_restore_skipped
 preferences_squelch_restore_failed
 preferences_squelch_restored
+prefs_sync_flushed
 rds_timing_nudge
 rds_tmc
+reconcile_diff
+reconciler_apply_prop_failed
 rtlsdr_close_failed
 rtlsdr_get_tuner_type_failed
 rtlsdr_opened
@@ -176,6 +181,7 @@ storage_load_failed
 storage_read_failed
 storage_save_failed
 storage_write_failed
+sync_close_failed
 tetra_block_crc_failed
 tetra_decoder_reset
 tetra_locked
@@ -200,6 +206,8 @@ tracing_stats_empty
 tsdr_exited
 tsdr_starting
 ui_pipeline_error
+ui_store_mutation
+ui_store_subscriber_error
 worker_run_crashed
 worker_started
 worker_stop_failed

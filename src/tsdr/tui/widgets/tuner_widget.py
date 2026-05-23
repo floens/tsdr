@@ -29,7 +29,7 @@ from tsdr.core.tuning import resolve_auto_step
 from tsdr.core.tuning_state import get_tuning_state
 from tsdr.core.units import format_hz
 from tsdr.tui.commands._format import format_rate
-from tsdr.tui.state import get_ui_state
+from tsdr.tui.model.store import get_ui_store
 from tsdr.tui.widgets.snr_widget import SNRWidget
 
 Half = Literal["top", "bottom"]
@@ -56,7 +56,7 @@ def _format_signal_info(info: SignalInfo, device_sample_rate: float | None) -> s
         and device_sample_rate is not None
         and abs(info.sample_rate - device_sample_rate) > 1.0
     ):
-        value, unit = format_rate(info.sample_rate)
+        value, unit = format_rate(info.sample_rate, precision=3)
         lines.append(f"[red bold]Needs {value} {unit}[/red bold]")
     elif info.description:
         lines.append(f"[dim]{info.description}[/dim]")
@@ -260,11 +260,11 @@ class ClockWidget(Static):
         self.set_interval(0.25, self._tick)
 
     def _tick(self) -> None:
-        ui = get_ui_state()
-        self.display = ui.clock_visible
-        if not ui.clock_visible:
+        model = get_ui_store().model
+        self.display = model.clock_visible
+        if not model.clock_visible:
             return
-        tz_name = ui.timezone
+        tz_name = model.timezone
         local = now(ZoneInfo(tz_name)) if tz_name else now()
         utc = now(UTC)
         tz_short = (local.strftime("%Z") or "LOC")[:4]

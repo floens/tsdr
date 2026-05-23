@@ -7,13 +7,15 @@ from textual.timer import Timer
 from tsdr.core.bandplans import find_band_at, get_bandplan_store
 from tsdr.core.events.events import MemoriesChangedEvent
 from tsdr.core.memories import Memory, get_memory_store
-from tsdr.core.preferences import save_device, save_engine_config, save_ui_state
+from tsdr.core.preferences import save_device, save_engine_config
 from tsdr.core.sdr.device_context import DeviceState
 from tsdr.core.sdr.engine import get_engine
 from tsdr.core.sdr.exceptions import SDRException
 from tsdr.tui._mixin_base import MixinBase
 from tsdr.tui.console import ConsoleWidget, TerminalInput
-from tsdr.tui.widgets import SpectrumWidget, WaterfallWidget
+from tsdr.tui.model import adjusted_db_max, adjusted_db_min, adjusted_zoom
+from tsdr.tui.model.store import get_ui_store
+from tsdr.tui.widgets import SpectrumWidget
 
 _DEMOD_CHORD_MODES = {
     "w": "WFM",
@@ -43,7 +45,7 @@ class KeyboardMixin(MixinBase):
         focused = cmd_input.active
 
         if focused:
-            menu_open = self.ui_state.autocomplete_visible
+            menu_open = get_ui_store().model.console.autocomplete_visible
             if event.key == "grave_accent":
                 self._clear_preview()
                 self._blur_command_input()
@@ -208,63 +210,52 @@ class KeyboardMixin(MixinBase):
                 event.prevent_default()
                 event.stop()
             elif event.key == "ctrl+s":
-                self._toggle_panel("stats")
-                save_ui_state(self.ui_state)
+                self._toggle_panel_store("stats")
                 event.prevent_default()
                 event.stop()
             elif event.key == "ctrl+p":
-                self._toggle_panel("performance")
-                save_ui_state(self.ui_state)
+                self._toggle_panel_store("performance")
                 event.prevent_default()
                 event.stop()
             elif event.key == "i":
-                self.ui_state.image_mode = not self.ui_state.image_mode
-                status = "on" if self.ui_state.image_mode else "off"
-                self.show_status(f"Image mode: {status}")
-                self._notify_image_mode_changed()
-                save_ui_state(self.ui_state)
+                store = get_ui_store()
+                new_mode = not store.model.image_mode
+                store.update(image_mode=new_mode)
+                self.show_status(f"Image mode: {'on' if new_mode else 'off'}")
                 event.prevent_default()
                 event.stop()
             elif event.key == "k":
-                self.ui_state.adjust_zoom(1)
-                self.query_one(WaterfallWidget).invalidate_text_buffer()
-                self.query_one(SpectrumWidget).invalidate_frame_buffer()
-                save_ui_state(self.ui_state)
+                store = get_ui_store()
+                store.update(zoom=adjusted_zoom(store.model.zoom, 1))
                 event.prevent_default()
                 event.stop()
             elif event.key == "j":
-                self.ui_state.adjust_zoom(-1)
-                self.query_one(WaterfallWidget).invalidate_text_buffer()
-                self.query_one(SpectrumWidget).invalidate_frame_buffer()
-                save_ui_state(self.ui_state)
+                store = get_ui_store()
+                store.update(zoom=adjusted_zoom(store.model.zoom, -1))
                 event.prevent_default()
                 event.stop()
             elif event.key == "h":
-                self.ui_state.adjust_db_min(1)
-                self.query_one(WaterfallWidget).invalidate_text_buffer()
-                self.query_one(SpectrumWidget).invalidate_frame_buffer()
-                save_ui_state(self.ui_state)
+                store = get_ui_store()
+                m = store.model
+                store.update(db_min=adjusted_db_min(m.db_min, m.db_max, 1))
                 event.prevent_default()
                 event.stop()
             elif event.key == "l":
-                self.ui_state.adjust_db_min(-1)
-                self.query_one(WaterfallWidget).invalidate_text_buffer()
-                self.query_one(SpectrumWidget).invalidate_frame_buffer()
-                save_ui_state(self.ui_state)
+                store = get_ui_store()
+                m = store.model
+                store.update(db_min=adjusted_db_min(m.db_min, m.db_max, -1))
                 event.prevent_default()
                 event.stop()
             elif event.key == "H":
-                self.ui_state.adjust_db_max(1)
-                self.query_one(WaterfallWidget).invalidate_text_buffer()
-                self.query_one(SpectrumWidget).invalidate_frame_buffer()
-                save_ui_state(self.ui_state)
+                store = get_ui_store()
+                m = store.model
+                store.update(db_max=adjusted_db_max(m.db_max, m.db_min, 1))
                 event.prevent_default()
                 event.stop()
             elif event.key == "L":
-                self.ui_state.adjust_db_max(-1)
-                self.query_one(WaterfallWidget).invalidate_text_buffer()
-                self.query_one(SpectrumWidget).invalidate_frame_buffer()
-                save_ui_state(self.ui_state)
+                store = get_ui_store()
+                m = store.model
+                store.update(db_max=adjusted_db_max(m.db_max, m.db_min, -1))
                 event.prevent_default()
                 event.stop()
             elif event.key == "m":
@@ -293,6 +284,16 @@ class KeyboardMixin(MixinBase):
 
     def _clear_console(self) -> None:
         self.query_one(ConsoleWidget).clear_history()
+
+    def _toggle_panel_store(self, panel: str) -> None:
+        """Toggle a side panel through the UIStore (ctrl+s / ctrl+p handlers).
+
+        Identical-panel toggle hides the sidebar; different-panel toggle switches.
+        The reconciler picks up the change and mounts/unmounts the sidebar children.
+        """
+        store = get_ui_store()
+        current = store.model.active_panel
+        store.update(active_panel=None if current == panel else panel)
 
     def _toggle_device_running(self) -> None:
         engine = get_engine()

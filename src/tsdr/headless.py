@@ -24,7 +24,9 @@ from tsdr.core.sdr.engine import SDREngine
 from tsdr.core.tuning_state import init_tuning_state
 from tsdr.tui.commands.base import Command
 from tsdr.tui.commands.registry import COMMANDS, execute
-from tsdr.tui.state import init_ui_state
+from tsdr.tui.events.prefs_sync import PREFS_FIELDS, flush_prefs
+from tsdr.tui.model import UIModel
+from tsdr.tui.model.store import init_ui_store
 
 logger = logging.getLogger(__name__)
 
@@ -128,6 +130,11 @@ def _stdin_loop() -> None:
     _shutdown.set()
 
 
+def _persist_prefs_on_change(old: UIModel, new: UIModel) -> None:
+    if any(getattr(old, f) != getattr(new, f) for f in PREFS_FIELDS):
+        flush_prefs(new)
+
+
 def run_headless(startup_commands: list[str]) -> int:
     engine = SDREngine()
     init_memory_store()
@@ -135,7 +142,9 @@ def run_headless(startup_commands: list[str]) -> int:
     init_bandplan_store()
     init_device_store()
     init_tuning_state()
-    init_ui_state()
+    # PrefsSync (in TSDRApp) uses a Textual timer for debouncing; headless
+    # has no message loop, so subscribe a synchronous persister instead.
+    init_ui_store().subscribe(_persist_prefs_on_change)
     init_clock_sync_monitor()
 
     COMMANDS["exit"] = _HeadlessExitCommand()

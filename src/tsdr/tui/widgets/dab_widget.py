@@ -5,6 +5,7 @@ import numpy as np
 from PIL import Image
 from textual import on
 from textual.containers import Horizontal
+from textual.reactive import reactive
 from textual.widgets import OptionList, Static
 from textual.widgets.option_list import Option
 
@@ -51,7 +52,12 @@ class DABWidget(Horizontal):
     Col 3: ensemble metadata (label, ID, FIB quality).
     Col 4: signal info (frames, freq offset, audio codec).
     Col 5: interactive service list - click to select.
+
+    Reactive props:
+      image_mode: bool — when True, slide column shows the kitty image; when False, shows alt-text.
     """
+
+    image_mode = reactive(False)
 
     def __init__(self) -> None:
         super().__init__()
@@ -62,7 +68,6 @@ class DABWidget(Horizontal):
         self._col_signal = Static("", id="dab-signal")
         self._service_list = NonFocusableOptionList(id="dab-services")
         self._kitty = KittyImageWidget(id="dab-slide-img")
-        self._image_mode = False
         self._last_slide: DABSlide | None = None
         self._last_services: tuple[DABServiceInfo, ...] = ()
         self._last_selected_id: int | None = None
@@ -77,11 +82,13 @@ class DABWidget(Horizontal):
 
     def on_mount(self) -> None:
         self.border_title = "DAB"
-        self.display = False
-        self._kitty.display = False
+        # Apply the initial image_mode (reactive watcher fires once on mount if set)
+        self._apply_image_mode(self.image_mode)
 
-    def set_image_mode(self, enabled: bool) -> None:
-        self._image_mode = enabled
+    def watch_image_mode(self, image_mode: bool) -> None:
+        self._apply_image_mode(image_mode)
+
+    def _apply_image_mode(self, enabled: bool) -> None:
         if enabled:
             self._col_slide_text.display = False
             self._kitty.display = True
@@ -94,22 +101,7 @@ class DABWidget(Horizontal):
             self._col_slide_text.display = True
             self._refresh_slide_text()
 
-    def clear(self) -> None:
-        self._current = None
-        self._last_slide = None
-        self._last_services = ()
-        self._last_selected_id = None
-        self._col_station.update("")
-        self._col_slide_text.update("")
-        self._col_info.update("Waiting...")
-        self._col_signal.update("")
-        self._service_list.clear_options()
-        self._kitty.remove_image(_SLIDE_IMAGE_KEY)
-
     def update_messages(self, event: DecoderOutputEvent) -> None:
-        if not self.display:
-            return
-
         dab_data = None
         for msg in event.messages:
             if isinstance(msg.data, DABData):
@@ -166,7 +158,7 @@ class DABWidget(Horizontal):
         # Col 2: slide
         if data.slide is not None and data.slide is not self._last_slide:
             self._last_slide = data.slide
-            if self._image_mode:
+            if self.image_mode:
                 self._render_slide(data.slide)
             else:
                 self._refresh_slide_text()

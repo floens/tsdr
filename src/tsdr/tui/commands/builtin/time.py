@@ -3,10 +3,9 @@ from argparse import Namespace
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError, available_timezones
 
 from tsdr.core.clock_sync import ClockSyncMonitor, SyncResult, get_clock_sync_monitor
-from tsdr.core.preferences import save_ui_state
 from tsdr.tui.commands._format import error, success
 from tsdr.tui.commands.base import Command, CommandParser, Completion
-from tsdr.tui.state import get_ui_state
+from tsdr.tui.model.store import get_ui_store
 
 _DEFAULT_NTP_SERVER = "pool.ntp.org"
 
@@ -84,9 +83,9 @@ class TimeCommand(Command):
         return self._status()
 
     def _status(self) -> str:
-        ui = get_ui_state()
-        tz_name = ui.timezone or "system local"
-        vis = "[green]visible[/]" if ui.clock_visible else "[dim]hidden[/]"
+        model = get_ui_store().model
+        tz_name = model.timezone or "system local"
+        vis = "[green]visible[/]" if model.clock_visible else "[dim]hidden[/]"
         monitor = get_clock_sync_monitor()
         lines = [
             f"clock      {vis}",
@@ -100,30 +99,26 @@ class TimeCommand(Command):
         return "\n".join(lines)
 
     def _set_visible(self, visible: bool) -> str:
-        ui = get_ui_state()
-        ui.clock_visible = visible
-        save_ui_state(ui)
+        get_ui_store().update(clock_visible=visible)
         return success(f"clock {'shown' if visible else 'hidden'}")
 
     def _timezone(self, zone: str | None) -> str:
-        ui = get_ui_state()
+        store = get_ui_store()
         if zone is None:
-            current = ui.timezone or "system local"
+            current = store.model.timezone or "system local"
             return f"timezone={current}"
         if zone == "clear":
-            ui.timezone = None
-            save_ui_state(ui)
+            store.update(timezone=None)
             return success("timezone reset to system local")
         try:
             ZoneInfo(zone)
         except ZoneInfoNotFoundError:
             return error(f"unknown timezone '{zone}'")
-        ui.timezone = zone
-        save_ui_state(ui)
+        store.update(timezone=zone)
         return success(f"timezone set to {zone}")
 
     def _ntp(self, target: str | None) -> str:
-        ui = get_ui_state()
+        store = get_ui_store()
         monitor = get_clock_sync_monitor()
         if target is None:
             if monitor.server is None:
@@ -131,14 +126,12 @@ class TimeCommand(Command):
             lines = [f"server   {monitor.server}", *_ntp_lines(monitor, indent="")]
             return "\n".join(lines)
         if target == "off":
-            ui.ntp_server = None
+            store.update(ntp_server=None)
             monitor.set_server(None)
-            save_ui_state(ui)
             return success("ntp probe disabled")
         server = _DEFAULT_NTP_SERVER if target == "on" else target
-        ui.ntp_server = server
+        store.update(ntp_server=server)
         monitor.set_server(server)
-        save_ui_state(ui)
         return success(f"ntp probing {server} (first result in a few seconds)")
 
     def complete(

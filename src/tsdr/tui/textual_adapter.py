@@ -10,11 +10,14 @@ from tsdr.core.events.events import (
     ConfigChangedEvent,
     ConstellationUpdateEvent,
     DecoderOutputEvent,
+    DeviceAddedEvent,
     DeviceCapabilitiesChangedEvent,
     DeviceErrorEvent,
+    DeviceRemovedEvent,
     DeviceStateChangedEvent,
     Event,
     FFTUpdateEvent,
+    FocusChangedEvent,
     JitterBufferUpdateEvent,
     MemoriesChangedEvent,
     PipelineChangedEvent,
@@ -33,10 +36,13 @@ from tsdr.tui.messages import (
     ConfigChanged,
     ConstellationUpdate,
     DecoderOutput,
+    DeviceAdded,
     DeviceCapabilitiesChanged,
     DeviceError,
+    DeviceRemoved,
     DeviceStateChanged,
     FFTUpdate,
+    FocusChanged,
     JitterBufferUpdate,
     MemoriesChanged,
     PipelineChanged,
@@ -101,6 +107,15 @@ class TextualEventAdapter:
         )
         self._subscriptions.append(
             self.event_bus.subscribe(DeviceStateChangedEvent, self._on_device_state_changed)
+        )
+        self._subscriptions.append(
+            self.event_bus.subscribe(DeviceAddedEvent, self._on_device_added)
+        )
+        self._subscriptions.append(
+            self.event_bus.subscribe(DeviceRemovedEvent, self._on_device_removed)
+        )
+        self._subscriptions.append(
+            self.event_bus.subscribe(FocusChangedEvent, self._on_focus_changed)
         )
         self._subscriptions.append(
             self.event_bus.subscribe(
@@ -212,6 +227,21 @@ class TextualEventAdapter:
         if not isinstance(event, DeviceStateChangedEvent):
             return
         self.app.post_message(DeviceStateChanged(event))
+
+    def _on_device_added(self, event: Event) -> None:
+        if not isinstance(event, DeviceAddedEvent):
+            return
+        self.app.post_message(DeviceAdded(event))
+
+    def _on_device_removed(self, event: Event) -> None:
+        if not isinstance(event, DeviceRemovedEvent):
+            return
+        self.app.post_message(DeviceRemoved(event))
+
+    def _on_focus_changed(self, event: Event) -> None:
+        if not isinstance(event, FocusChangedEvent):
+            return
+        self.app.post_message(FocusChanged(event))
 
     def _on_device_capabilities_changed(self, event: Event) -> None:
         if not isinstance(event, DeviceCapabilitiesChangedEvent):

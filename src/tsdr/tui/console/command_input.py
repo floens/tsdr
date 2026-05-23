@@ -10,6 +10,7 @@ from tsdr.tui.commands.registry import MenuItem
 from tsdr.tui.console.history import get_history
 from tsdr.tui.console.terminal_input import TerminalInput
 from tsdr.tui.console.widget import ConsoleWidget
+from tsdr.tui.model.store import get_ui_store
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +53,7 @@ class CommandInputMixin(MixinBase):
 
     @on(TerminalInput.Changed, "#command-input")
     def on_input_changed(self, event: TerminalInput.Changed) -> None:
-        if self.ui_state.autocomplete_visible:
+        if get_ui_store().model.console.autocomplete_visible:
             self._clear_preview()
         self._maybe_auto_open(event.value)
 
@@ -64,7 +65,8 @@ class CommandInputMixin(MixinBase):
 
     @on(TerminalInput.Submitted, "#command-input")
     def on_submit(self, event: TerminalInput.Submitted) -> None:
-        if self.ui_state.autocomplete_visible and self.ui_state.hint_index >= 0:
+        console_state = get_ui_store().model.console
+        if console_state.autocomplete_visible and console_state.selected_index >= 0:
             self._apply_preview()
             return
 
@@ -154,40 +156,42 @@ class CommandInputMixin(MixinBase):
         action = _menu_action(items, auto_apply=auto_apply)
         if action == "none":
             return
+        store = get_ui_store()
         if action == "apply":
-            self.ui_state.show_autocomplete(items)
-            self.ui_state.hint_index = 0
-            self.ui_state.current_hint = items[0].value
+            store.update_console(
+                autocomplete_visible=True,
+                autocomplete_items=tuple(items),
+                selected_index=0,
+            )
             self._apply_preview()
             return
 
-        self.ui_state.show_autocomplete(items)
-        self._render_preview()
+        store.update_console(
+            autocomplete_visible=True,
+            autocomplete_items=tuple(items),
+            selected_index=-1,
+        )
 
     def _cycle_preview(self, direction: int) -> None:
-        if not self.ui_state.filtered_commands:
+        store = get_ui_store()
+        console = store.model.console
+        items = console.autocomplete_items
+        if not items:
             return
 
-        if self.ui_state.hint_index == -1:
-            if direction > 0:
-                new_index = 0
-            else:
-                new_index = len(self.ui_state.filtered_commands) - 1
+        if console.selected_index == -1:
+            new_index = 0 if direction > 0 else len(items) - 1
         else:
-            new_index = (self.ui_state.hint_index + direction) % len(
-                self.ui_state.filtered_commands
-            )
+            new_index = (console.selected_index + direction) % len(items)
 
-        self.ui_state.hint_index = new_index
-        self.ui_state.current_hint = self.ui_state.filtered_commands[new_index].value
-
-        self._render_preview()
+        store.update_console(selected_index=new_index)
 
     def _apply_preview(self) -> None:
-        if not self.ui_state.filtered_commands or self.ui_state.hint_index < 0:
+        console = get_ui_store().model.console
+        if not console.autocomplete_items or console.selected_index < 0:
             return
 
-        selected = self.ui_state.filtered_commands[self.ui_state.hint_index].value
+        selected = console.autocomplete_items[console.selected_index].value
 
         cmd_input = self.query_one("#command-input", TerminalInput)
         value = cmd_input.value
@@ -207,16 +211,13 @@ class CommandInputMixin(MixinBase):
         self._clear_preview()
 
     def _clear_preview(self) -> None:
-        self.ui_state.clear_autocomplete()
-        self.query_one(ConsoleWidget).clear_autocomplete()
+        get_ui_store().update_console(
+            autocomplete_visible=False,
+            autocomplete_items=(),
+            selected_index=-1,
+        )
 
     def _dismiss_autocomplete(self) -> None:
         cmd_input = self.query_one("#command-input", TerminalInput)
         self._auto_open_dismissed_for = cmd_input.value
         self._clear_preview()
-
-    def _render_preview(self) -> None:
-        if not self.ui_state.filtered_commands:
-            return
-
-        self._show_autocomplete(self.ui_state.filtered_commands, self.ui_state.hint_index)

@@ -4,6 +4,7 @@ import numpy as np
 from numba import njit
 from numpy.typing import NDArray
 from textual.geometry import Size
+from textual.reactive import reactive
 from textual.strip import Strip
 from textual.widget import Widget
 
@@ -49,16 +50,21 @@ def _plot(buf: np.ndarray, px: np.ndarray, py: np.ndarray, color: np.ndarray) ->
 class ConstellationWidget(Widget):
     """Constellation diagram rendered via Kitty image protocol.
 
-    Only active when image mode is on. Renders a scatter plot of
-    complex symbols with persistence decay.
+    Only mounted (by the reconciler) when image_mode AND active_panel=="stats".
+
+    Reactive props:
+      image_mode: bool — toggling False clears the persistent buffer/kitty image.
     """
+
+    image_mode = reactive(False)
 
     def __init__(self) -> None:
         super().__init__()
         self._kitty: KittyImageWidget | None = None
         self._buffer: NDArray[np.uint8] | None = None  # persistent RGBA frame
         self._buf_size = 0
-        self._image_mode = False
+        self._img_x = 0  # x offset to center the square buffer in the kitty widget
+        self._img_y = 0  # y offset to center the square buffer in the kitty widget
         self._range = 1.5  # display range ±_range, auto-scaled
 
     # Default cell pixel sizes (matches KittyImageWidget defaults)
@@ -70,6 +76,14 @@ class ConstellationWidget(Widget):
         self.mount(self._kitty)
         # Layout may have cached height=0 from before mount; force re-query
         self.clear_cached_dimensions()
+        # Paint an initial grid so the widget isn't blank between mount and
+        # the first ConstellationUpdate event (which may take seconds or
+        # never arrive if the engine has nothing to render).
+        if self.image_mode:
+            self.call_after_refresh(self._paint_grid_only)
+
+    def on_unmount(self) -> None:
+        self._clear_image()
 
     def get_content_height(self, container: Size, viewport: Size, width: int) -> int:
         cw = self._cell_width_px
@@ -81,12 +95,10 @@ class ConstellationWidget(Widget):
             return 0
         return math.ceil(width * cw / ch)
 
-    def on_hide(self) -> None:
-        self._clear_image()
-
-    def set_image_mode(self, enabled: bool) -> None:
-        self._image_mode = enabled
-        if not enabled:
+    def watch_image_mode(self, image_mode: bool) -> None:
+        if image_mode:
+            self.call_after_refresh(self._paint_grid_only)
+        else:
             self._clear_image()
 
     def _clear_image(self) -> None:
@@ -96,11 +108,27 @@ class ConstellationWidget(Widget):
         self._buf_size = 0
         self._range = 1.5
 
+    def _paint_grid_only(self) -> None:
+        """Allocate the buffer and draw just the axis crosshairs.
+
+        Called on mount or image_mode→True so the widget shows a grid even
+        before the first ConstellationUpdate event arrives.
+        """
+        if self._kitty is None or not self.image_mode:
+            return
+        size = self._compute_geometry()
+        if size <= 0:
+            return
+        self._buffer = np.zeros((size, size, 4), dtype=np.uint8)
+        self._buf_size = size
+        self._draw_grid(self._buffer)
+        self._kitty.update_image("constellation", self._buffer, x=self._img_x, y=self._img_y)
+
     def update_constellation(self, event: ConstellationUpdateEvent) -> None:
-        if self._kitty is None or not self._image_mode:
+        if self._kitty is None or not self.image_mode:
             return
 
-        size = self._pixel_size()
+        size = self._compute_geometry()
         if size <= 0:
             return
 
@@ -138,24 +166,39 @@ class ConstellationWidget(Widget):
 
             with span("constellation.plot"):
                 r = self._range
-                scale = 0.5 * (size - 1) / r
-                mid = (size - 1) * 0.5
+                # Map the [-r, r] range to [0, size-1] and round to nearest
+                # integer pixel so a point at the origin lands on `center`
+                # (where the crosshair is drawn) — not center - 1.
+                center = size // 2
+                scale = center / r
                 real = points.real.astype(np.float32)
                 imag = points.imag.astype(np.float32)
-                px = (real * scale + mid).astype(np.intp)
-                py = (mid - imag * scale).astype(np.intp)
+                px = np.rint(real * scale + center).astype(np.intp)
+                py = np.rint(center - imag * scale).astype(np.intp)
                 _plot(buf, px, py, _DOT_COLOR)
 
         self._draw_grid(buf)
 
         with span("constellation.transmit"):
-            self._kitty.update_image("constellation", buf)
+            self._kitty.update_image("constellation", buf, x=self._img_x, y=self._img_y)
 
-    def _pixel_size(self) -> int:
-        """Square size in pixels that fits the widget width."""
+    def _compute_geometry(self) -> int:
+        """Square buffer size that fits within the kitty widget's actual pixel area.
+
+        Sets `_img_x`/`_img_y` so the square is centered horizontally and
+        vertically within the (possibly non-square) kitty widget — otherwise
+        the buffer would sit in the top-left and the crosshair would land
+        off-center. Returns the square side in pixels (0 if not yet laid out).
+        """
         if self._kitty is None:
             return 0
-        return int(self.size.width * self._kitty.cell_width_px)
+        w, h = self._kitty.full_pixel_size
+        size = min(w, h)
+        if size <= 0:
+            return 0
+        self._img_x = (w - size) // 2
+        self._img_y = (h - size) // 2
+        return size
 
     def _draw_grid(self, buf: NDArray[np.uint8]) -> None:
         """Draw I/Q axis crosshairs."""

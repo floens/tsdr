@@ -5,8 +5,6 @@ from rich.segment import Segment
 from rich.style import Style
 from textual.strip import Strip
 
-from tsdr.tui.state import UIState
-
 _STYLE_NONE = Style()
 
 
@@ -98,11 +96,13 @@ def normalize_spectrum(
     return result
 
 
-def status_strip(width: int, ui_state: UIState, style: Style | None = None) -> Strip:
+def status_strip(
+    width: int, zoom: float, db_min: float, db_max: float, style: Style | None = None
+) -> Strip:
     """Build status line showing zoom and dB levels.
 
     `style` should be the owning widget's `rich_style` so blank cells inherit
     its CSS background; segments with `Style()` don't pick up the widget bg.
     """
-    text = f"Zoom: {ui_state.zoom:.1f}x | Min: {ui_state.db_min:.0f} dB | Max: {ui_state.db_max:.0f} dB"
+    text = f"Zoom: {zoom:.1f}x | Min: {db_min:.0f} dB | Max: {db_max:.0f} dB"
     return Strip([Segment(text.ljust(width)[:width], style or _STYLE_NONE)], width)

@@ -124,6 +124,8 @@ def _fuzzy_match_indices(query: str, target: str) -> tuple[int, ...] | None:
 # Command registration (imports at bottom to avoid circular deps)
 
 from tsdr.tui.commands.audio.audio import AudioCommand  # noqa: E402
+from tsdr.tui.commands.builtin.dump_model import DumpModelCommand  # noqa: E402
+from tsdr.tui.commands.builtin.dump_tree import DumpTreeCommand  # noqa: E402
 from tsdr.tui.commands.builtin.echo import EchoCommand  # noqa: E402
 from tsdr.tui.commands.builtin.exit import ExitCommand  # noqa: E402
 from tsdr.tui.commands.builtin.help import HelpCommand  # noqa: E402
@@ -171,3 +173,5 @@ register("f", FrequencyCommand())
 register("memory", MemoryCommand())
 register("bandplan", BandplanCommand())
 register("record", SDRRecordCommand())
+register("dump-model", DumpModelCommand())
+register("dump-tree", DumpTreeCommand())
