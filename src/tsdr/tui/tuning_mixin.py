@@ -253,7 +253,7 @@ class TuningMixin(MixinBase):
                     center_frequency=float(reg.frequency),
                     channel_bandwidth=int(reg.bandwidth),
                 )
-            except ValueError as e:
+            except SDRException as e:
                 self._show_error(str(e))
                 return
         store.set_current_idx(key, new_idx)

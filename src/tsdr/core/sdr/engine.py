@@ -280,7 +280,7 @@ class SDREngine:
             if freq_range is not None:
                 lo, hi = freq_range
                 if not (lo <= new_freq <= hi):
-                    raise ValueError(
+                    raise SDRException(
                         f"Frequency {new_freq / 1e6:.3f} MHz out of range "
                         f"(device supports {lo / 1e6:.3f}–{hi / 1e6:.3f} MHz)"
                     )
@@ -289,7 +289,7 @@ class SDREngine:
             new_rate = changes["sample_rate"]
             if not any(abs(new_rate - r) < 1.0 for r in caps.sample_rates):
                 valid = ", ".join(f"{r / 1e6:.3f}M" for r in sorted(caps.sample_rates))
-                raise ValueError(
+                raise SDRException(
                     f"Sample rate {new_rate / 1e6:.3f} MHz not supported (device supports: {valid})"
                 )
 
