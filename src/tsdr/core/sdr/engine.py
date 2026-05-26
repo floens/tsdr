@@ -471,13 +471,15 @@ class SDREngine:
             logger.info("audio_queue_drained device=%s batches=%d", device_id, dropped)
 
     def start_audio_output(self, device_id: str) -> None:
-        """Start audio output for a device."""
+        """Start audio output for a device. No-op if device is not running."""
         if device_id not in self.devices:
             raise SDRException(f"Device {device_id} not found")
         if device_id in self._audio_workers:
             return
 
         context = self.devices[device_id]
+        if context.state != DeviceState.RUNNING:
+            return
 
         self._drain_audio_queue(device_id)
 
