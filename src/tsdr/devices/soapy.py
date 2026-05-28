@@ -43,20 +43,25 @@ def _log_handler(level: int, message: str) -> None:
 def _system_site_packages() -> list[str]:
     """Return candidate system site-package directories for SoapySDR."""
     ver = f"{sys.version_info.major}.{sys.version_info.minor}"
+    # Free-threaded builds (PEP 703) install under e.g. python3.14t, not python3.14.
+    tagged = f"{ver}{sys.abiflags}"
     candidates: list[str] = []
 
     if platform.system() == "Darwin":
         # Homebrew (Apple Silicon and Intel)
-        candidates.append(f"/opt/homebrew/lib/python{ver}/site-packages")
-        candidates.append(f"/usr/local/lib/python{ver}/site-packages")
+        for v in (tagged, ver):
+            candidates.append(f"/opt/homebrew/lib/python{v}/site-packages")
+            candidates.append(f"/usr/local/lib/python{v}/site-packages")
     else:
         # Debian/Ubuntu apt packages
         candidates.append(f"/usr/lib/python{sys.version_info.major}/dist-packages")
-        candidates.append(f"/usr/lib/python{ver}/dist-packages")
-        candidates.append(f"/usr/local/lib/python{ver}/dist-packages")
-        candidates.append(f"/usr/local/lib/python{ver}/site-packages")
+        for v in (tagged, ver):
+            candidates.append(f"/usr/lib/python{v}/dist-packages")
+            candidates.append(f"/usr/local/lib/python{v}/dist-packages")
+            candidates.append(f"/usr/local/lib/python{v}/site-packages")
 
-    return [c for c in candidates if Path(c).is_dir()]
+    # De-duplicate while preserving order (tagged == ver on non-free-threaded builds).
+    return [c for c in dict.fromkeys(candidates) if Path(c).is_dir()]
 
 
 def import_soapysdr() -> Any:
