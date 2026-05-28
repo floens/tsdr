@@ -6,6 +6,7 @@ import uuid
 from pydantic import BaseModel, ConfigDict, ValidationError
 
 from tsdr.core import storage
+from tsdr.core.audio_spec import AudioDemodSpec
 from tsdr.core.preferences import save_device
 from tsdr.core.sdr.device_context import DeviceState
 from tsdr.core.sdr.engine import get_engine
@@ -40,7 +41,7 @@ class Memory(BaseModel):
     id: str
     frequency: int
     name: str
-    mode: str
+    audio_spec: AudioDemodSpec
     bandwidth: int
     tags: tuple[str, ...] = ()
     color: str | None = None
@@ -49,7 +50,7 @@ class Memory(BaseModel):
 def memory_color(memory: Memory) -> str:
     if memory.color is not None:
         return memory.color
-    return MODE_COLORS.get(memory.mode, _DEFAULT_COLOR)
+    return MODE_COLORS.get(memory.audio_spec.mode, _DEFAULT_COLOR)
 
 
 MEMORIES_FILE = "memories.toml"
@@ -63,7 +64,7 @@ class MemoryStore:
         self,
         frequency: int,
         name: str,
-        mode: str,
+        spec: AudioDemodSpec,
         bandwidth: int,
         tags: tuple[str, ...] = (),
         color: str | None = None,
@@ -73,7 +74,7 @@ class MemoryStore:
             id=memory_id,
             frequency=frequency,
             name=name,
-            mode=mode,
+            audio_spec=spec,
             bandwidth=bandwidth,
             tags=tags,
             color=color,
@@ -179,8 +180,8 @@ def recall_memory(memory: Memory, device_id: str) -> None:
     ts.step = None  # context change → reset step ladder to auto
     save_previous_tune_state(context)
 
-    if memory.mode in DEMODULATORS and memory.mode != context.active_mode:
-        engine.set_audio_demod(device_id, memory.mode)
+    if memory.audio_spec.mode in DEMODULATORS and memory.audio_spec.mode != context.active_mode:
+        engine.set_audio_demod(device_id, memory.audio_spec)
 
     engine.update_device_config(
         device_id,

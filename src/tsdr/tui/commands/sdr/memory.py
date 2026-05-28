@@ -1,6 +1,7 @@
 from argparse import Namespace
 from collections import Counter
 
+from tsdr.core.audio_spec import AudioDemodSpec
 from tsdr.core.events.events import MemoriesChangedEvent
 from tsdr.core.memories import get_memory_store, recall_memory
 from tsdr.core.sdr.engine import get_engine
@@ -69,7 +70,7 @@ class MemoryCommand(Command):
         memory = store.add(
             frequency=frequency,
             name=args.name,
-            mode=mode,
+            spec=AudioDemodSpec(mode=mode),
             bandwidth=parse_hz(args.bw),
             tags=tags,
             color=args.color,

@@ -13,7 +13,7 @@ from typing import Any, Literal
 
 from tsdr.tui.commands.registry import MenuItem
 
-DecoderKind = Literal["rds", "dab", "adsb", "tetra", "dmr", "text"]
+DecoderKind = Literal["rds", "dab", "adsb", "tetra", "dmr", "text", "sstv"]
 ActivePanel = Literal["stats", "performance"]
 
 

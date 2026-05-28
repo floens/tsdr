@@ -2,11 +2,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from tsdr.core.audio_spec import PreviousTuneState
+
 
 @dataclass
 class TuningState:
     step: float | None = None  # None = auto
-    previous: tuple[float, str, float] | None = None  # (freq_hz, mode, bandwidth_hz)
+    previous: PreviousTuneState | None = None
     current_band_key: int | None = None  # 1..9 — None when not on a band
 
 

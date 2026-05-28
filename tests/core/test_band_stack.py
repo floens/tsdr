@@ -1,11 +1,16 @@
 from __future__ import annotations
 
+from tsdr.core.audio_spec import AudioDemodSpec
 from tsdr.core.band_stack import (
     BAND_DEFAULTS,
     REGISTERS_PER_BAND,
     BandRegister,
     BandStackStore,
 )
+
+
+def _spec(mode: str) -> AudioDemodSpec:
+    return AudioDemodSpec(mode=mode)
 
 
 def test_seed_defaults() -> None:
@@ -23,18 +28,18 @@ def test_seed_defaults() -> None:
 def test_set_register_persists() -> None:
     store = BandStackStore()
     store._seed_defaults()
-    reg = BandRegister(slot=0, frequency=14_200_000, mode="USB", bandwidth=3_000)
+    reg = BandRegister(slot=0, frequency=14_200_000, audio_spec=_spec("USB"), bandwidth=3_000)
     store.set_register(5, 0, reg)
     got = store.get_register(5, 0)
     assert got is not None
     assert got.frequency == 14_200_000
-    assert got.mode == "USB"
+    assert got.audio_spec.mode == "USB"
 
 
 def test_save_load_roundtrip() -> None:
     store = BandStackStore()
     store._seed_defaults()
-    reg = BandRegister(slot=1, frequency=145_500_000, mode="NFM", bandwidth=12_500)
+    reg = BandRegister(slot=1, frequency=145_500_000, audio_spec=_spec("NFM"), bandwidth=12_500)
     store.set_register(8, 1, reg)
     store.set_current_idx(8, 1)
 
@@ -49,8 +54,8 @@ def test_save_load_roundtrip() -> None:
 def test_set_register_replaces_slot() -> None:
     store = BandStackStore()
     store._seed_defaults()
-    r1 = BandRegister(slot=0, frequency=14_100_000, mode="USB", bandwidth=3_000)
-    r2 = BandRegister(slot=0, frequency=14_200_000, mode="USB", bandwidth=2_400)
+    r1 = BandRegister(slot=0, frequency=14_100_000, audio_spec=_spec("USB"), bandwidth=3_000)
+    r2 = BandRegister(slot=0, frequency=14_200_000, audio_spec=_spec("USB"), bandwidth=2_400)
     store.set_register(5, 0, r1)
     store.set_register(5, 0, r2)
     stack = store.get_by_key(5)

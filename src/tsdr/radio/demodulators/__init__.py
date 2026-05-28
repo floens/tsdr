@@ -72,6 +72,10 @@ class Demodulator(ABC):
         """Update FM peak deviation. NFM-only; default no-op elsewhere."""
         pass
 
+    def set_sstv_mode(self, name: str | None) -> None:  # noqa: B027
+        """Force a specific SSTV submode (or clear). SSTV-only; no-op elsewhere."""
+        pass
+
     def set_squelch(  # noqa: B027
         self, enabled: bool, threshold_db: float, hang_ms: float
     ) -> None:

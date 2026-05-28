@@ -10,6 +10,7 @@ from queue import Empty, Queue
 from types import MappingProxyType
 from typing import Any, Unpack
 
+from tsdr.core.audio_spec import AudioDemodSpec
 from tsdr.core.events.bus import EventBus
 from tsdr.core.events.events import (
     AGCGainChangeEvent,
@@ -422,7 +423,7 @@ class SDREngine:
             "pipeline_added device=%s name=%s mode=%s",
             device_id,
             pipeline_name,
-            pipeline_config.demod_mode,
+            pipeline_config.audio_spec.mode if pipeline_config.audio_spec else None,
         )
 
         self._publish_pipeline_changed(device_id, pipeline_name, active=True)
@@ -552,14 +553,8 @@ class SDREngine:
         )
         self.update_device_config(device_id, pipelines=new_pipelines)
 
-    def set_audio_demod(
-        self,
-        device_id: str,
-        mode: str,
-        frequency_offset: float = 0.0,
-        fm_deviation_hz: float | None = None,
-    ) -> None:
-        """Rebuild the 'audio' pipeline for the given demod mode.
+    def set_audio_demod(self, device_id: str, spec: AudioDemodSpec) -> None:
+        """Rebuild the 'audio' pipeline from the given demod spec.
 
         Fast path: when the audio worker is already running and the stage
         tuple is unchanged, swap the demodulator in place — the
@@ -573,17 +568,21 @@ class SDREngine:
 
         context = self.devices[device_id]
         old_pipeline = context.config.pipelines.get("audio")
-        old_mode = old_pipeline.demod_mode if old_pipeline is not None else None
-        logger.info("demod_change device=%s old=%s new=%s", device_id, old_mode, mode)
+        old_mode = (
+            old_pipeline.audio_spec.mode
+            if old_pipeline is not None and old_pipeline.audio_spec is not None
+            else None
+        )
+        logger.info("demod_change device=%s old=%s new=%s", device_id, old_mode, spec.mode)
 
         new_stages: list[StageType] = []
-        if frequency_offset != 0.0:
+        if spec.frequency_offset != 0.0:
             new_stages.append(StageType.FREQUENCY_SHIFT)
         new_stages.append(StageType.DEMODULATOR)
         new_stages.append(StageType.EVENT_EMITTER)
         new_stages_tuple = tuple(new_stages)
 
-        new_cls = DEMODULATOR_CLASSES.get(mode.upper())
+        new_cls = DEMODULATOR_CLASSES.get(spec.mode.upper())
         new_has_audio = new_cls is not None and new_cls.has_audio
         new_bw = (
             new_cls.bandwidth_override_on_mode_switch(context.config.channel_bandwidth)
@@ -602,12 +601,7 @@ class SDREngine:
             self._drain_audio_queue(device_id)
             self._audio_workers[device_id].request_flush()
 
-            new_pc = PipelineConfig(
-                stages=new_stages_tuple,
-                demod_mode=mode,
-                frequency_offset=frequency_offset,
-                fm_deviation_hz=fm_deviation_hz,
-            )
+            new_pc = PipelineConfig(stages=new_stages_tuple, audio_spec=spec)
             new_pipelines = MappingProxyType(dict(context.config.pipelines) | {"audio": new_pc})
             changes: dict[str, Any] = {"pipelines": new_pipelines}
             if new_bw is not None:
@@ -623,12 +617,7 @@ class SDREngine:
         self.add_pipeline(
             device_id,
             "audio",
-            PipelineConfig(
-                stages=new_stages_tuple,
-                demod_mode=mode,
-                frequency_offset=frequency_offset,
-                fm_deviation_hz=fm_deviation_hz,
-            ),
+            PipelineConfig(stages=new_stages_tuple, audio_spec=spec),
         )
 
         if context.active_demod_info and context.active_demod_info.has_audio:

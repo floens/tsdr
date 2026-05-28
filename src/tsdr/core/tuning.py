@@ -5,6 +5,7 @@ import math
 import time
 from typing import TYPE_CHECKING
 
+from tsdr.core.audio_spec import AudioDemodSpec, PreviousTuneState
 from tsdr.core.band_stack import (
     BandRegister,
     get_band_stack,
@@ -124,13 +125,38 @@ def current_channel_bandwidth(context: SDRDeviceContext) -> float:
     return float(default_bandwidth(context.active_mode))
 
 
+def active_demod_spec(context: SDRDeviceContext) -> AudioDemodSpec | None:
+    """Return the audio pipeline's spec, or None if no audio pipeline is configured."""
+    audio = context.config.pipelines.get("audio")
+    return audio.audio_spec if audio is not None else None
+
+
+def current_spec_or_default(
+    context: SDRDeviceContext, *, override_mode: str | None = None
+) -> AudioDemodSpec:
+    """Return the active demod spec, falling back to a fresh one for the
+    device's current mode. If ``override_mode`` is set, rebrand the spec
+    under that mode (preserving fm_deviation_hz / sstv_mode) — used by sites
+    that need to carry forward demod settings into a different mode.
+    """
+    spec = active_demod_spec(context)
+    mode = override_mode if override_mode is not None else context.active_mode
+    if spec is None:
+        return AudioDemodSpec(mode=mode)
+    if override_mode is not None and spec.mode != override_mode:
+        copied: AudioDemodSpec = spec.model_copy(update={"mode": override_mode})
+        return copied
+    return spec
+
+
 def save_previous_tune_state(context: SDRDeviceContext) -> None:
-    """Snapshot (freq, mode, bw) into TuningState.previous and persist+publish."""
+    """Snapshot the current tune state into TuningState.previous and persist+publish."""
     ts = get_tuning_state()
-    ts.previous = (
-        float(context.config.center_frequency),
-        context.active_mode,
-        current_channel_bandwidth(context),
+    spec = current_spec_or_default(context)
+    ts.previous = PreviousTuneState(
+        frequency_hz=float(context.config.center_frequency),
+        bandwidth_hz=current_channel_bandwidth(context),
+        spec=spec,
     )
     save_tuning_state(ts)
     get_engine().event_bus.publish(TuningStateChangedEvent(state=ts))
@@ -188,10 +214,11 @@ def _on_writeback_trigger(event: Event) -> None:
         save_tuning_state(ts)
         engine.event_bus.publish(TuningStateChangedEvent(state=ts))
         return
+    spec = current_spec_or_default(device)
     reg = BandRegister(
         slot=stack.current_idx,
         frequency=int(freq),
-        mode=device.active_mode,
+        audio_spec=spec,
         bandwidth=int(current_channel_bandwidth(device)),
     )
     store.update_register(stack.band.key, stack.current_idx, reg)

@@ -6,6 +6,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, ValidationError
 
 from tsdr.core import storage
+from tsdr.core.audio_spec import AudioDemodSpec
 
 logger = logging.getLogger(__name__)
 
@@ -38,12 +39,10 @@ class PersistedDevice(BaseModel):
     network_buffer_seconds: float | None = None
     channel_bandwidth: float | None = None
 
-    demod_mode: str | None = None
-    demod_offset: float | None = None
+    audio_spec: AudioDemodSpec | None = None
     squelch_enabled: bool | None = None
     squelch_threshold_db: float | None = None
     squelch_hang_ms: float | None = None
-    fm_deviation_hz: float | None = None
 
 
 class DeviceStore:

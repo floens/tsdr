@@ -5,6 +5,7 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from tsdr.core import storage
+from tsdr.core.audio_spec import PreviousTuneState
 from tsdr.core.bandplans import get_bandplan_store
 from tsdr.core.devices import PersistedDevice, get_device_store
 from tsdr.core.sdr.config import DeviceConfig
@@ -86,18 +87,14 @@ def _build_persisted_device(context: SDRDeviceContext) -> PersistedDevice:
     }
 
     audio_config = context.config.pipelines.get("audio")
-    if audio_config and audio_config.demod_mode:
-        fields["demod_mode"] = audio_config.demod_mode
-        if audio_config.frequency_offset != 0.0:
-            fields["demod_offset"] = audio_config.frequency_offset
+    if audio_config and audio_config.audio_spec is not None:
+        fields["audio_spec"] = audio_config.audio_spec
         if audio_config.squelch_enabled:
             fields["squelch_enabled"] = True
         if audio_config.squelch_threshold_db != -50.0:
             fields["squelch_threshold_db"] = audio_config.squelch_threshold_db
         if audio_config.squelch_hang_ms != 100.0:
             fields["squelch_hang_ms"] = audio_config.squelch_hang_ms
-        if audio_config.fm_deviation_hz is not None:
-            fields["fm_deviation_hz"] = audio_config.fm_deviation_hz
 
     return PersistedDevice(**{k: v for k, v in fields.items() if v is not None})
 
@@ -132,12 +129,7 @@ def save_tuning_state(state: TuningState) -> None:
     if state.step is not None:
         tuning["step"] = float(state.step)
     if state.previous is not None:
-        freq, mode, bw = state.previous
-        tuning["previous"] = {
-            "frequency": float(freq),
-            "mode": str(mode),
-            "bandwidth": float(bw),
-        }
+        tuning["previous"] = state.previous.model_dump(exclude_none=True)
     if state.current_band_key is not None:
         tuning["current_band_key"] = int(state.current_band_key)
     if tuning:
@@ -152,12 +144,8 @@ def restore_tuning_state(state: TuningState, prefs: dict[str, Any]) -> None:
     if "step" in tuning:
         state.step = float(tuning["step"])
     prev = tuning.get("previous")
-    if isinstance(prev, dict) and {"frequency", "mode", "bandwidth"} <= prev.keys():
-        state.previous = (
-            float(prev["frequency"]),
-            str(prev["mode"]),
-            float(prev["bandwidth"]),
-        )
+    if isinstance(prev, dict):
+        state.previous = PreviousTuneState.model_validate(prev)
     if "current_band_key" in tuning:
         state.current_band_key = int(tuning["current_band_key"])
 
@@ -200,16 +188,12 @@ def _build_device_config(device: PersistedDevice) -> DeviceConfig | None:
 
 
 def _restore_audio_pipeline(engine: SDREngine, device: PersistedDevice) -> None:
-    if not device.demod_mode or device.demod_mode not in DEMODULATORS:
+    spec = device.audio_spec
+    if spec is None or spec.mode not in DEMODULATORS:
         return
     try:
-        engine.set_audio_demod(
-            device.id,
-            device.demod_mode,
-            device.demod_offset or 0.0,
-            device.fm_deviation_hz,
-        )
-        logger.info("preferences_demod_restored device=%s mode=%s", device.id, device.demod_mode)
+        engine.set_audio_demod(device.id, spec)
+        logger.info("preferences_demod_restored device=%s mode=%s", device.id, spec.mode)
     except (KeyError, ValueError, OSError) as e:
         logger.warning("preferences_demod_restore_failed device=%s error=%r", device.id, e)
         return

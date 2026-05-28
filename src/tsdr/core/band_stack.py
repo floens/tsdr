@@ -9,6 +9,7 @@ from collections.abc import Iterator
 from pydantic import BaseModel, ConfigDict, ValidationError
 
 from tsdr.core import storage
+from tsdr.core.audio_spec import AudioDemodSpec
 
 logger = logging.getLogger(__name__)
 
@@ -21,7 +22,7 @@ class BandRegister(BaseModel):
 
     slot: int  # 0..REGISTERS_PER_BAND-1
     frequency: int
-    mode: str
+    audio_spec: AudioDemodSpec
     bandwidth: int
 
 
@@ -77,7 +78,7 @@ class BandStackStore:
             self._stacks.setdefault(band.key, BandStack(band=band))
 
     def save(self) -> None:
-        data = {"bandstack": [s.model_dump() for s in self.all()]}
+        data = {"bandstack": [s.model_dump(exclude_none=True) for s in self.all()]}
         storage.save_toml(BAND_STACK_FILE, data)
 
     def all(self) -> list[BandStack]:

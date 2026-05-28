@@ -4,6 +4,7 @@ import logging
 
 from textual import on
 
+from tsdr.core.audio_spec import PreviousTuneState
 from tsdr.core.band_stack import (
     REGISTERS_PER_BAND,
     BandRegister,
@@ -25,6 +26,7 @@ from tsdr.core.tuning import (
     STEP_LADDER,
     bandwidth_step,
     current_channel_bandwidth,
+    current_spec_or_default,
     default_bandwidth,
     resolve_auto_step,
     save_previous_tune_state,
@@ -171,32 +173,35 @@ class TuningMixin(MixinBase):
         if ts.previous is None:
             self.show_status("No previous tune state")
             return
-        captured = (
-            float(device.config.center_frequency),
-            device.active_mode,
-            current_channel_bandwidth(device),
+        cur_spec = current_spec_or_default(device)
+        captured = PreviousTuneState(
+            frequency_hz=float(device.config.center_frequency),
+            bandwidth_hz=current_channel_bandwidth(device),
+            spec=cur_spec,
         )
-        prev_freq, prev_mode, prev_bw = ts.previous
-        if captured == ts.previous:
+        prev = ts.previous
+        if captured == prev:
             return
         ts.previous = captured
 
         engine = get_engine()
-        if prev_mode and prev_mode != device.active_mode and prev_mode != "RAW":
+        if prev.spec.mode and prev.spec.mode != device.active_mode and prev.spec.mode != "RAW":
             try:
-                engine.set_audio_demod(device.device_id, prev_mode)
+                engine.set_audio_demod(device.device_id, prev.spec)
             except SDRException as e:
                 self._show_error(str(e))
                 return
         engine.update_device_config(
             device.device_id,
-            center_frequency=prev_freq,
-            channel_bandwidth=int(prev_bw),
+            center_frequency=prev.frequency_hz,
+            channel_bandwidth=int(prev.bandwidth_hz),
         )
         self._reset_step_to_auto()
         self._publish_tuning_state_changed()
         save_device(engine)
-        self.show_status(f"A/B: {format_hz(prev_freq, interval=1.0, long_suffix=True)} {prev_mode}")
+        self.show_status(
+            f"A/B: {format_hz(prev.frequency_hz, interval=1.0, long_suffix=True)} {prev.spec.mode}"
+        )
 
     def _recall_band(self, key: int) -> None:
         device = self._focused()
@@ -217,13 +222,13 @@ class TuningMixin(MixinBase):
 
         reg = store.get_register(key, new_idx)
         if reg is None:
-            # First time on this slot — seed with band midpoint + current mode/bw.
             seed_mode = device.active_mode if device.active_mode != "RAW" else "AM"
             seed_bw = int(current_channel_bandwidth(device)) or default_bandwidth(seed_mode)
+            seed_spec = current_spec_or_default(device, override_mode=seed_mode)
             reg = BandRegister(
                 slot=new_idx,
                 frequency=(stack.band.start + stack.band.end) // 2,
-                mode=seed_mode,
+                audio_spec=seed_spec,
                 bandwidth=int(seed_bw),
             )
             store.set_register(key, new_idx, reg)
@@ -241,9 +246,9 @@ class TuningMixin(MixinBase):
 
         engine = get_engine()
         with suspended_writeback():
-            if reg.mode != device.active_mode and reg.mode in DEMODULATORS:
+            if reg.audio_spec.mode != device.active_mode and reg.audio_spec.mode in DEMODULATORS:
                 try:
-                    engine.set_audio_demod(device.device_id, reg.mode)
+                    engine.set_audio_demod(device.device_id, reg.audio_spec)
                 except SDRException as e:
                     self._show_error(str(e))
                     return

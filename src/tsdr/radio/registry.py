@@ -20,6 +20,7 @@ def make_demodulator(
     sample_rate: float,
     channel_bandwidth: float | None = None,
     fm_deviation_hz: float | None = None,
+    sstv_mode: str | None = None,
 ) -> Demodulator:
     mode = mode.upper()
     if mode not in DEMODULATORS:
@@ -29,6 +30,8 @@ def make_demodulator(
         kw["channel_bandwidth"] = channel_bandwidth
     if mode == "NFM" and fm_deviation_hz is not None:
         kw["deviation"] = fm_deviation_hz
+    if mode == "SSTV" and sstv_mode is not None:
+        kw["sstv_mode"] = sstv_mode
     return DEMODULATORS[mode](sample_rate=sample_rate, **kw)
 
 

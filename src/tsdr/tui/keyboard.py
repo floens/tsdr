@@ -4,6 +4,7 @@ from rich.text import Text
 from textual import events
 from textual.timer import Timer
 
+from tsdr.core.audio_spec import AudioDemodSpec
 from tsdr.core.bandplans import find_band_at, get_bandplan_store
 from tsdr.core.events.events import MemoriesChangedEvent
 from tsdr.core.memories import Memory, get_memory_store
@@ -11,6 +12,7 @@ from tsdr.core.preferences import save_device, save_engine_config
 from tsdr.core.sdr.device_context import DeviceState
 from tsdr.core.sdr.engine import get_engine
 from tsdr.core.sdr.exceptions import SDRException
+from tsdr.core.tuning import current_spec_or_default
 from tsdr.tui._mixin_base import MixinBase
 from tsdr.tui.console import ConsoleWidget, TerminalInput
 from tsdr.tui.model import adjusted_db_max, adjusted_db_min, adjusted_zoom
@@ -423,7 +425,8 @@ class KeyboardMixin(MixinBase):
         name = f"{desc} {mode}" if desc else f"{freq / 1e6:.3f} {mode}"
 
         store = get_memory_store()
-        memory = store.add(frequency=freq, name=name, mode=mode, bandwidth=bandwidth)
+        spec = current_spec_or_default(device, override_mode=mode)
+        memory = store.add(frequency=freq, name=name, spec=spec, bandwidth=bandwidth)
         engine.event_bus.publish(MemoriesChangedEvent(memories=tuple(store.all())))
         self.show_status(f"Memory saved: {memory.name} [{memory.id}]")
 
@@ -506,7 +509,7 @@ class KeyboardMixin(MixinBase):
             return
 
         try:
-            engine.set_audio_demod(device.device_id, mode)
+            engine.set_audio_demod(device.device_id, AudioDemodSpec(mode=mode))
         except SDRException as e:
             self._show_error(str(e))
             return

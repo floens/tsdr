@@ -119,8 +119,8 @@ class SDRDeviceContext:
     def active_mode(self) -> str:
         """Active demodulation mode name derived from config."""
         for pc in self.config.pipelines.values():
-            if pc.demod_mode:
-                return pc.demod_mode
+            if pc.audio_spec is not None:
+                return pc.audio_spec.mode
         return "RAW"
 
     def start(self, worker_runner) -> None:

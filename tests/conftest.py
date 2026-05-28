@@ -6,6 +6,7 @@ from types import SimpleNamespace
 import pytest
 
 from tsdr.core import storage
+from tsdr.core.audio_spec import AudioDemodSpec
 from tsdr.core.devices import init_device_store
 from tsdr.core.events.events import Event
 from tsdr.core.sdr.config import DeviceConfig, PipelineConfig, StageType
@@ -104,7 +105,7 @@ def run_pipeline():
         # Add audio pipeline via config
         audio_config = PipelineConfig(
             stages=(StageType.DEMODULATOR,),
-            demod_mode=mode,
+            audio_spec=AudioDemodSpec(mode=mode),
         )
         engine.add_pipeline("test", "audio", audio_config)
 

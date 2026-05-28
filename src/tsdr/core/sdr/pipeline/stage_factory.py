@@ -49,15 +49,22 @@ def create_stage(
         case StageType.EVENT_EMITTER:
             return EventEmitterStage(config=sdr_config)
         case StageType.FREQUENCY_SHIFT:
-            return FrequencyShiftStage(frequency_offset=pipeline_config.frequency_offset)
+            offset = (
+                pipeline_config.audio_spec.frequency_offset
+                if pipeline_config.audio_spec is not None
+                else 0.0
+            )
+            return FrequencyShiftStage(frequency_offset=offset)
         case StageType.DEMODULATOR:
-            if not pipeline_config.demod_mode:
-                raise ValueError("DEMODULATOR stage requires demod_mode in PipelineConfig")
+            spec = pipeline_config.audio_spec
+            if spec is None:
+                raise ValueError("DEMODULATOR stage requires audio_spec in PipelineConfig")
             demodulator = make_demodulator(
-                pipeline_config.demod_mode,
+                spec.mode,
                 device_config.sample_rate,
                 device_config.channel_bandwidth,
-                pipeline_config.fm_deviation_hz,
+                spec.fm_deviation_hz,
+                spec.sstv_mode,
             )
             demodulator.set_squelch(
                 enabled=pipeline_config.squelch_enabled,
@@ -66,7 +73,7 @@ def create_stage(
             )
             return DemodulatorStage(
                 demodulator=demodulator,
-                mode_name=pipeline_config.demod_mode,
+                mode_name=spec.mode,
                 pipeline_name=pipeline_name,
             )
         case StageType.RECORD:
