@@ -69,6 +69,14 @@ register(
     "CW", CWDemodulator, lambda sample_rate, **kw: CWDemodulator(sample_rate=sample_rate, **kw)
 )
 
+from tsdr.radio.demodulators.sstv import SSTVDemodulator  # noqa: E402
+
+register(
+    "SSTV",
+    SSTVDemodulator,
+    lambda sample_rate, **kw: SSTVDemodulator(sample_rate=sample_rate, **kw),
+)
+
 # Protocol decoders
 from tsdr.radio.decoders.adsb import ADSBDecoder  # noqa: E402
 from tsdr.radio.decoders.dab import DABDecoder  # noqa: E402

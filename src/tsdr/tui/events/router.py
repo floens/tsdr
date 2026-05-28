@@ -53,7 +53,7 @@ def _decoder_kind(info: SignalInfo | None) -> DecoderKind | None:
     if info is None:
         return None
     kind = info.message_type
-    if kind in ("rds", "dab", "adsb", "tetra", "dmr", "text"):
+    if kind in ("rds", "dab", "adsb", "tetra", "dmr", "text", "sstv"):
         return kind  # type: ignore[return-value]
     return None
 

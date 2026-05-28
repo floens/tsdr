@@ -173,6 +173,11 @@ spyserver_setting
 spyserver_streaming_enabled
 spyserver_supported_rates
 spyserver_unknown_message
+sstv_stream_mode_locked
+sstv_unknown_vis
+sstv_unknown_vis_streaming
+sstv_vis_detected
+sstv_vis_near_miss
 stage_close_failed
 stage_config_update_failed
 startup_command_failed

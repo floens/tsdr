@@ -64,7 +64,9 @@ def _viz_children(m: UIModel) -> tuple[WidgetSpec, ...]:
     focused = _focused_device(m)
     if focused and focused.active_decoder_kind:
         kind = focused.active_decoder_kind
-        decoder_props: dict[str, Any] = {"image_mode": m.image_mode} if kind == "dab" else {}
+        decoder_props: dict[str, Any] = (
+            {"image_mode": m.image_mode} if kind in ("dab", "sstv") else {}
+        )
         children.append(
             WidgetSpec(
                 f"decoder_{kind}",

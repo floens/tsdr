@@ -396,6 +396,36 @@ DABWidget #dab-services {
     scrollbar-size: 1 0;
 }
 
+SSTVWidget {
+    width: 100%;
+    height: auto;
+    min-height: 8;
+    padding: 0 1;
+    border: round $border-muted;
+    layout: horizontal;
+}
+
+SSTVWidget #sstv-status {
+    width: 28;
+    height: auto;
+}
+
+SSTVWidget #sstv-progress {
+    width: 22;
+    height: auto;
+}
+
+SSTVWidget #sstv-image-alt {
+    width: 1fr;
+    height: auto;
+}
+
+SSTVWidget #sstv-image {
+    width: 1fr;
+    height: 100%;
+    min-height: 8;
+}
+
 ADSBWidget {
     width: 100%;
     height: 1fr;
