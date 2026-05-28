@@ -13,6 +13,7 @@ from tsdr.core.sdr.device_context import DeviceState
 from tsdr.core.sdr.engine import get_engine
 from tsdr.core.units import format_hz
 from tsdr.devices import NetworkDeviceParams
+from tsdr.devices.base import HasJitterBuffer
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +47,9 @@ class StatsWidget(Static):
         self._identity_serial: str | None = None
         self._frequency_range: tuple[float, float] | None = None
         self._frequency_controllable: bool = False
+        self._controller_center_frequency: float | None = None
+        self._controller_gain: int | None = None
+        self._wire_bytes_per_sec: float = 0.0
         self._device_state: DeviceState | None = None
 
     def on_mount(self) -> None:
@@ -75,6 +79,11 @@ class StatsWidget(Static):
         caps = device.device.capabilities
         self._frequency_range = caps.frequency_range
         self._frequency_controllable = caps.frequency_controllable
+        self._controller_center_frequency = caps.controller_center_frequency
+        self._controller_gain = caps.controller_gain
+        self._wire_bytes_per_sec = (
+            device.device.wire_bytes_per_sec if isinstance(device.device, HasJitterBuffer) else 0.0
+        )
         self._device_state = device.state
 
     def update_stats(self, event: StatsUpdateEvent) -> None:
@@ -119,9 +128,18 @@ class StatsWidget(Static):
             )
         if self._frequency_range is not None:
             lo, hi = self._frequency_range
-            range_str = f"{format_hz(lo, decimals=3, long_suffix=True)} – {format_hz(hi, decimals=3, long_suffix=True)}"
-            label = f"{'Range' if self._frequency_controllable else 'Locked'}:"
-            lines.append(f"  {label:<15}[white]{range_str}[/white]")
+            # Locked range uses short SI ("144.46M") to fit the 42-char sidebar.
+            if self._frequency_controllable:
+                range_str = f"{format_hz(lo, decimals=3, long_suffix=True)} – {format_hz(hi, decimals=3, long_suffix=True)}"
+                lines.append(f"  {'Range:':<15}[white]{range_str}[/white]")
+            else:
+                range_str = f"{format_hz(lo, decimals=3)} – {format_hz(hi, decimals=3)}"
+                lines.append(f"  [yellow]{'Locked:':<15}{range_str}[/yellow]")
+        if self._controller_center_frequency is not None:
+            tuned_str = format_hz(self._controller_center_frequency, decimals=3, long_suffix=True)
+            lines.append(f"  {'Peer tune:':<15}[yellow]{tuned_str}[/yellow]")
+        if self._controller_gain is not None:
+            lines.append(f"  {'Peer gain:':<15}[yellow]{self._controller_gain}[/yellow]")
         if self._network_address is not None:
             lines.append(f"  Endpoint:      [white]{self._network_address}[/white]")
 
@@ -194,6 +212,11 @@ class StatsWidget(Static):
         # for a moment after mount; render dim zeros until the first one lands
         # so the placeholder isn't mistaken for a buffer-underrun alarm.
         lines.append("[bold cyan]Network:[/bold cyan]")
+        if self._wire_bytes_per_sec > 0:
+            mb_s = self._wire_bytes_per_sec / 1_000_000
+            lines.append(f"  Bandwidth:     [white]{mb_s:>5.2f}[/white] MB/s")
+        else:
+            lines.append("  Bandwidth:     [dim] 0.00[/dim] MB/s")
         j = self._jitter
         if j is None:
             lines.append("  Buffer Target: [dim] 0.00[/dim] s")

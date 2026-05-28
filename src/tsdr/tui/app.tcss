@@ -259,6 +259,10 @@ TunerWidget {
             text-style: dim;
         }
     }
+
+    &.locked #tuner-frequency {
+        color: yellow;
+    }
 }
 
 RDSWidget {

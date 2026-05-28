@@ -45,15 +45,17 @@ def _make_device_info(
 def _make_client_sync(
     *,
     can_control: bool = True,
+    current_gain: int = 0,
+    iq_center_freq: int = 100_000_000,
     min_iq_freq: int = 0,
     max_iq_freq: int = 0,
 ) -> _ClientSync:
     return _ClientSync(
         can_control=can_control,
-        current_gain=0,
-        device_center_freq=100_000_000,
-        iq_center_freq=100_000_000,
-        fft_center_freq=100_000_000,
+        current_gain=current_gain,
+        device_center_freq=iq_center_freq,
+        iq_center_freq=iq_center_freq,
+        fft_center_freq=iq_center_freq,
         min_iq_freq=min_iq_freq,
         max_iq_freq=max_iq_freq,
         min_fft_freq=0,
@@ -126,6 +128,27 @@ def test_freq_range_re_widens_when_control_returns():
     )
     assert dev.capabilities.frequency_range == (24_000_000.0, 1_766_000_000.0)
     assert dev.capabilities.frequency_controllable is True
+
+
+def test_controller_state_populated_when_locked():
+    dev = _device()
+    dev._apply_device_info(_make_device_info())
+    dev._apply_client_sync(
+        _make_client_sync(can_control=False, current_gain=12, iq_center_freq=144_500_000)
+    )
+    assert dev.capabilities.controller_center_frequency == 144_500_000.0
+    assert dev.capabilities.controller_gain == 12
+
+
+def test_controller_state_cleared_when_controllable():
+    dev = _device()
+    dev._apply_device_info(_make_device_info())
+    dev._apply_client_sync(
+        _make_client_sync(can_control=False, current_gain=12, iq_center_freq=144_500_000)
+    )
+    dev._apply_client_sync(_make_client_sync(can_control=True, current_gain=12))
+    assert dev.capabilities.controller_center_frequency is None
+    assert dev.capabilities.controller_gain is None
 
 
 def test_min_iq_decimation_truncates_sample_rate_list():

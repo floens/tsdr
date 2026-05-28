@@ -272,6 +272,10 @@ class RTLTCPDevice:
     def actual_sample_rate(self) -> float:
         return self._sample_rate
 
+    @property
+    def wire_bytes_per_sec(self) -> float:
+        return self._sample_rate * 2  # UINT8 I + UINT8 Q
+
     def set_gain(self, gain: float) -> None:
         """Set RF gain via CMD_SET_GAIN_INDEX (0x0d).
 

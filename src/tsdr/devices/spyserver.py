@@ -92,6 +92,13 @@ _DECODABLE_FORCED_FORMATS = frozenset(
     {IqFormat.UINT8, IqFormat.INT16, IqFormat.INT24, IqFormat.FLOAT}
 )
 
+_WIRE_BYTES_PER_IQ_PAIR: dict[int, int] = {
+    IqFormat.UINT8: 2,
+    IqFormat.INT16: 4,
+    IqFormat.INT24: 6,
+    IqFormat.FLOAT: 8,
+}
+
 
 # DEVICE_INFO body is 12 × uint32 = 48 bytes
 _DEVICE_INFO_LAYOUT = "<12I"
@@ -370,17 +377,17 @@ class SpyServerDevice:
         self._iq_window: tuple[float, float] | None = None
         # Effective tunable range surfaced via capabilities. Derived from the two above.
         self._freq_range: tuple[float, float] | None = None
-        # CLIENT_SYNC reports whether this client may issue SET_SETTING (gain) and
-        # implicitly retune the hardware. Server can flip mid-stream.
-        self._can_control: bool = False
+        # Default True to avoid a "Locked" flash before the first CLIENT_SYNC;
+        # the handshake corrects it. `set_gain` no-ops while `_codec is None`.
+        self._can_control: bool = True
         self._actual_sample_rate: float = 0.0
 
         self._identity = DeviceIdentity(type_label="SpyServer", serial=None)
         self._capabilities = DeviceCapabilities(
             frequency_range=None,
-            frequency_controllable=False,
+            frequency_controllable=True,
             sample_rates=None,
-            gain_supported=False,
+            gain_supported=True,
             gain_range=(0.0, 0.0),
             gain_step=1.0,
             gain_unit="index",
@@ -527,6 +534,10 @@ class SpyServerDevice:
     @property
     def actual_sample_rate(self) -> float:
         return self._actual_sample_rate
+
+    @property
+    def wire_bytes_per_sec(self) -> float:
+        return self._actual_sample_rate * _WIRE_BYTES_PER_IQ_PAIR.get(self._iq_format, 4)
 
     def set_gain(self, gain: float) -> None:
         if not self._can_control or self._codec is None:
@@ -713,6 +724,11 @@ class SpyServerDevice:
             self._freq_range = self._iq_window
 
     def _rebuild_capabilities(self) -> None:
+        controller_freq: float | None = None
+        controller_gain: int | None = None
+        if not self._can_control and self._last_client_sync is not None:
+            controller_freq = float(self._last_client_sync.iq_center_freq)
+            controller_gain = int(self._last_client_sync.current_gain)
         self._capabilities = DeviceCapabilities(
             frequency_range=self._freq_range,
             frequency_controllable=self._can_control,
@@ -724,4 +740,6 @@ class SpyServerDevice:
             gain_step=1.0,
             gain_unit="index",
             bias_tee_supported=False,
+            controller_center_frequency=controller_freq,
+            controller_gain=controller_gain,
         )

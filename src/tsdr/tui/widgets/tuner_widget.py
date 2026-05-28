@@ -319,14 +319,18 @@ class TunerWidget(Vertical):
         engine = get_engine()
         device = engine.get_focused_device()
         running = device is not None and device.state == DeviceState.RUNNING
+        locked = (
+            running and device is not None and not device.device.capabilities.frequency_controllable
+        )
         self.set_class(not running, "stopped")
+        self.set_class(locked, "locked")
 
     def update_running_state(self, event: DeviceStateChangedEvent) -> None:
         engine = get_engine()
         focused = engine.focused_device
         if focused is not None and event.device_id != focused:
             return
-        self.set_class(not event.running, "stopped")
+        self._sync_running_class()
 
     def _read_config(self) -> None:
         engine = get_engine()

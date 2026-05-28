@@ -51,6 +51,10 @@ class DeviceCapabilities:
 
     bias_tee_supported: bool
 
+    # Populated only when `frequency_controllable` is False.
+    controller_center_frequency: float | None = None
+    controller_gain: int | None = None
+
 
 class SDRDevice(Protocol):
     """Protocol implemented by every SDR device driver."""
@@ -134,3 +138,8 @@ class HasJitterBuffer(Protocol):
     """
 
     jitter: JitterBuffer
+
+    @property
+    def wire_bytes_per_sec(self) -> float:
+        """Estimated bytes/sec on the wire; 0 before streaming starts."""
+        ...
