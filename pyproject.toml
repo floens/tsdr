@@ -37,19 +37,12 @@ dev = [
     "scipy>=1.17.1",
     "textual-dev>=1.8.0",
 ]
-debug = [
-    "pyqtgraph>=0.13.0",
-    "PyQt6>=6.11.0",
-]
 rtlsdr = [
     "pyrtlsdr[lib]>=0.4.0",
 ]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/tsdr"]
-
-[tool.uv]
-no-build-package = ["pyqt6"]
 
 # pyrnnoise ships librnnoise inside a py3-none wheel loaded via ctypes; we only
 # need that bundled binary, not its declared deps (audiolab/matplotlib/click/
