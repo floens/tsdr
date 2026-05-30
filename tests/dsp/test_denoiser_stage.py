@@ -36,7 +36,7 @@ def test_no_audio_queue_is_safe():
     assert out.audio_batches == ()
 
 
-@pytest.mark.skipif(not rnnoise_available(), reason="librnnoise not installed (denoise extra)")
+@pytest.mark.skipif(not rnnoise_available(), reason="librnnoise not available on this platform")
 def test_denoises_and_drains_when_enabled():
     stage = DenoiserStage(enabled=True)
     ctx = _ctx()
@@ -48,7 +48,7 @@ def test_denoises_and_drains_when_enabled():
     stage.close()
 
 
-@pytest.mark.skipif(not rnnoise_available(), reason="librnnoise not installed (denoise extra)")
+@pytest.mark.skipif(not rnnoise_available(), reason="librnnoise not available on this platform")
 def test_on_config_change_toggles_denoiser():
     stage = DenoiserStage(enabled=False)
     assert stage._denoiser is None

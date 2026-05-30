@@ -25,7 +25,7 @@ class SDRDenoiseCommand(Command):
             want = not engine.config.denoise
 
         if want and not rnnoise_available():
-            return error("Denoise unavailable — install the 'denoise' extra")
+            return error("Denoise unavailable — RNNoise not supported on this platform")
 
         engine.update_global_config(denoise=want)
         save_engine_config(engine)

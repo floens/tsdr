@@ -1165,6 +1165,7 @@ dependencies = [
     { name = "platformdirs" },
     { name = "pydantic" },
     { name = "pyfftw" },
+    { name = "pyrnnoise" },
     { name = "reedsolo" },
     { name = "soundcard" },
     { name = "textual" },
@@ -1176,9 +1177,6 @@ dependencies = [
 debug = [
     { name = "pyqt6" },
     { name = "pyqtgraph" },
-]
-denoise = [
-    { name = "pyrnnoise" },
 ]
 dev = [
     { name = "mypy" },
@@ -1205,7 +1203,7 @@ requires-dist = [
     { name = "pyfftw", specifier = ">=0.15.1" },
     { name = "pyqt6", marker = "extra == 'debug'", specifier = ">=6.11.0" },
     { name = "pyqtgraph", marker = "extra == 'debug'", specifier = ">=0.13.0" },
-    { name = "pyrnnoise", marker = "extra == 'denoise'", specifier = ">=0.4.3,<0.5" },
+    { name = "pyrnnoise", specifier = ">=0.4.3,<0.5" },
     { name = "pyrtlsdr", extras = ["lib"], marker = "extra == 'rtlsdr'", specifier = ">=0.4.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
     { name = "reedsolo", specifier = ">=1.7.0" },
@@ -1217,7 +1215,7 @@ requires-dist = [
     { name = "tomli-w", specifier = ">=1.2.0" },
     { name = "zstandard", specifier = ">=0.25.0" },
 ]
-provides-extras = ["dev", "debug", "rtlsdr", "denoise"]
+provides-extras = ["dev", "debug", "rtlsdr"]
 
 [[package]]
 name = "typing-extensions"

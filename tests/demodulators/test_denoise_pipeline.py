@@ -12,7 +12,7 @@ from tsdr.core.events.events import StatsUpdateEvent
 from tsdr.radio.dsp.rnnoise import rnnoise_available
 
 pytestmark = pytest.mark.skipif(
-    not rnnoise_available(), reason="librnnoise not installed (denoise extra)"
+    not rnnoise_available(), reason="librnnoise not available on this platform"
 )
 
 SAMPLE_250K = "tests/samples/freq=438.35M_sr=250k_dur=9s_gain=24_20260412T1050.cu8.zst"

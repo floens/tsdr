@@ -6,7 +6,7 @@ from tsdr.radio.dsp.denoise import AudioDenoiser
 from tsdr.radio.dsp.rnnoise import FRAME_SIZE, RNNoiseState, rnnoise_available
 
 pytestmark = pytest.mark.skipif(
-    not rnnoise_available(), reason="librnnoise not installed (denoise extra)"
+    not rnnoise_available(), reason="librnnoise not available on this platform"
 )
 
 

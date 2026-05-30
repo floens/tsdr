@@ -22,6 +22,7 @@ dependencies = [
     "pillow>=12.2.0",
     "pydantic>=2.13.4",
     "pyfftw>=0.15.1",
+    "pyrnnoise>=0.4.3,<0.5",
 ]
 
 [project.scripts]
@@ -43,9 +44,6 @@ debug = [
 rtlsdr = [
     "pyrtlsdr[lib]>=0.4.0",
 ]
-denoise = [
-    "pyrnnoise>=0.4.3,<0.5",
-]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/tsdr"]
@@ -55,7 +53,7 @@ no-build-package = ["pyqt6"]
 
 # pyrnnoise ships librnnoise inside a py3-none wheel loaded via ctypes; we only
 # need that bundled binary, not its declared deps (audiolab/matplotlib/click/
-# tqdm). Strip them so the `denoise` extra installs just numpy + pyrnnoise.
+# tqdm). Strip them so it pulls in just numpy + pyrnnoise.
 [[tool.uv.dependency-metadata]]
 name = "pyrnnoise"
 requires-dist = []

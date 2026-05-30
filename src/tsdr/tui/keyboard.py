@@ -374,7 +374,7 @@ class KeyboardMixin(MixinBase):
         engine = get_engine()
         want = not engine.config.denoise
         if want and not rnnoise_available():
-            self._show_error("Denoise unavailable (install the 'denoise' extra)")
+            self._show_error("Denoise unavailable (RNNoise not supported on this platform)")
             return
         engine.update_global_config(denoise=want)
         save_engine_config(engine)
