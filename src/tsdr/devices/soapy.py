@@ -44,7 +44,8 @@ def _system_site_packages() -> list[str]:
     """Return candidate system site-package directories for SoapySDR."""
     ver = f"{sys.version_info.major}.{sys.version_info.minor}"
     # Free-threaded builds (PEP 703) install under e.g. python3.14t, not python3.14.
-    tagged = f"{ver}{sys.abiflags}"
+    # sys.abiflags is POSIX-only; on Windows it is absent (and ABI flags don't apply).
+    tagged = f"{ver}{getattr(sys, 'abiflags', '')}"
     candidates: list[str] = []
 
     if platform.system() == "Darwin":
@@ -74,7 +75,7 @@ def import_soapysdr() -> Any:
 
         SoapySDR.registerLogHandler(_log_handler)
         return SoapySDR
-    except ImportError, SystemError:
+    except (ImportError, SystemError):
         pass
 
     added: list[str] = []
@@ -89,7 +90,7 @@ def import_soapysdr() -> Any:
         logger.debug("soapy_found_system_path file=%s", SoapySDR.__file__)
         SoapySDR.registerLogHandler(_log_handler)
         return SoapySDR
-    except ImportError, SystemError:
+    except (ImportError, SystemError):
         for path in added:
             sys.path.remove(path)
         return None

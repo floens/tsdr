@@ -1,3 +1,4 @@
+import inspect
 import logging
 import queue
 import time
@@ -37,6 +38,10 @@ class AudioOutputWorker:
 
         self._player_cm: Any | None = None
         self.player: Any | None = None
+        # soundcard's macOS backend takes play(data, wait=...) and defaults to
+        # blocking; the Linux/Windows backends take play(data) only. Detected
+        # per-player in _open_player.
+        self._play_accepts_wait: bool = False
         self._speaker_id: Any | None = None
         self._last_default_check = 0.0
 
@@ -211,7 +216,10 @@ class AudioOutputWorker:
                     break
 
         assert self.player is not None
-        self.player.play(block * gain, wait=False)
+        if self._play_accepts_wait:
+            self.player.play(block * gain, wait=False)
+        else:
+            self.player.play(block * gain)
         self._push_count += 1
         self._total_frames_out += self.BLOCK_SIZE
 
@@ -269,6 +277,7 @@ class AudioOutputWorker:
             blocksize=self.BLOCK_SIZE,
         )
         self.player = self._player_cm.__enter__()
+        self._play_accepts_wait = "wait" in inspect.signature(self.player.play).parameters
         logger.info(
             "audio_stream_opened source=%s device=%r speaker_id=%r rate=%d",
             self.source_id,
