@@ -24,7 +24,8 @@ from tsdr.core.sdr.device_context import DeviceState
 from tsdr.core.sdr.engine import get_engine
 from tsdr.core.sdr.exceptions import SDRException
 from tsdr.core.tracing import traced
-from tsdr.core.tuning import save_previous_tune_state
+from tsdr.core.tuning import resolve_auto_step, save_previous_tune_state
+from tsdr.core.tuning_state import get_tuning_state
 from tsdr.core.units import format_hz
 from tsdr.tui.inline_edit import InlineEditBuffer
 from tsdr.tui.model import adjusted_zoom
@@ -742,10 +743,14 @@ class SpectrumWidget(ImageModeMixin, Widget):
                     event.stop()
                     return
 
-        # Snap to the pixel grid so click and scroll agree on a column.
-        pixel_hz = (freq_max - freq_min) / w if w > 0 else 1.0
-        snap = max(pixel_hz, 1.0)
-        freq = round(freq / snap) * snap
+        # Snap to the user's current tuning step (auto-resolved if unset).
+        ts = get_tuning_state()
+        step = (
+            ts.step
+            if ts.step is not None
+            else resolve_auto_step(device.active_mode, device.config.center_frequency)
+        )
+        freq = round(freq / step) * step
         save_previous_tune_state(device)
         engine.update_device_config(device.device_id, center_frequency=freq)
         save_device(engine)
