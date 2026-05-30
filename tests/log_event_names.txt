@@ -45,6 +45,9 @@ demod_change
 demodulator_reset
 demodulator_sample_rate_changed
 demodulator_swapped
+denoise_disabled
+denoise_enabled
+denoise_unavailable
 device_close_failed
 device_closed
 device_config_clamped
@@ -134,6 +137,8 @@ rds_timing_nudge
 rds_tmc
 reconcile_diff
 reconciler_apply_prop_failed
+rnnoise_load_failed
+rnnoise_loaded
 rtlsdr_close_failed
 rtlsdr_get_tuner_type_failed
 rtlsdr_opened

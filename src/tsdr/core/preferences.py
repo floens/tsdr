@@ -54,6 +54,7 @@ def save_engine_config(engine: SDREngine) -> None:
     prefs = load_preferences()
     prefs["engine"] = {
         "audio_volume": engine.config.audio_volume,
+        "denoise": engine.config.denoise,
     }
     save_preferences(prefs)
 
@@ -62,6 +63,8 @@ def restore_engine_config(prefs: dict[str, Any]) -> None:
     engine_prefs = prefs.get("engine", {})
     if "audio_volume" in engine_prefs:
         get_engine().update_global_config(audio_volume=float(engine_prefs["audio_volume"]))
+    if "denoise" in engine_prefs:
+        get_engine().update_global_config(denoise=bool(engine_prefs["denoise"]))
 
 
 def _persist_params(params: DeviceParams) -> dict[str, Any]:

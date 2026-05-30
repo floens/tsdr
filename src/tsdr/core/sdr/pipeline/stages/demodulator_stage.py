@@ -1,5 +1,4 @@
 import logging
-import queue
 
 from tsdr.core.sdr.config import DeviceConfig
 from tsdr.core.sdr.pipeline.pipeline import PipelineContext
@@ -14,8 +13,9 @@ logger = logging.getLogger(__name__)
 class DemodulatorStage:
     """Unified stage that runs any Demodulator (audio demod or protocol decoder).
 
-    Calls demodulate(), drains audio batches to audio_queue, and puts
-    decoded messages on SamplesBatch. Pure data stage, no event publishing.
+    Calls demodulate(), attaches audio batches and decoded messages onto the
+    SamplesBatch. The downstream DenoiserStage drains the audio to the queue.
+    Pure data stage, no event publishing.
     """
 
     def __init__(
@@ -50,21 +50,19 @@ class DemodulatorStage:
         with span("demodulate"):
             self._demodulator.demodulate(data.iq_samples, data.capture_utc_s)
 
-        # Drain audio
-        if context.audio_queue is not None:
-            for batch in self._demodulator.get_audio():
-                try:
-                    context.audio_queue.put(batch, block=False)
-                except queue.Full:
-                    pass
+        batches = tuple(self._demodulator.get_audio())
 
-                # Cross-pipeline stereo flag (stats reads device_context)
-                if context.device_context is not None:
-                    context.device_context.stereo = batch.stereo
+        # Cross-pipeline stereo flag (stats reads device_context)
+        if batches and context.device_context is not None:
+            context.device_context.stereo = batches[-1].stereo
 
         # Put decoded messages and signal info on SamplesBatch
         messages = self._demodulator.get_messages()
-        changes: dict = {"stage_name": "demodulator", "signal_info": self._demodulator.info()}
+        changes: dict = {
+            "stage_name": "demodulator",
+            "signal_info": self._demodulator.info(),
+            "audio_batches": batches,
+        }
         if messages:
             changes["decoded_messages"] = tuple(messages)
 

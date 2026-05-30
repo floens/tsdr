@@ -5,6 +5,7 @@ from tsdr.core.sdr.pipeline.stage import PipelineStage
 from tsdr.core.sdr.pipeline.stages import (
     AGCStage,
     DemodulatorStage,
+    DenoiserStage,
     EventEmitterStage,
     FFTStage,
     FrequencyShiftStage,
@@ -19,6 +20,7 @@ _CLASS_TO_STAGE_TYPE: dict[type, StageType] = {
     FFTStage: StageType.FFT,
     EventEmitterStage: StageType.EVENT_EMITTER,
     DemodulatorStage: StageType.DEMODULATOR,
+    DenoiserStage: StageType.DENOISER,
     FrequencyShiftStage: StageType.FREQUENCY_SHIFT,
     RecordStage: StageType.RECORD,
 }
@@ -76,6 +78,8 @@ def create_stage(
                 mode_name=spec.mode,
                 pipeline_name=pipeline_name,
             )
+        case StageType.DENOISER:
+            return DenoiserStage(enabled=sdr_config.denoise)
         case StageType.RECORD:
             if not pipeline_config.record_path:
                 raise ValueError("RECORD stage requires record_path in PipelineConfig")

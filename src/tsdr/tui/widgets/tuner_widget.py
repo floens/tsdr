@@ -296,6 +296,7 @@ class TunerWidget(Vertical):
     DEFAULT_CLASSES = "tuner"
 
     _volume: float = 0.5
+    _denoise: bool = False
     _sr_line: str = ""
     _gain_line: str = ""
     _sample_rate: float | None = None
@@ -358,9 +359,9 @@ class TunerWidget(Vertical):
         if config.bias_tee:
             self._gain_line += " [black on yellow]BT[/black on yellow]"
         self._volume = engine.config.audio_volume
-        vol_pct = int(engine.config.audio_volume * 100)
+        self._denoise = engine.config.denoise
         self.query_one("#tuner-device", Static).update(
-            f"{self._sr_line}\n{self._gain_line}\nVOL {vol_pct}%"
+            f"{self._sr_line}\n{self._gain_line}\n{self._vol_line()}"
         )
 
         demod_info = device.active_demod_info
@@ -394,6 +395,10 @@ class TunerWidget(Vertical):
 
         self.query_one("#tuner-state", Static).update(f"{step_line}\n{band_line}\n{reg_line}")
 
+    def _vol_line(self) -> str:
+        vol = f"VOL {int(self._volume * 100)}%"
+        return f"[green]{vol}[/green]" if self._denoise else vol
+
     def update_config(self) -> None:
         self._read_config()
         self._sync_running_class()
@@ -407,7 +412,7 @@ class TunerWidget(Vertical):
         else:
             clip_prefix = ""
         self.query_one("#tuner-device", Static).update(
-            f"{self._sr_line}\n{clip_prefix}{self._gain_line}\nVOL {int(self._volume * 100)}%"
+            f"{self._sr_line}\n{clip_prefix}{self._gain_line}\n{self._vol_line()}"
         )
 
     def update_signal_info(self, event: SignalInfoEvent) -> None:

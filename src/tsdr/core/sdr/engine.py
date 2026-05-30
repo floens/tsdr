@@ -579,6 +579,7 @@ class SDREngine:
         if spec.frequency_offset != 0.0:
             new_stages.append(StageType.FREQUENCY_SHIFT)
         new_stages.append(StageType.DEMODULATOR)
+        new_stages.append(StageType.DENOISER)
         new_stages.append(StageType.EVENT_EMITTER)
         new_stages_tuple = tuple(new_stages)
 

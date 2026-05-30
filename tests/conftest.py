@@ -82,8 +82,11 @@ def run_pipeline():
         timeout: float = 15.0,
         min_events: int = 1,
         buffer_samples: int | None = None,
+        denoise: bool = False,
     ) -> list[Event]:
         engine = SDREngine()
+        if denoise:
+            engine.update_global_config(denoise=True)
         config_kwargs: dict = {"sample_rate": sample_rate}
         if buffer_samples is not None:
             config_kwargs["buffer_samples"] = buffer_samples
@@ -104,7 +107,7 @@ def run_pipeline():
 
         # Add audio pipeline via config
         audio_config = PipelineConfig(
-            stages=(StageType.DEMODULATOR,),
+            stages=(StageType.DEMODULATOR, StageType.DENOISER),
             audio_spec=AudioDemodSpec(mode=mode),
         )
         engine.add_pipeline("test", "audio", audio_config)

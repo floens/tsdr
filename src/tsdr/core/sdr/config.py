@@ -20,6 +20,7 @@ class StageType(Enum):
     FFT = "fft"
     EVENT_EMITTER = "event_emitter"
     DEMODULATOR = "demodulator"
+    DENOISER = "denoiser"
     FREQUENCY_SHIFT = "frequency_shift"
     RECORD = "record"
 
@@ -77,6 +78,7 @@ class GlobalConfigChanges(TypedDict, total=False):
     dc_offset_correction: bool
     iq_imbalance_correction: bool
     audio_volume: float
+    denoise: bool
 
 
 @dataclass(frozen=True)
@@ -146,6 +148,7 @@ class SDRConfig:
     spectrum_averaging: int = 3  # Number of FFTs to average
     dc_offset_correction: bool = True  # Remove DC offset
     iq_imbalance_correction: bool = True  # Correct IQ imbalance
+    denoise: bool = False
 
     def with_changes(self, **kwargs: Unpack[GlobalConfigChanges]) -> SDRConfig:
         return replace(self, **kwargs)

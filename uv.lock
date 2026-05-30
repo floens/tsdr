@@ -6,6 +6,11 @@ resolution-markers = [
     "python_full_version < '3.15'",
 ]
 
+[manifest]
+
+[[manifest.dependency-metadata]]
+name = "pyrnnoise"
+
 [[package]]
 name = "aiohappyeyeballs"
 version = "2.6.2"
@@ -907,6 +912,17 @@ wheels = [
 ]
 
 [[package]]
+name = "pyrnnoise"
+version = "0.4.3"
+source = { registry = "https://pypi.org/simple" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/1f/90/51bb94bcfd8aab186fd08902e0706a6eda5813485fb57eff011ce6ae4c51/pyrnnoise-0.4.3-py3-none-macosx_15_0_universal2.whl", hash = "sha256:bdd8e933d32457362e6f4e56831afa8155208825040ab075c4223baed755fa4f", size = 13381834, upload-time = "2026-01-14T08:44:28.263Z" },
+    { url = "https://files.pythonhosted.org/packages/04/51/993a25a8b5220e23e0a31ff98747b8fce4685336e0fc4e8e156feab5c4f1/pyrnnoise-0.4.3-py3-none-manylinux1_x86_64.whl", hash = "sha256:1b094777e73797c5dd647782902c691ebb9a3c456c878e742597f5b55535a3db", size = 13273307, upload-time = "2026-01-14T08:44:27.801Z" },
+    { url = "https://files.pythonhosted.org/packages/aa/e4/9a13ede6521360341314bf90d5b687cd3f1bd4259bfea740dbc88340484a/pyrnnoise-0.4.3-py3-none-manylinux2014_aarch64.whl", hash = "sha256:161c57e05257e0b51f1b21675dcb2debb8cc86903c1fe2ccc3feb4322e545732", size = 13267247, upload-time = "2026-01-14T08:44:30.119Z" },
+    { url = "https://files.pythonhosted.org/packages/cb/e9/795f8504fa7f07fc16e99e82413a6fe997df1999e18bb6fab0b428431a92/pyrnnoise-0.4.3-py3-none-win_amd64.whl", hash = "sha256:25e7d8d63f251238a439e6e3d54ad8cb147c9f2b7c7c56fc9d9a496f682d8b06", size = 13267061, upload-time = "2026-01-14T08:45:03.444Z" },
+]
+
+[[package]]
 name = "pyrtlsdr"
 version = "0.4.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1161,6 +1177,9 @@ debug = [
     { name = "pyqt6" },
     { name = "pyqtgraph" },
 ]
+denoise = [
+    { name = "pyrnnoise" },
+]
 dev = [
     { name = "mypy" },
     { name = "pre-commit" },
@@ -1186,6 +1205,7 @@ requires-dist = [
     { name = "pyfftw", specifier = ">=0.15.1" },
     { name = "pyqt6", marker = "extra == 'debug'", specifier = ">=6.11.0" },
     { name = "pyqtgraph", marker = "extra == 'debug'", specifier = ">=0.13.0" },
+    { name = "pyrnnoise", marker = "extra == 'denoise'", specifier = ">=0.4.3,<0.5" },
     { name = "pyrtlsdr", extras = ["lib"], marker = "extra == 'rtlsdr'", specifier = ">=0.4.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
     { name = "reedsolo", specifier = ">=1.7.0" },
@@ -1197,7 +1217,7 @@ requires-dist = [
     { name = "tomli-w", specifier = ">=1.2.0" },
     { name = "zstandard", specifier = ">=0.25.0" },
 ]
-provides-extras = ["dev", "debug", "rtlsdr"]
+provides-extras = ["dev", "debug", "rtlsdr", "denoise"]
 
 [[package]]
 name = "typing-extensions"

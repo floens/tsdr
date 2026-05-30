@@ -13,6 +13,7 @@ from tsdr.core.sdr.device_context import DeviceState
 from tsdr.core.sdr.engine import get_engine
 from tsdr.core.sdr.exceptions import SDRException
 from tsdr.core.tuning import current_spec_or_default
+from tsdr.radio.dsp.rnnoise import rnnoise_available
 from tsdr.tui._mixin_base import MixinBase
 from tsdr.tui.console import ConsoleWidget, TerminalInput
 from tsdr.tui.model import adjusted_db_max, adjusted_db_min, adjusted_zoom
@@ -283,6 +284,10 @@ class KeyboardMixin(MixinBase):
                 )
                 event.prevent_default()
                 event.stop()
+            elif event.key == "n":
+                self._toggle_denoise()
+                event.prevent_default()
+                event.stop()
 
     def _clear_console(self) -> None:
         self.query_one(ConsoleWidget).clear_history()
@@ -364,6 +369,16 @@ class KeyboardMixin(MixinBase):
         engine.update_global_config(audio_volume=new_vol)
         save_engine_config(engine)
         self.show_status(f"Volume: {new_vol:.0%}")
+
+    def _toggle_denoise(self) -> None:
+        engine = get_engine()
+        want = not engine.config.denoise
+        if want and not rnnoise_available():
+            self._show_error("Denoise unavailable (install the 'denoise' extra)")
+            return
+        engine.update_global_config(denoise=want)
+        save_engine_config(engine)
+        self.show_status(f"Denoise {'on' if want else 'off'}")
 
     def _adjust_squelch(self, direction: int) -> None:
         engine = get_engine()

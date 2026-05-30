@@ -137,6 +137,7 @@ from tsdr.tui.commands.sdr.bandplan import BandplanCommand  # noqa: E402
 from tsdr.tui.commands.sdr.config import SDRConfigCommand  # noqa: E402
 from tsdr.tui.commands.sdr.dab import DABCommand  # noqa: E402
 from tsdr.tui.commands.sdr.demod import SDRDemodCommand  # noqa: E402
+from tsdr.tui.commands.sdr.denoise import SDRDenoiseCommand  # noqa: E402
 from tsdr.tui.commands.sdr.focus import SDRFocusCommand  # noqa: E402
 from tsdr.tui.commands.sdr.frequency import FrequencyCommand  # noqa: E402
 from tsdr.tui.commands.sdr.list import SDRListCommand  # noqa: E402
@@ -165,6 +166,7 @@ register("focus", SDRFocusCommand())
 register("config", SDRConfigCommand())
 register("dab", DABCommand())
 register("demod", SDRDemodCommand())
+register("denoise", SDRDenoiseCommand())
 register("pipeline", SDRPipelineCommand())
 register("audio", AudioCommand())
 register("scan", ScanCommand())
