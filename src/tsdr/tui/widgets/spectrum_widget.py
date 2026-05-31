@@ -104,8 +104,8 @@ class SpectrumWidget(ImageModeMixin, Widget):
     """
 
     zoom = reactive(1.0)
-    db_min = reactive(-90.0)
-    db_max = reactive(-45.0)
+    db_min = reactive(-100.0)
+    db_max = reactive(-30.0)
     image_mode = reactive(False)
 
     def __init__(self) -> None:

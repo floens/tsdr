@@ -40,8 +40,8 @@ class UIModel:
     """Frozen UI model. Build new models via dataclasses.replace; use UIStore for mutations."""
 
     zoom: float = 1.0
-    db_min: float = -90.0
-    db_max: float = -45.0
+    db_min: float = -100.0
+    db_max: float = -30.0
     image_mode: bool = False
     active_panel: ActivePanel | None = None
     clock_visible: bool = True
@@ -96,17 +96,21 @@ def adjusted_zoom(current: float, direction: int) -> float:
     return round(max(1.0, current / 1.5), 1)
 
 
+# dB-window (dBFS) step and bounds. Floor reaches below -90 dBFS for
+# high-dynamic-range receivers whose noise floor sits there.
+_DB_STEP = 5.0
+_DB_FLOOR = -200.0  # absolute lower bound for db_min
+_DB_CEIL = 0.0  # full scale; nothing exceeds 0 dBFS
+_DB_MIN_GAP = 10.0  # keep the window at least this wide
+
+
 def adjusted_db_min(current: float, db_max: float, direction: int) -> float:
-    """Adjust min dB by ±5, clamped so min < max - 5."""
-    new_min = current + direction * 5
-    if new_min < db_max - 5:
-        return new_min
-    return current
+    """Adjust min dB by ±_DB_STEP, clamped to [_DB_FLOOR, db_max - _DB_MIN_GAP]."""
+    new_min = current + direction * _DB_STEP
+    return max(_DB_FLOOR, min(new_min, db_max - _DB_MIN_GAP))
 
 
 def adjusted_db_max(current: float, db_min: float, direction: int) -> float:
-    """Adjust max dB by ±5, clamped so max > min + 5."""
-    new_max = current + direction * 5
-    if new_max > db_min + 5:
-        return new_max
-    return current
+    """Adjust max dB by ±_DB_STEP, clamped to [db_min + _DB_MIN_GAP, _DB_CEIL]."""
+    new_max = current + direction * _DB_STEP
+    return min(_DB_CEIL, max(new_max, db_min + _DB_MIN_GAP))

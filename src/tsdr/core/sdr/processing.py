@@ -40,7 +40,9 @@ def compute_fft(
     # |X|^2 directly avoids the sqrt inside np.abs.
     power: np.ndarray = (fft_result.real**2 + fft_result.imag**2).astype(np.float32, copy=False)
     power *= inv_norm_sq
-    power += 1e-10  # floor before log10 to avoid log(0)
+    # log10(0) guard; must stay below the noise floor of high-dynamic-range
+    # receivers (1e-20 = -200 dBFS), else it clamps their spectrum flat.
+    power += 1e-20
     np.log10(power, out=power)
     power *= 10.0
     return power

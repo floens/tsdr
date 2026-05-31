@@ -99,6 +99,15 @@ def import_soapysdr() -> Any:
 _SoapySDR = import_soapysdr()
 _HAS_SOAPY = _SoapySDR is not None
 
+# Stream-format preference, best-first (CF32 lossless; integer formats fallback).
+# Fields: SOAPY_SDR_* string, SampleFormat, numpy read dtype, components per IQ
+# sample (1 = complex64, 2 = interleaved 8-bit).
+_STREAM_FORMAT_PREFERENCE: tuple[tuple[str, SampleFormat, Any, int], ...] = (
+    ("CF32", SampleFormat.COMPLEX64, np.complex64, 1),
+    ("CU8", SampleFormat.UINT8_IQ, np.uint8, 2),
+    ("CS8", SampleFormat.SINT8_IQ, np.int8, 2),
+)
+
 
 @dataclass(frozen=True)
 class SoapySDRParams(DeviceParams):
@@ -117,8 +126,10 @@ class SoapySDRDevice:
     """SDR device via SoapySDR.
 
     Supports any hardware with a SoapySDR driver module (RTL-SDR, HackRF,
-    LimeSDR, PlutoSDR, Airspy, etc.). Requests CF32 stream format so samples
-    are returned as complex64.
+    LimeSDR, PlutoSDR, Airspy, etc.). Prefers lossless CF32, falling back to
+    CU8/CS8 only if CF32 is unadvertised. For SoapyRemote links, set the wire
+    format independently with a `remote:format=CU8` device arg (the server
+    converts, so local CF32 does not bloat the network).
 
     Requires the SoapySDR Python bindings (system package, not pip).
     """
@@ -132,6 +143,9 @@ class SoapySDRDevice:
         self._stream = None
         self._is_open = False
         self._sample_rate: float = 0.0
+        self._sample_format: SampleFormat = SampleFormat.COMPLEX64
+        self._read_dtype: Any = np.complex64
+        self._read_components: int = 1
         self._identity = DeviceIdentity(
             type_label=driver if driver else "Soapy",
             serial=serial or None,
@@ -165,6 +179,35 @@ class SoapySDRDevice:
                     args[k.strip()] = v.strip()
         return args
 
+    def _select_stream_format(self) -> str:
+        """Choose the stream format, preferring lossless CF32.
+
+        Uses ``getStreamFormats``; ``getNativeStreamFormat`` is uncallable in
+        some Python bindings (its ``double &`` out-param has no typemap).
+        """
+        assert self._device is not None
+        try:
+            supported = tuple(self._device.getStreamFormats(_SoapySDR.SOAPY_SDR_RX, 0))
+        except (RuntimeError, AttributeError) as e:
+            logger.debug("soapy_get_stream_formats_failed error=%r", e)
+            supported = (_SoapySDR.SOAPY_SDR_CF32,)
+        supported_str = ",".join(supported)
+        logger.debug("soapy_stream_formats supported=%s", supported_str)
+
+        for fmt, sample_format, dtype, components in _STREAM_FORMAT_PREFERENCE:
+            if fmt in supported:
+                self._sample_format = sample_format
+                self._read_dtype = dtype
+                self._read_components = components
+                logger.info(
+                    "soapy_stream_format chosen=%s sample_format=%s supported=%s",
+                    fmt,
+                    sample_format.value,
+                    supported_str,
+                )
+                return fmt
+        raise DeviceError(f"No supported stream format advertised: {supported_str}")
+
     def open(self) -> None:
         if not _HAS_SOAPY:
             raise DeviceError(
@@ -181,7 +224,8 @@ class SoapySDRDevice:
         if self._antenna:
             self._device.setAntenna(_SoapySDR.SOAPY_SDR_RX, 0, self._antenna)
 
-        self._stream = self._device.setupStream(_SoapySDR.SOAPY_SDR_RX, _SoapySDR.SOAPY_SDR_CS8)
+        soapy_format = self._select_stream_format()
+        self._stream = self._device.setupStream(_SoapySDR.SOAPY_SDR_RX, soapy_format)
         self._device.activateStream(self._stream)
         self._is_open = True
 
@@ -199,7 +243,18 @@ class SoapySDRDevice:
         except (RuntimeError, AttributeError) as e:
             logger.debug("soapy_get_gain_range_failed error=%r", e)
 
+        # Diagnostic log of the driver's gain elements + AGC support. The
+        # aggregate rf_gain drives every element, so they aren't exposed separately.
+        gains: tuple[str, ...] = ()
+        has_agc = False
+        try:
+            gains = tuple(self._device.listGains(_SoapySDR.SOAPY_SDR_RX, 0))
+            has_agc = bool(self._device.hasGainMode(_SoapySDR.SOAPY_SDR_RX, 0))
+        except (RuntimeError, AttributeError) as e:
+            logger.debug("soapy_list_gains_failed error=%r", e)
+
         hw = self._device.getHardwareKey()
+        logger.debug("soapy_gains hw=%s gains=%s has_agc=%s", hw, ",".join(gains), has_agc)
         self._identity = DeviceIdentity(type_label=hw or "Soapy", serial=self._serial or None)
         self._capabilities = DeviceCapabilities(
             frequency_range=None,
@@ -232,16 +287,17 @@ class SoapySDRDevice:
         if not self._device or not self._stream:
             raise DeviceError("Device not open")
 
-        # CS8: 2 bytes per IQ sample (signed int8 I, signed int8 Q)
-        total_samples = count // 2
-        buf = np.empty(total_samples * 2, dtype=np.int8)
+        # complex64 → 1 element/sample; CU8/CS8 → 2 one-byte components/sample.
+        components = self._read_components
+        total_samples = count // self._sample_format.bytes_per_sample
+        buf = np.empty(total_samples * components, dtype=self._read_dtype)
         offset = 0
 
         # Loop to fill buffer - readStream may return fewer samples than
         # requested (e.g. SoapyRemote is MTU-limited to ~714 per call)
         while offset < total_samples:
             remaining = total_samples - offset
-            chunk = buf[offset * 2 : (offset + remaining) * 2]
+            chunk = buf[offset * components : (offset + remaining) * components]
             sr = self._device.readStream(self._stream, [chunk], remaining, timeoutUs=2_000_000)
             status = sr.ret
             if status == -4:  # SOAPY_SDR_OVERFLOW, skip and retry
@@ -274,8 +330,14 @@ class SoapySDRDevice:
             self._device.setGain(_SoapySDR.SOAPY_SDR_RX, 0, gain)
 
     def set_auto_gain(self, enable: bool) -> None:
-        if self._device:
-            self._device.setGainMode(_SoapySDR.SOAPY_SDR_RX, 0, enable)
+        if not self._device:
+            return
+        try:
+            if self._device.hasGainMode(_SoapySDR.SOAPY_SDR_RX, 0):
+                self._device.setGainMode(_SoapySDR.SOAPY_SDR_RX, 0, enable)
+                logger.debug("soapy_set_auto_gain enabled=%s", enable)
+        except (RuntimeError, AttributeError) as e:
+            logger.debug("soapy_set_auto_gain_failed error=%r", e)
 
     @property
     def identity(self) -> DeviceIdentity:
@@ -295,7 +357,7 @@ class SoapySDRDevice:
         pass
 
     def get_sample_format(self) -> SampleFormat:
-        return SampleFormat.SINT8_IQ
+        return self._sample_format
 
     def __str__(self) -> str:
         status = "open" if self._is_open else "closed"

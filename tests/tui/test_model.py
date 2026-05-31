@@ -9,8 +9,8 @@ from tsdr.tui.model import ConsoleUIState, DeviceUIState, UIModel
 def test_defaults() -> None:
     m = UIModel()
     assert m.zoom == 1.0
-    assert m.db_min == -90.0
-    assert m.db_max == -45.0
+    assert m.db_min == -100.0
+    assert m.db_max == -30.0
     assert m.image_mode is False
     assert m.active_panel is None
     assert m.clock_visible is True
