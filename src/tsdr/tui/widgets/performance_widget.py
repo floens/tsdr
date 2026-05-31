@@ -1,6 +1,7 @@
 from textual.widgets import Static
 
 from tsdr.core.events.events import StatsUpdateEvent
+from tsdr.tui.widgets.panel import PanelWidget
 
 
 def _duration_color(ms: float) -> str:
@@ -12,7 +13,7 @@ def _duration_color(ms: float) -> str:
     return "red"
 
 
-class PerformanceWidget(Static):
+class PerformanceWidget(Static, PanelWidget):
     """Display performance metrics as an indented tree."""
 
     def __init__(self):

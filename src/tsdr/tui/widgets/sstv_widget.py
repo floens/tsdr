@@ -19,6 +19,7 @@ from tsdr.core.events.events import DecoderOutputEvent
 from tsdr.radio.decoders.sstv import SSTVData, StreamerState
 from tsdr.tui.markup import escape_forced
 from tsdr.tui.widgets.kitty_image import KittyImageWidget
+from tsdr.tui.widgets.panel import PanelWidget
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +40,7 @@ def _rgb_to_rgba(img: np.ndarray) -> np.ndarray:
     return rgba
 
 
-class SSTVWidget(Horizontal):
+class SSTVWidget(Horizontal, PanelWidget):
     """Mode/VIS/line status plus a Kitty preview of the running SSTV image.
 
     Reactive props:

@@ -59,6 +59,18 @@ def _decoder_kind(info: SignalInfo | None) -> DecoderKind | None:
     return None
 
 
+def _panel_key(kind: DecoderKind) -> str:
+    """Widget key for events of the given decoder kind.
+
+    `text` lives in its own `decoder-output` panel; every other decoder lives
+    inside the multiplexed `demod` panel and is keyed by kind so the reconciler
+    can swap widget classes when the user retunes.
+    """
+    if kind == "text":
+        return "panel:decoder-output"
+    return f"panel:demod:{kind}"
+
+
 class EventRouter(MixinBase):
     """Mixin on TSDRApp; receives Textual messages relayed from the engine event bus."""
 
@@ -106,23 +118,20 @@ class EventRouter(MixinBase):
     @on(StatsUpdate)
     def handle_stats_update(self, message: StatsUpdate) -> None:
         focused = self._store.model.focused_device_id
-        # Tuner/stats/performance are bound to the focused device; ignore stats
-        # from other devices.
-        if focused is None or message.event.device_id == focused:
-            for key in ("tuner", "stats", "performance"):
-                w = self._reconciler.get(key)
-                if w is not None:
-                    w.update_stats(message.event)  # type: ignore[attr-defined]
-        # tetra/dmr decoder widgets read SNR from stats; route by the event's
-        # own device_id so multi-device setups don't paint A's SNR onto B's UI.
+        if focused is not None and message.event.device_id != focused:
+            return
+        for key in ("tuner", "panel:stats", "panel:performance"):
+            w = self._reconciler.get(key)
+            if w is not None:
+                w.update_stats(message.event)  # type: ignore[attr-defined]
         for kind in ("tetra", "dmr"):
-            w = self._reconciler.get(f"decoder:{message.event.device_id}:{kind}")
+            w = self._reconciler.get(f"panel:demod:{kind}")
             if w is not None:
                 w.update_stats(message.event)  # type: ignore[attr-defined]
 
     @on(JitterBufferUpdate)
     def handle_jitter_buffer_update(self, message: JitterBufferUpdate) -> None:
-        stats = self._reconciler.get("stats")
+        stats = self._reconciler.get("panel:stats")
         if stats is not None:
             stats.update_jitter_buffer(message.event)  # type: ignore[attr-defined]
         status = self._reconciler.get("status-bar")
@@ -134,13 +143,13 @@ class EventRouter(MixinBase):
         tuner = self._reconciler.get("tuner")
         if tuner is not None:
             tuner.update_running_state(message.event)  # type: ignore[attr-defined]
-        stats = self._reconciler.get("stats")
+        stats = self._reconciler.get("panel:stats")
         if stats is not None:
             stats.update_config()  # type: ignore[attr-defined]
 
     @on(DeviceCapabilitiesChanged)
     def handle_device_capabilities_changed(self, _message: DeviceCapabilitiesChanged) -> None:
-        for key in ("tuner", "stats"):
+        for key in ("tuner", "panel:stats"):
             w = self._reconciler.get(key)
             if w is not None:
                 w.update_config()  # type: ignore[attr-defined]
@@ -148,7 +157,7 @@ class EventRouter(MixinBase):
     @on(ConfigChanged)
     def handle_config_changed(self, _message: ConfigChanged) -> None:
         with span("ui.handle_config_changed"):
-            for key in ("stats", "spectrum", "tuner"):
+            for key in ("panel:stats", "spectrum", "tuner"):
                 w = self._reconciler.get(key)
                 if w is not None:
                     w.update_config()  # type: ignore[attr-defined]
@@ -190,7 +199,7 @@ class EventRouter(MixinBase):
 
     @on(SignalInfoUpdate)
     def handle_signal_info(self, message: SignalInfoUpdate) -> None:
-        for key in ("tuner", "stats"):
+        for key in ("tuner", "panel:stats"):
             w = self._reconciler.get(key)
             if w is not None:
                 w.update_signal_info(message.event)  # type: ignore[attr-defined]
@@ -227,20 +236,17 @@ class EventRouter(MixinBase):
 
     @on(DecoderOutput)
     def handle_decoder_output(self, message: DecoderOutput) -> None:
-        # The event's `protocol` carries the uppercase mode (WFM/DAB/…), which
-        # doesn't map directly to widget kinds (WFM→rds, DAB→dab, CW→text, …).
-        # The widget kind is already known to the store via
-        # DeviceUIState.active_decoder_kind, derived from SignalInfo.message_type
-        # — the same value that built the widget's key in derive_tree.
-        device_id = message.event.device_id
+        focused = self._store.model.focused_device_id
+        if focused is not None and message.event.device_id != focused:
+            return
         device = next(
-            (d for d in self._store.model.devices if d.device_id == device_id),
+            (d for d in self._store.model.devices if d.device_id == message.event.device_id),
             None,
         )
         if device is None or device.active_decoder_kind is None:
             return
         kind = device.active_decoder_kind
-        w = self._reconciler.get(f"decoder:{device_id}:{kind}")
+        w = self._reconciler.get(_panel_key(kind))
         if w is None:
             return
         if kind == "text":

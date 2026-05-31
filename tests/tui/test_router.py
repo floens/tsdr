@@ -76,12 +76,12 @@ def _make_router(store: UIStore, reconciler: _FakeReconciler, engine: _FakeEngin
     obj._store = store
     obj._reconciler = reconciler
     obj._engine = engine
-    # show_status / _show_error are bound from MixinBase contract; stub them.
-    obj.show_status = MagicMock()
-    obj._show_error = MagicMock()
     # EnginePrefsSync needs mark_dirty(); the router calls it from config /
     # pipeline / device / focus handlers. Stub it so we can assert it fired.
     obj._engine_prefs_sync = MagicMock()
+    # show_status / _show_error are bound from MixinBase contract; stub them.
+    obj.show_status = MagicMock()
+    obj._show_error = MagicMock()
 
     # Bind every handler method off EventRouter as a free function call.
     for name in (
@@ -150,7 +150,7 @@ def test_fft_update_silently_drops_when_widgets_absent() -> None:
 
 def test_jitter_buffer_routes_to_stats_and_status_bar() -> None:
     rec = _FakeReconciler()
-    stats = rec.install("stats")
+    stats = rec.install("panel:stats")
     status = rec.install("status-bar")
     router = _make_router(UIStore(UIModel()), rec, _FakeEngine())
     event = JitterBufferUpdateEvent(
@@ -176,12 +176,17 @@ def test_memories_changed_routes_to_spectrum_only() -> None:
 
 
 def test_decoder_output_routes_by_device_active_kind() -> None:
-    """Routing uses the store's active_decoder_kind (lowercase, matches the
-    widget key built in derive_tree). The event's `protocol` field, which
-    carries the uppercase mode (e.g. 'WFM' for RDS), is intentionally ignored."""
+    """Routing uses the store's active_decoder_kind (lowercase) and the
+    panel:demod:<kind> widget key built by derive_tree. The event's `protocol`
+    field, which carries the uppercase mode (e.g. 'WFM' for RDS), is ignored."""
     rec = _FakeReconciler()
-    rds_widget = rec.install("decoder:rtl0:rds")
-    store = UIStore(UIModel(devices=(DeviceUIState(device_id="rtl0", active_decoder_kind="rds"),)))
+    rds_widget = rec.install("panel:demod:rds")
+    store = UIStore(
+        UIModel(
+            devices=(DeviceUIState(device_id="rtl0", active_decoder_kind="rds"),),
+            focused_device_id="rtl0",
+        )
+    )
     router = _make_router(store, rec, _FakeEngine())
     event = DecoderOutputEvent(
         device_id="rtl0",
@@ -193,9 +198,15 @@ def test_decoder_output_routes_by_device_active_kind() -> None:
 
 
 def test_decoder_output_text_kind_calls_update_decoder() -> None:
+    """The 'text' decoder kind maps to the 'decoder-output' panel key (its own panel)."""
     rec = _FakeReconciler()
-    text_widget = rec.install("decoder:rtl0:text")
-    store = UIStore(UIModel(devices=(DeviceUIState(device_id="rtl0", active_decoder_kind="text"),)))
+    text_widget = rec.install("panel:decoder-output")
+    store = UIStore(
+        UIModel(
+            devices=(DeviceUIState(device_id="rtl0", active_decoder_kind="text"),),
+            focused_device_id="rtl0",
+        )
+    )
     router = _make_router(store, rec, _FakeEngine())
     event = DecoderOutputEvent(
         device_id="rtl0",
@@ -204,6 +215,25 @@ def test_decoder_output_text_kind_calls_update_decoder() -> None:
     )
     router.handle_decoder_output(DecoderOutput(event))
     text_widget.update_decoder.assert_called_once_with(event)
+
+
+def test_decoder_output_dropped_when_event_device_not_focused() -> None:
+    """Decoder panels are global single instances; drop events from non-focused devices."""
+    rec = _FakeReconciler()
+    rds_widget = rec.install("panel:demod:rds")
+    store = UIStore(
+        UIModel(
+            devices=(
+                DeviceUIState(device_id="rtl0", active_decoder_kind="rds"),
+                DeviceUIState(device_id="hackrf", active_decoder_kind="rds"),
+            ),
+            focused_device_id="rtl0",
+        )
+    )
+    router = _make_router(store, rec, _FakeEngine())
+    event = DecoderOutputEvent(device_id="hackrf", protocol="WFM", messages=())
+    router.handle_decoder_output(DecoderOutput(event))
+    rds_widget.update_messages.assert_not_called()
 
 
 def test_decoder_output_dropped_when_device_unknown() -> None:
@@ -219,6 +249,49 @@ def test_decoder_output_dropped_when_widget_absent() -> None:
     router = _make_router(store, _FakeReconciler(), _FakeEngine())
     event = DecoderOutputEvent(device_id="rtl0", protocol="WFM", messages=())
     router.handle_decoder_output(DecoderOutput(event))
+
+
+# --- engine prefs persistence ----------------------------------------------
+
+
+def test_config_changed_marks_prefs_dirty() -> None:
+    """Every ConfigChangedEvent triggers a debounced prefs flush via EnginePrefsSync.
+    Replaces the per-mutation save_device() calls that used to be sprinkled across
+    commands and keyboard handlers."""
+    router = _make_router(UIStore(UIModel()), _FakeReconciler(), _FakeEngine())
+    router.handle_config_changed(ConfigChanged(ConfigChangedEvent(device_id="rtl0")))
+    router._engine_prefs_sync.mark_dirty.assert_called_once_with()
+
+
+def test_pipeline_changed_marks_prefs_dirty() -> None:
+    store = UIStore(UIModel())
+    router = _make_router(store, _FakeReconciler(), _FakeEngine())
+    router.handle_pipeline_changed(
+        PipelineChanged(PipelineChangedEvent(device_id="rtl0", pipeline_name="audio", active=True))
+    )
+    router._engine_prefs_sync.mark_dirty.assert_called_once_with()
+
+
+def test_device_added_marks_prefs_dirty() -> None:
+    router = _make_router(UIStore(UIModel()), _FakeReconciler(), _FakeEngine())
+    router.handle_device_added(DeviceAdded(DeviceAddedEvent(device_id="rtl0")))
+    router._engine_prefs_sync.mark_dirty.assert_called_once_with()
+
+
+def test_device_removed_marks_prefs_dirty() -> None:
+    router = _make_router(UIStore(UIModel()), _FakeReconciler(), _FakeEngine())
+    router.handle_device_removed(DeviceRemoved(DeviceRemovedEvent(device_id="rtl0")))
+    router._engine_prefs_sync.mark_dirty.assert_called_once_with()
+
+
+def test_focus_changed_marks_prefs_dirty() -> None:
+    rec = _FakeReconciler()
+    rec.install("tuner")
+    rec.install("spectrum")
+    rec.install("console")
+    router = _make_router(UIStore(UIModel()), rec, _FakeEngine())
+    router.handle_focus_changed(FocusChanged(FocusChangedEvent(focused_device_id="rtl0")))
+    router._engine_prefs_sync.mark_dirty.assert_called_once_with()
 
 
 # --- structural routing -----------------------------------------------------
@@ -372,46 +445,3 @@ def test_focus_changed_reseeds_and_nudges_widgets() -> None:
     tuner.update_config.assert_called_once_with()
     spectrum.update_config.assert_called_once_with()
     console.sync_prompt.assert_called_once_with()
-
-
-# --- engine prefs persistence ----------------------------------------------
-
-
-def test_config_changed_marks_prefs_dirty() -> None:
-    """Every ConfigChangedEvent triggers a debounced prefs flush via EnginePrefsSync.
-    Replaces the per-mutation save_device() calls that used to be sprinkled across
-    commands and keyboard handlers."""
-    router = _make_router(UIStore(UIModel()), _FakeReconciler(), _FakeEngine())
-    router.handle_config_changed(ConfigChanged(ConfigChangedEvent(device_id="rtl0")))
-    router._engine_prefs_sync.mark_dirty.assert_called_once_with()
-
-
-def test_pipeline_changed_marks_prefs_dirty() -> None:
-    store = UIStore(UIModel())
-    router = _make_router(store, _FakeReconciler(), _FakeEngine())
-    router.handle_pipeline_changed(
-        PipelineChanged(PipelineChangedEvent(device_id="rtl0", pipeline_name="audio", active=True))
-    )
-    router._engine_prefs_sync.mark_dirty.assert_called_once_with()
-
-
-def test_device_added_marks_prefs_dirty() -> None:
-    router = _make_router(UIStore(UIModel()), _FakeReconciler(), _FakeEngine())
-    router.handle_device_added(DeviceAdded(DeviceAddedEvent(device_id="rtl0")))
-    router._engine_prefs_sync.mark_dirty.assert_called_once_with()
-
-
-def test_device_removed_marks_prefs_dirty() -> None:
-    router = _make_router(UIStore(UIModel()), _FakeReconciler(), _FakeEngine())
-    router.handle_device_removed(DeviceRemoved(DeviceRemovedEvent(device_id="rtl0")))
-    router._engine_prefs_sync.mark_dirty.assert_called_once_with()
-
-
-def test_focus_changed_marks_prefs_dirty() -> None:
-    rec = _FakeReconciler()
-    rec.install("tuner")
-    rec.install("spectrum")
-    rec.install("console")
-    router = _make_router(UIStore(UIModel()), rec, _FakeEngine())
-    router.handle_focus_changed(FocusChanged(FocusChangedEvent(focused_device_id="rtl0")))
-    router._engine_prefs_sync.mark_dirty.assert_called_once_with()

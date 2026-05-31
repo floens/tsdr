@@ -21,12 +21,13 @@ from tsdr.radio.decoders.tetra.state import (
     SLOT_USAGE_TRAFFIC,
     TetraSnapshot,
 )
+from tsdr.tui.widgets.panel import PanelWidget
 
 _BAR_WIDTH = 5
 _ALLOC_LOG_MAX_ROWS = 6
 
 
-class TETRAWidget(Horizontal):
+class TETRAWidget(Horizontal, PanelWidget):
     """Four-column TETRA state display.
 
     Col 1: Network / Cell identity + carrier role

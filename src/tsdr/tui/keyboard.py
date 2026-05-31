@@ -163,12 +163,20 @@ class KeyboardMixin(MixinBase):
                 self._jump_target(1)
                 event.prevent_default()
                 event.stop()
-            elif event.key in ("1", "2", "3", "4", "5", "6", "7", "8", "9"):
-                self._recall_band(int(event.key))
+            elif len(event.key) == 1 and event.key.isdigit():
+                digit = int(event.key)
+                store = get_ui_store()
+                panel_id = next((pid for d, pid in store.model.layout.hotkeys if d == digit), None)
+                if panel_id is not None:
+                    store.toggle_panel(panel_id)
                 event.prevent_default()
                 event.stop()
-            elif event.key == "0":
-                self._swap_ab()
+            elif len(event.key) == 6 and event.key.startswith("ctrl+") and event.key[5].isdigit():
+                digit = int(event.key[5])
+                if digit == 0:
+                    self._swap_ab()
+                else:
+                    self._recall_band(digit)
                 event.prevent_default()
                 event.stop()
             elif event.key == "s":
@@ -292,14 +300,7 @@ class KeyboardMixin(MixinBase):
         self.query_one(ConsoleWidget).clear_history()
 
     def _toggle_panel_store(self, panel: str) -> None:
-        """Toggle a side panel through the UIStore (ctrl+s / ctrl+p handlers).
-
-        Identical-panel toggle hides the sidebar; different-panel toggle switches.
-        The reconciler picks up the change and mounts/unmounts the sidebar children.
-        """
-        store = get_ui_store()
-        current = store.model.active_panel
-        store.update(active_panel=None if current == panel else panel)
+        get_ui_store().toggle_panel(panel)
 
     def _toggle_device_running(self) -> None:
         engine = get_engine()

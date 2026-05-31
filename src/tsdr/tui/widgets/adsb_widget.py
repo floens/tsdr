@@ -14,6 +14,7 @@ from textual.widgets import Static
 from tsdr.core.events.events import DecoderOutputEvent
 from tsdr.radio.decoders.adsb import ADSBData
 from tsdr.tui.markup import escape_forced
+from tsdr.tui.widgets.panel import PanelWidget
 
 # Styles
 
@@ -468,7 +469,7 @@ class _ADSBTablePanel(Static):
         self.update(table)
 
 
-class ADSBWidget(Horizontal):
+class ADSBWidget(Horizontal, PanelWidget):
     """ADS-B aircraft map + table display."""
 
     _refresh_timer = None

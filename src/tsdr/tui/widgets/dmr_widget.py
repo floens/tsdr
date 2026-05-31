@@ -11,11 +11,12 @@ from textual.widgets import Static
 
 from tsdr.core.events.events import DecoderOutputEvent, StatsUpdateEvent
 from tsdr.radio.decoders.dmr.decoder import DMRSnapshot
+from tsdr.tui.widgets.panel import PanelWidget
 
 _BAR_WIDTH = 5
 
 
-class DMRWidget(Horizontal):
+class DMRWidget(Horizontal, PanelWidget):
     """Three-column DMR state display.
 
     Col 1: Repeater info (color code, modulation)

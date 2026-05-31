@@ -113,6 +113,8 @@ kitty_test_send_all
 kitty_test_send_image
 kitty_test_zero_size
 memory_entry_invalid
+panel_set_active_invalid
+panel_toggle_unknown
 pipeline_added
 pipeline_config_update_applying
 pipeline_removed

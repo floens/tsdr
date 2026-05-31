@@ -50,7 +50,10 @@ def _plot(buf: np.ndarray, px: np.ndarray, py: np.ndarray, color: np.ndarray) ->
 class ConstellationWidget(Widget):
     """Constellation diagram rendered via Kitty image protocol.
 
-    Only mounted (by the reconciler) when image_mode AND active_panel=="stats".
+    Only mounted (by the reconciler) when image_mode AND the stats panel is
+    active on any edge — derive_tree pairs it with the stats widget wherever
+    stats is pinned, and EngineSync enables `calculate_constellation` on the
+    focused device in lockstep.
 
     Reactive props:
       image_mode: bool — toggling False clears the persistent buffer/kitty image.

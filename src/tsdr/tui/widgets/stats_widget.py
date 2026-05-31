@@ -14,6 +14,7 @@ from tsdr.core.sdr.engine import get_engine
 from tsdr.core.units import format_hz
 from tsdr.devices import NetworkDeviceParams
 from tsdr.devices.base import HasJitterBuffer
+from tsdr.tui.widgets.panel import PanelWidget
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +28,7 @@ _STATE_COLORS = {
 }
 
 
-class StatsWidget(Static):
+class StatsWidget(Static, PanelWidget):
     """Display device and signal statistics.
 
     Reactive props:

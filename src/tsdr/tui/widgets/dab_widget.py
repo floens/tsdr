@@ -14,6 +14,7 @@ from tsdr.radio.decoders.dab import DABData, DABServiceInfo, DABSlide
 from tsdr.tui.commands import registry
 from tsdr.tui.markup import escape_forced
 from tsdr.tui.widgets.kitty_image import KittyImageWidget
+from tsdr.tui.widgets.panel import PanelWidget
 from tsdr.tui.widgets.utils import NonFocusableOptionList
 
 logger = logging.getLogger(__name__)
@@ -44,7 +45,7 @@ def _decode_slide_to_rgba(slide: DABSlide) -> np.ndarray | None:
         return None
 
 
-class DABWidget(Horizontal):
+class DABWidget(Horizontal, PanelWidget):
     """Display DAB ensemble info, signal stats, and service list.
 
     Col 1: selected station + DLS text.

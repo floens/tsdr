@@ -2,9 +2,10 @@
 
 Derives:
   * update_rate_fps: 60 when image_mode, else 20 (engine-global).
-  * calculate_constellation: True only when image_mode AND active_panel == "stats",
-    applied to the focused device — and explicitly disabled on the
-    previously-focused device when focus moves.
+  * calculate_constellation: True when image_mode AND the stats panel is
+    active on any edge (the constellation widget mounts alongside stats
+    wherever the user pinned it), applied to the focused device — and
+    explicitly disabled on the previously-focused device when focus moves.
 
 Dedupes per-device for calculate_constellation so an unrelated model change
 doesn't re-push, but a focus change still propagates correctly.
@@ -48,7 +49,12 @@ class EngineSync:
         # source of truth the rest of the UI agrees with, and the engine
         # may transiently disagree during a multi-event sequence.
         focused_id = new.focused_device_id
-        want_calc = new.image_mode and new.active_panel == "stats"
+        stats_active = (
+            new.layout.left.active == "stats"
+            or new.layout.right.active == "stats"
+            or new.layout.bottom.active == "stats"
+        )
+        want_calc = new.image_mode and stats_active
 
         # Disable on any device we previously enabled that isn't the focused
         # one — covers focus changes and device removal.

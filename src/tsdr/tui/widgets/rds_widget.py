@@ -4,12 +4,13 @@ from textual.widgets import Static
 from tsdr.core.events.events import DecoderOutputEvent
 from tsdr.radio.decoders.rds import RDSData
 from tsdr.tui.markup import escape_forced
+from tsdr.tui.widgets.panel import PanelWidget
 
 # Number of group columns (after stats + main)
 _GROUP_COLS = 3
 
 
-class RDSWidget(Horizontal):
+class RDSWidget(Horizontal, PanelWidget):
     """Display RDS data in a multi-column layout.
 
     Col 1: Stats (sync, BER, offset)

@@ -129,6 +129,7 @@ from tsdr.tui.commands.builtin.dump_tree import DumpTreeCommand  # noqa: E402
 from tsdr.tui.commands.builtin.echo import EchoCommand  # noqa: E402
 from tsdr.tui.commands.builtin.exit import ExitCommand  # noqa: E402
 from tsdr.tui.commands.builtin.help import HelpCommand  # noqa: E402
+from tsdr.tui.commands.builtin.panel import PanelCommand  # noqa: E402
 from tsdr.tui.commands.builtin.paths import PathsCommand  # noqa: E402
 from tsdr.tui.commands.builtin.time import TimeCommand  # noqa: E402
 from tsdr.tui.commands.builtin.trace import TraceCommand  # noqa: E402
@@ -154,6 +155,7 @@ register("echo", EchoCommand())
 register("exit", ExitCommand())
 register("quit", ExitCommand())
 register("help", HelpCommand())
+register("panel", PanelCommand())
 register("paths", PathsCommand())
 register("time", TimeCommand())
 register("trace", TraceCommand())

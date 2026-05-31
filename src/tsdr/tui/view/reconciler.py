@@ -114,8 +114,12 @@ class Reconciler:
             else:
                 w = existing
             self._apply_props(w, spec.props)
-            if spec.children:
-                await self._reconcile_children(w, spec.children)
+            # Always recurse — even with an empty `spec.children` we need the
+            # children pass to run so any previously-mounted descendants are
+            # unmounted. Skipping when `spec.children` was falsy leaked widgets
+            # whenever a parent transitioned from N children to 0 (e.g. closing
+            # the last panel on a dock).
+            await self._reconcile_children(w, spec.children)
             anchor = w
 
         if added or removed:
@@ -142,12 +146,17 @@ class Reconciler:
     def _apply_props(self, w: Widget, props: Mapping[str, Any]) -> None:
         """Set every prop as a reactive attribute. Textual handles equality and refresh.
 
-        Each setattr is isolated so one bad prop (e.g. a typo'd `id` field, or
-        a watcher that raises) doesn't abort the rest of the frame's reconcile.
+        `classes` is special-cased because Textual's `Widget.classes` descriptor
+        is read-only; assignments must go through `set_classes`. Every other key
+        is plain setattr. Each call is isolated so one bad prop doesn't abort
+        the rest of the frame's reconcile.
         """
         for name, value in props.items():
             try:
-                setattr(w, name, value)
+                if name == "classes":
+                    w.set_classes(value)
+                else:
+                    setattr(w, name, value)
             except Exception as e:  # noqa: BLE001 — isolate one prop from siblings
                 logger.error(
                     "reconciler_apply_prop_failed widget=%s prop=%s error=%r",

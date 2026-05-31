@@ -10,7 +10,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Final
 
-from textual.containers import Container, Vertical
+from textual.containers import Container, Horizontal, Vertical
 from textual.widget import Widget
 
 from tsdr.tui.console.widget import ConsoleWidget
@@ -19,6 +19,7 @@ from tsdr.tui.widgets.constellation_widget import ConstellationWidget
 from tsdr.tui.widgets.dab_widget import DABWidget
 from tsdr.tui.widgets.decoder_output_widget import DecoderOutputWidget
 from tsdr.tui.widgets.dmr_widget import DMRWidget
+from tsdr.tui.widgets.edge_strip import EdgeStrip
 from tsdr.tui.widgets.performance_widget import PerformanceWidget
 from tsdr.tui.widgets.rds_widget import RDSWidget
 from tsdr.tui.widgets.spectrum_widget import SpectrumWidget
@@ -31,8 +32,13 @@ from tsdr.tui.widgets.waterfall_widget import WaterfallWidget
 
 FACTORY: Final[dict[str, Callable[[], Widget]]] = {
     "main_container": Container,
+    "docks_row": Horizontal,
     "viz_container": Vertical,
-    "sidebar": Container,
+    "dock_left": Horizontal,
+    "dock_right": Horizontal,
+    "center_column": Vertical,
+    "panel_content": Vertical,
+    "edge_strip": EdgeStrip,
     "tuner": TunerWidget,
     "status_bar": StatusBar,
     "console": ConsoleWidget,
