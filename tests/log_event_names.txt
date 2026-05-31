@@ -2,7 +2,6 @@ app_cleanup_complete
 app_engine_shutdown_failed
 app_run_starting
 app_run_unhandled_exception
-app_saving_device_state
 app_shutting_down_engine
 app_stopping_event_adapter
 app_unmounting
@@ -56,7 +55,6 @@ device_entry_invalid
 device_open
 device_read_failed
 device_read_unexpected_error
-device_save_failed
 device_started
 device_starting
 device_stopped
@@ -65,6 +63,7 @@ dmr_burst
 dmr_voice_call_confirmed
 dmr_voice_call_ended
 dmr_voice_call_started
+engine_prefs_sync_flushed
 engine_shutdown_complete
 engine_shutdown_starting
 engine_stop_audio_failed

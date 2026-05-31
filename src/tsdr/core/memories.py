@@ -7,7 +7,6 @@ from pydantic import BaseModel, ConfigDict, ValidationError
 
 from tsdr.core import storage
 from tsdr.core.audio_spec import AudioDemodSpec
-from tsdr.core.preferences import save_device
 from tsdr.core.sdr.device_context import DeviceState
 from tsdr.core.sdr.engine import get_engine
 from tsdr.core.sdr.exceptions import SDRException
@@ -188,4 +187,3 @@ def recall_memory(memory: Memory, device_id: str) -> None:
         center_frequency=float(memory.frequency),
         channel_bandwidth=int(memory.bandwidth),
     )
-    save_device(engine)

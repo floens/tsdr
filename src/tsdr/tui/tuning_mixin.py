@@ -18,7 +18,7 @@ from tsdr.core.events.events import (
 )
 from tsdr.core.landmarks import next_target
 from tsdr.core.memories import get_memory_store
-from tsdr.core.preferences import save_device, save_tuning_state
+from tsdr.core.preferences import save_tuning_state
 from tsdr.core.sdr.device_context import SDRDeviceContext
 from tsdr.core.sdr.engine import get_engine
 from tsdr.core.sdr.exceptions import SDRException
@@ -79,7 +79,6 @@ class TuningMixin(MixinBase):
         if new_freq == device.config.center_frequency:
             return
         get_engine().update_device_config(device.device_id, center_frequency=new_freq)
-        save_device(get_engine())
 
     def _tune(self, direction: int, *, coarse: bool = False, fine: bool = False) -> None:
         device = self._focused()
@@ -117,7 +116,6 @@ class TuningMixin(MixinBase):
         if new_bw == current_bw:
             return
         get_engine().update_device_config(device.device_id, channel_bandwidth=new_bw)
-        save_device(get_engine())
         self.show_status(f"Bandwidth: {format_hz(new_bw, decimals=6, long_suffix=True)}")
 
     def _cycle_step(self, forward: bool) -> None:
@@ -198,7 +196,6 @@ class TuningMixin(MixinBase):
         )
         self._reset_step_to_auto()
         self._publish_tuning_state_changed()
-        save_device(engine)
         self.show_status(
             f"A/B: {format_hz(prev.frequency_hz, interval=1.0, long_suffix=True)} {prev.spec.mode}"
         )
@@ -266,7 +263,6 @@ class TuningMixin(MixinBase):
         ts.step = None
         self._publish_tuning_state_changed()
         get_engine().event_bus.publish(BandStackChangedEvent(band_stack=store))
-        save_device(engine)
         self.show_status(f"BAND {stack.band.name} REG {new_idx + 1}/{REGISTERS_PER_BAND}")
 
     def notify_demod_changed(self) -> None:

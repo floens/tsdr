@@ -1,6 +1,5 @@
 from argparse import Namespace
 
-from tsdr.core.preferences import save_device
 from tsdr.core.sdr.engine import get_engine
 from tsdr.core.units import parse_hz
 from tsdr.tui.commands._format import freq_mhz, success
@@ -18,8 +17,6 @@ class FrequencyCommand(Command):
 
     def run(self, args: Namespace) -> str:
         freq_hz = float(parse_hz(args.frequency))
-        engine = get_engine()
         did = get_focused_device_id()
-        engine.update_device_config(did, center_frequency=freq_hz)
-        save_device(engine)
+        get_engine().update_device_config(did, center_frequency=freq_hz)
         return success(f"Frequency: {freq_mhz(freq_hz)}")

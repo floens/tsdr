@@ -1,6 +1,5 @@
 from argparse import Namespace
 
-from tsdr.core.preferences import save_engine_config
 from tsdr.core.sdr.engine import get_engine
 from tsdr.radio.dsp.rnnoise import rnnoise_available
 from tsdr.tui.commands._format import error, state, success
@@ -28,5 +27,4 @@ class SDRDenoiseCommand(Command):
             return error("Denoise unavailable — RNNoise not supported on this platform")
 
         engine.update_global_config(denoise=want)
-        save_engine_config(engine)
         return success(f"Denoise {state('on' if want else 'off')}")

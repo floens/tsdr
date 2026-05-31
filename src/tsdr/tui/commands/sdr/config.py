@@ -4,7 +4,6 @@ from dataclasses import replace
 from types import MappingProxyType
 from typing import Any
 
-from tsdr.core.preferences import save_device
 from tsdr.core.sdr.config import DeviceConfig, SDRConfig
 from tsdr.core.sdr.device_context import DeviceState
 from tsdr.core.sdr.engine import SDREngine, get_engine
@@ -216,8 +215,6 @@ class SDRConfigCommand(Command):
             manager.update_device_config(did, **device_changes)
         if global_changes:
             manager.update_global_config(**global_changes)
-
-        save_device(manager)
 
         summary: dict[str, str] = {}
         for key, value in changes.items():

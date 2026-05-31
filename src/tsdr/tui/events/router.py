@@ -18,6 +18,7 @@ from tsdr.core.sdr.datatypes import SignalInfo
 from tsdr.core.sdr.engine import SDREngine
 from tsdr.core.tracing import span
 from tsdr.tui._mixin_base import MixinBase
+from tsdr.tui.events.engine_prefs_sync import EnginePrefsSync
 from tsdr.tui.messages import (
     AudioOutputError,
     BandplanChanged,
@@ -65,6 +66,7 @@ class EventRouter(MixinBase):
     _store: UIStore
     _reconciler: Reconciler
     _engine: SDREngine
+    _engine_prefs_sync: EnginePrefsSync
 
     def seed_from_engine(self) -> None:
         """Build initial devices tuple in the store from current engine state.
@@ -153,6 +155,7 @@ class EventRouter(MixinBase):
             console = self._reconciler.get("console")
             if console is not None:
                 console.sync_prompt()  # type: ignore[attr-defined]
+            self._engine_prefs_sync.mark_dirty()
 
     @on(DeviceError)
     def handle_device_error(self, message: DeviceError) -> None:
@@ -251,14 +254,17 @@ class EventRouter(MixinBase):
         if console is not None:
             console.sync_prompt()  # type: ignore[attr-defined]
         self.seed_from_engine()
+        self._engine_prefs_sync.mark_dirty()
 
     @on(DeviceAdded)
     def handle_device_added(self, _message: DeviceAdded) -> None:
         self.seed_from_engine()
+        self._engine_prefs_sync.mark_dirty()
 
     @on(DeviceRemoved)
     def handle_device_removed(self, _message: DeviceRemoved) -> None:
         self.seed_from_engine()
+        self._engine_prefs_sync.mark_dirty()
 
     @on(FocusChanged)
     def handle_focus_changed(self, _message: FocusChanged) -> None:
@@ -273,3 +279,4 @@ class EventRouter(MixinBase):
         console = self._reconciler.get("console")
         if console is not None:
             console.sync_prompt()  # type: ignore[attr-defined]
+        self._engine_prefs_sync.mark_dirty()

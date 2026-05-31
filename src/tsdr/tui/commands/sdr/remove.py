@@ -1,6 +1,5 @@
 from argparse import Namespace
 
-from tsdr.core.preferences import save_device
 from tsdr.core.sdr.engine import get_engine
 from tsdr.tui.commands._format import device_id, success
 from tsdr.tui.commands.base import Command, CommandParser, Completion
@@ -17,9 +16,7 @@ class SDRRemoveCommand(Command):
 
     def run(self, args: Namespace) -> str:
         did = args.device_id or get_focused_device_id()
-        manager = get_engine()
-        manager.remove_device(did)
-        save_device(manager)
+        get_engine().remove_device(did)
         return success(f"Removed {device_id(did)}")
 
     def complete(

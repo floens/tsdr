@@ -8,7 +8,6 @@ from tsdr.core.audio_spec import AudioDemodSpec
 from tsdr.core.bandplans import find_band_at, get_bandplan_store
 from tsdr.core.events.events import MemoriesChangedEvent
 from tsdr.core.memories import Memory, get_memory_store
-from tsdr.core.preferences import save_device, save_engine_config
 from tsdr.core.sdr.device_context import DeviceState
 from tsdr.core.sdr.engine import get_engine
 from tsdr.core.sdr.exceptions import SDRException
@@ -320,8 +319,6 @@ class KeyboardMixin(MixinBase):
             self._show_error(str(e))
             return
 
-        save_device(engine)
-
     def _gain_controllable_device(self):
         device = get_engine().get_focused_device()
         if device is None:
@@ -343,9 +340,7 @@ class KeyboardMixin(MixinBase):
         if new_gain == device.config.rf_gain:
             return
 
-        engine = get_engine()
-        engine.update_device_config(device.device_id, rf_gain=new_gain, enable_agc=False)
-        save_device(engine)
+        get_engine().update_device_config(device.device_id, rf_gain=new_gain, enable_agc=False)
         self.show_status(f"Gain: {new_gain:.0f} {caps.gain_unit}")
 
     def _toggle_agc(self) -> None:
@@ -367,7 +362,6 @@ class KeyboardMixin(MixinBase):
         new_vol = max(0.0, min(1.0, new_vol))
 
         engine.update_global_config(audio_volume=new_vol)
-        save_engine_config(engine)
         self.show_status(f"Volume: {new_vol:.0%}")
 
     def _toggle_denoise(self) -> None:
@@ -377,7 +371,6 @@ class KeyboardMixin(MixinBase):
             self._show_error("Denoise unavailable (RNNoise not supported on this platform)")
             return
         engine.update_global_config(denoise=want)
-        save_engine_config(engine)
         self.show_status(f"Denoise {'on' if want else 'off'}")
 
     def _adjust_squelch(self, direction: int) -> None:
@@ -515,7 +508,6 @@ class KeyboardMixin(MixinBase):
         if mode == "OFF":
             engine.stop_audio_output(device.device_id)
             engine.remove_pipeline(device.device_id, "audio")
-            save_device(engine)
             self.show_status("Demod: off")
             return
 
@@ -529,7 +521,6 @@ class KeyboardMixin(MixinBase):
             self._show_error(str(e))
             return
 
-        save_device(engine)
         self.notify_demod_changed()
         self.show_status(f"Demod: {mode}")
 

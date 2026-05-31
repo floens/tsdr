@@ -18,13 +18,13 @@ from tsdr.core.preferences import (
     restore_devices,
     restore_engine_config,
     restore_tuning_state,
-    save_device,
 )
 from tsdr.core.sdr.engine import SDREngine, get_engine
 from tsdr.core.tracing import log_stats, span
 from tsdr.core.tuning import flush_band_stack_writeback, subscribe_band_stack_writeback
 from tsdr.core.tuning_state import init_tuning_state
 from tsdr.tui.console import CommandInputMixin
+from tsdr.tui.events.engine_prefs_sync import EnginePrefsSync
 from tsdr.tui.events.engine_sync import EngineSync
 from tsdr.tui.events.prefs_sync import PrefsSync
 from tsdr.tui.events.router import EventRouter
@@ -93,6 +93,7 @@ class TSDRApp(App[None], KeyboardMixin, TuningMixin, CommandInputMixin, EventRou
             self._store.subscribe(lambda _old, new: self._reconciler.schedule(derive_tree(new)))
             self._engine_sync = EngineSync(self._store, sdr_engine)
             self._prefs_sync = PrefsSync(self._store, self)
+            self._engine_prefs_sync = EnginePrefsSync(sdr_engine, self)
 
             self.event_adapter = TextualEventAdapter(self, sdr_engine.event_bus)
             self.event_adapter.start()
@@ -173,12 +174,6 @@ class TSDRApp(App[None], KeyboardMixin, TuningMixin, CommandInputMixin, EventRou
         except Exception as e:  # noqa: BLE001
             logger.error("event_adapter_stop_failed error=%r", e, exc_info=True)
 
-        logger.debug("app_saving_device_state")
-        try:
-            save_device(get_engine())
-        except Exception as e:  # noqa: BLE001
-            logger.error("device_save_failed error=%r", e, exc_info=True)
-
         try:
             flush_band_stack_writeback()
         except Exception as e:  # noqa: BLE001
@@ -187,6 +182,7 @@ class TSDRApp(App[None], KeyboardMixin, TuningMixin, CommandInputMixin, EventRou
         try:
             self._prefs_sync.close()
             self._engine_sync.close()
+            self._engine_prefs_sync.close()
         except Exception as e:  # noqa: BLE001
             logger.error("sync_close_failed error=%r", e, exc_info=True)
 

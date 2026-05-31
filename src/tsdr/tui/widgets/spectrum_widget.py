@@ -19,7 +19,6 @@ from tsdr.core.events.events import (
     MemoriesChangedEvent,
 )
 from tsdr.core.memories import Memory, get_memory_store, memory_color, recall_memory
-from tsdr.core.preferences import save_device
 from tsdr.core.sdr.device_context import DeviceState
 from tsdr.core.sdr.engine import get_engine
 from tsdr.core.sdr.exceptions import SDRException
@@ -753,7 +752,6 @@ class SpectrumWidget(ImageModeMixin, Widget):
         freq = round(freq / step) * step
         save_previous_tune_state(device)
         engine.update_device_config(device.device_id, center_frequency=freq)
-        save_device(engine)
         event.stop()
 
     def on_mouse_scroll_up(self, event: MouseScrollUp) -> None:
@@ -790,7 +788,6 @@ class SpectrumWidget(ImageModeMixin, Widget):
         new_freq = freq + direction * step
         new_freq = round(new_freq / step) * step
         engine.update_device_config(device.device_id, center_frequency=new_freq)
-        save_device(engine)
 
     def _actual_freq_range(self, event: FFTUpdateEvent) -> tuple[float, float]:
         """Return (freq_min, freq_max) for the captured FFT event, accounting for zoom."""

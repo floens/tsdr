@@ -20,7 +20,6 @@ from textual.widgets import Static
 from tsdr.core.band_stack import get_band_stack
 from tsdr.core.clock_sync import get_clock_sync_monitor, now
 from tsdr.core.events.events import DeviceStateChangedEvent, SignalInfoEvent, StatsUpdateEvent
-from tsdr.core.preferences import save_device
 from tsdr.core.sdr.datatypes import SignalInfo
 from tsdr.core.sdr.device_context import DeviceState
 from tsdr.core.sdr.engine import get_engine
@@ -442,5 +441,3 @@ class TunerWidget(Vertical):
                 if new_freq == device.config.center_frequency:
                     return  # already at the bound, no-op
             engine.update_device_config(device.device_id, center_frequency=new_freq)
-            with span("save_device"):
-                save_device(engine)

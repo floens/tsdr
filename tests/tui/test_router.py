@@ -17,6 +17,7 @@ from unittest.mock import MagicMock
 import numpy as np
 
 from tsdr.core.events.events import (
+    ConfigChangedEvent,
     DecodedMessage,
     DecoderOutputEvent,
     DeviceAddedEvent,
@@ -29,6 +30,7 @@ from tsdr.core.events.events import (
 )
 from tsdr.tui.events.router import EventRouter
 from tsdr.tui.messages import (
+    ConfigChanged,
     DecoderOutput,
     DeviceAdded,
     DeviceRemoved,
@@ -77,6 +79,9 @@ def _make_router(store: UIStore, reconciler: _FakeReconciler, engine: _FakeEngin
     # show_status / _show_error are bound from MixinBase contract; stub them.
     obj.show_status = MagicMock()
     obj._show_error = MagicMock()
+    # EnginePrefsSync needs mark_dirty(); the router calls it from config /
+    # pipeline / device / focus handlers. Stub it so we can assert it fired.
+    obj._engine_prefs_sync = MagicMock()
 
     # Bind every handler method off EventRouter as a free function call.
     for name in (
@@ -367,3 +372,46 @@ def test_focus_changed_reseeds_and_nudges_widgets() -> None:
     tuner.update_config.assert_called_once_with()
     spectrum.update_config.assert_called_once_with()
     console.sync_prompt.assert_called_once_with()
+
+
+# --- engine prefs persistence ----------------------------------------------
+
+
+def test_config_changed_marks_prefs_dirty() -> None:
+    """Every ConfigChangedEvent triggers a debounced prefs flush via EnginePrefsSync.
+    Replaces the per-mutation save_device() calls that used to be sprinkled across
+    commands and keyboard handlers."""
+    router = _make_router(UIStore(UIModel()), _FakeReconciler(), _FakeEngine())
+    router.handle_config_changed(ConfigChanged(ConfigChangedEvent(device_id="rtl0")))
+    router._engine_prefs_sync.mark_dirty.assert_called_once_with()
+
+
+def test_pipeline_changed_marks_prefs_dirty() -> None:
+    store = UIStore(UIModel())
+    router = _make_router(store, _FakeReconciler(), _FakeEngine())
+    router.handle_pipeline_changed(
+        PipelineChanged(PipelineChangedEvent(device_id="rtl0", pipeline_name="audio", active=True))
+    )
+    router._engine_prefs_sync.mark_dirty.assert_called_once_with()
+
+
+def test_device_added_marks_prefs_dirty() -> None:
+    router = _make_router(UIStore(UIModel()), _FakeReconciler(), _FakeEngine())
+    router.handle_device_added(DeviceAdded(DeviceAddedEvent(device_id="rtl0")))
+    router._engine_prefs_sync.mark_dirty.assert_called_once_with()
+
+
+def test_device_removed_marks_prefs_dirty() -> None:
+    router = _make_router(UIStore(UIModel()), _FakeReconciler(), _FakeEngine())
+    router.handle_device_removed(DeviceRemoved(DeviceRemovedEvent(device_id="rtl0")))
+    router._engine_prefs_sync.mark_dirty.assert_called_once_with()
+
+
+def test_focus_changed_marks_prefs_dirty() -> None:
+    rec = _FakeReconciler()
+    rec.install("tuner")
+    rec.install("spectrum")
+    rec.install("console")
+    router = _make_router(UIStore(UIModel()), rec, _FakeEngine())
+    router.handle_focus_changed(FocusChanged(FocusChangedEvent(focused_device_id="rtl0")))
+    router._engine_prefs_sync.mark_dirty.assert_called_once_with()

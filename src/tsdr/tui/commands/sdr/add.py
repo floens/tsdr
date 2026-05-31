@@ -1,7 +1,6 @@
 from argparse import Namespace
 from pathlib import Path
 
-from tsdr.core.preferences import save_device
 from tsdr.core.sdr.config import DeviceConfig
 from tsdr.core.sdr.engine import get_engine
 from tsdr.core.sdr.exceptions import ConfigurationError
@@ -136,7 +135,6 @@ class SDRAddCommand(Command):
 
         manager.add_device(args.device_id, args.device_type, params, device_config)
         manager.set_focused_device(args.device_id)
-        save_device(manager)
         context = manager.devices[args.device_id]
         freq_range = context.device.capabilities.frequency_range
         range_text = ""
