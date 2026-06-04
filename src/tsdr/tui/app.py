@@ -36,6 +36,7 @@ from tsdr.tui.tuning_mixin import TuningMixin
 from tsdr.tui.view.factory import FACTORY
 from tsdr.tui.view.reconciler import Reconciler
 from tsdr.tui.view.tree import derive_tree
+from tsdr.tui.widgets.kitty_host import KittyHostMixin
 
 logger = logging.getLogger(__name__)
 
@@ -48,7 +49,9 @@ def get_app() -> TSDRApp:
     return _active_app
 
 
-class TSDRApp(App[None], KeyboardMixin, TuningMixin, CommandInputMixin, EventRouter):
+class TSDRApp(
+    KittyHostMixin, App[None], KeyboardMixin, TuningMixin, CommandInputMixin, EventRouter
+):
     """Reactive Textual SDR app — UIModel drives the widget tree via the Reconciler."""
 
     BINDINGS = [
@@ -65,7 +68,6 @@ class TSDRApp(App[None], KeyboardMixin, TuningMixin, CommandInputMixin, EventRou
             global _active_app
             _active_app = self
 
-            self._pending_oob_escapes: list[str] = []
             self._latest_fft_by_device = {}
 
             self._saved_prefs = load_preferences()
@@ -205,14 +207,3 @@ class TSDRApp(App[None], KeyboardMixin, TuningMixin, CommandInputMixin, EventRou
         status = self._reconciler.get("status-bar")
         if status is not None:
             status.show_error(message)  # type: ignore[attr-defined]
-
-    def queue_oob_escape(self, cmd: str) -> None:
-        self._pending_oob_escapes.append(cmd)
-
-    def _end_update(self) -> None:
-        """Inject OOB kitty escapes."""
-        if self._pending_oob_escapes and self._driver is not None:
-            combined = "".join(self._pending_oob_escapes)
-            self._driver.write(combined)
-            self._pending_oob_escapes.clear()
-        super()._end_update()

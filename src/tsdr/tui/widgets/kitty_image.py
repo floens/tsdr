@@ -1,5 +1,6 @@
 import itertools
 import logging
+import sys
 from base64 import standard_b64encode
 from dataclasses import dataclass, field
 from multiprocessing.shared_memory import SharedMemory
@@ -12,10 +13,17 @@ from textual.geometry import Region
 from textual.strip import Strip
 from textual.widget import Widget
 
-from tsdr.core.platform import tty_window_spec
+from tsdr.tui.tty import cell_pixel_size, shm_payload_name
 
 _id_counter = itertools.count(1)
+_shm_seq = itertools.count(1)
 logger = logging.getLogger(__name__)
+
+# How this widget uploads pixels (see update_image: f=32, t=s). Human-readable
+# description of the wire format TSDR *transmits with* — distinct from the set of
+# transports a terminal reports it *supports*. The doctor surfaces it in its
+# report/export/UI; kept here, beside the actual command, so it can't go stale.
+KITTY_TRANSPORT_DESC = "shared memory (kitty t=s, f=32 RGBA)"
 
 
 @dataclass
@@ -44,6 +52,7 @@ class _ImageEntry:
     needs_transmit: bool = False
     has_image: bool = False
     pending_shm: SharedMemory | None = field(default=None, repr=False)
+    shm_capacity: int = 0  # Windows: bytes the persistent mapping can hold
 
 
 class KittyImageWidget(Widget):
@@ -70,8 +79,8 @@ class KittyImageWidget(Widget):
     #    written inside the synchronized output block (BSU…ESU).
     #  - Image lifecycle: per-event logging (IMAGE_CREATE/UPDATE/PLACE/
     #    HIDE/REMOVE) shows no re-creation of deleted image IDs.
-    #  - SHM reuse: each image gets a unique shm name (tsdr_<id>), monotonic
-    #    IDs, no reuse after delete.
+    #  - SHM reuse: image IDs are monotonic with no reuse after delete (and on
+    #    Windows the shm name is unique per frame; see _write_shm).
     #  - Separate placement + data delete: splitting into d=i,p=1 then d=I
     #    did not help.
     #  - q=0 responses: delete commands produce no terminal response per the
@@ -87,12 +96,19 @@ class KittyImageWidget(Widget):
     # Workaround: re-send the delete for N additional frames.
     _DELETE_RETRIES = 16
 
+    # Windows: frames to keep a *reallocated* (grown) mapping open before closing,
+    # so the terminal's async read of the previous frame can't lose the race.
+    # Only grows trigger this (rare with geometric capacity), so the list is tiny.
+    _SHM_RETIRE_FRAMES = 4
+
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
         self._images: dict[str, _ImageEntry] = {}
         self._cell_width_px = 8
         self._cell_height_px = 16
         self._pending_deletes: list[tuple[int, int]] = []  # (image_id, remaining_frames)
+        self._retired_shms: list[tuple[SharedMemory, int]] = []  # (shm, frames_left)
+        self._visible = True
 
     @property
     def cell_width_px(self) -> int:
@@ -186,15 +202,40 @@ class KittyImageWidget(Widget):
     def on_resize(self, event: Resize) -> None:
         self._detect_cell_pixel_size(event)
 
-    def _detect_cell_pixel_size(self, event: Resize) -> None:
-        if event.pixel_size is not None and event.size.width > 0 and event.size.height > 0:
-            self._cell_width_px = event.pixel_size.width // event.size.width
-            self._cell_height_px = event.pixel_size.height // event.size.height
+    def on_hide(self) -> None:
+        """Widget left the visible tree (tab switch / scrolled out of view).
+
+        Kitty images are painted at absolute terminal pixels, independent of
+        Textual's cell grid, so hiding the widget does not remove the image —
+        without this it would ghost over whatever is shown next. We delete the
+        *placement* but keep the stored image data (lowercase ``d=i``) so
+        ``on_show`` can re-place it without re-uploading pixels.
+        """
+        if not self._visible:
             return
-        spec = tty_window_spec()
-        if spec is not None:
-            self._cell_width_px = spec.cell_width_px
-            self._cell_height_px = spec.cell_height_px
+        self._visible = False
+        for entry in self._images.values():
+            if entry.has_image:
+                self._queue_cmd(f"\x1b_Ga=d,d=i,i={entry.image_id},p=1,q=2\x1b\\")
+
+    def on_show(self) -> None:
+        """Widget became visible again: re-place every image at its current
+        on-screen position (pixel data is still resident in the terminal)."""
+        if self._visible:
+            return
+        self._visible = True
+        for key in list(self._images):
+            self.place_image(key)
+
+    def _detect_cell_pixel_size(self, event: Resize) -> None:
+        pixels = (
+            (event.pixel_size.width, event.pixel_size.height)
+            if event.pixel_size is not None
+            else None
+        )
+        self._cell_width_px, self._cell_height_px = cell_pixel_size(
+            event.size.width, event.size.height, pixels
+        )
 
     def _queue_cmd(self, cmd: str) -> None:
         self.app.queue_oob_escape(cmd)
@@ -283,25 +324,43 @@ class KittyImageWidget(Widget):
         entry.crop_w = crop_w
         entry.crop_h = crop_h
 
-        self._write_shm(entry, data.tobytes())
+        # One contiguous uint8 view, copied straight into shared memory (no
+        # intermediate bytes object on the hot path).
+        flat = np.ascontiguousarray(data).reshape(-1)
+        n = flat.nbytes
+        self._write_shm(entry, flat)
 
-        # Build transmit command
+        # Build transmit command (shared memory, kitty t=s — no base64 on the hot
+        # path). a=T transmits *and* displays; re-transmitting the same id makes
+        # the terminal re-read the (overwritten) shared buffer and replace it.
+        # S= is the exact byte count to read: a Windows mapping is rounded up to a
+        # whole page (and our buffer may be over-allocated), so without it the
+        # terminal reads the padded size and rejects the frame ("data len doesn't
+        # match width*height*4").
         move, sub_x, sub_y = self._build_position_prefix(entry)
         extra = self._build_extra(entry, sub_x, sub_y)
-        shm_path = f"/{entry.shm_name}"
-        b64_name = standard_b64encode(shm_path.encode()).decode()
+        b64_name = standard_b64encode(shm_payload_name(entry.shm_name).encode()).decode()
         cmd = (
-            f"{move}\x1b_Gf=32,t=s,s={entry.width},v={entry.height},"
+            f"{move}\x1b_Gf=32,t=s,S={n},s={entry.width},v={entry.height},"
             f"a=T,i={entry.image_id},p=1,"
-            f"z=-1073741825,C=1,q=0{extra};{b64_name}\x1b\\"
+            f"z=0,C=1,q=0{extra};{b64_name}\x1b\\"
         )
         self._queue_cmd(cmd)
-
-        if entry.pending_shm is not None:
-            entry.pending_shm.close()
-            entry.pending_shm = None
+        self._release_shm(entry)
         entry.needs_transmit = False
         entry.has_image = True
+
+    def _release_shm(self, entry: _ImageEntry) -> None:
+        """Drop our handle after sending, where the platform allows it.
+
+        POSIX hands ownership to the terminal, which unlinks the object once it has
+        read it, so the object outlives our immediate close. On Windows the terminal
+        only *closes* its own handle (it cannot unlink), so ours is what keeps the
+        mapping alive — hold it open and reuse it (see ``_write_shm``).
+        """
+        if sys.platform != "win32" and entry.pending_shm is not None:
+            entry.pending_shm.close()
+            entry.pending_shm = None
 
     def place_image(
         self,
@@ -333,7 +392,7 @@ class KittyImageWidget(Widget):
 
         move, sub_x, sub_y = self._build_position_prefix(entry)
         extra = self._build_extra(entry, sub_x, sub_y)
-        cmd = f"{move}\x1b_Ga=p,i={entry.image_id},p=1,z=-1073741825,C=1,q=0{extra}\x1b\\"
+        cmd = f"{move}\x1b_Ga=p,i={entry.image_id},p=1,z=0,C=1,q=0{extra}\x1b\\"
         self._queue_cmd(cmd)
 
     def hide_image(self, key: str) -> None:
@@ -351,6 +410,7 @@ class KittyImageWidget(Widget):
         if entry.pending_shm is not None:
             entry.pending_shm.close()
             entry.pending_shm = None
+            entry.shm_capacity = 0
         entry.has_image = False
 
     def remove_image(self, key: str) -> None:
@@ -365,21 +425,87 @@ class KittyImageWidget(Widget):
 
     def render_lines(self, crop: Region) -> list[Strip]:
         self.flush_pending_deletes()
+        self._age_retired_shms()
         return [Strip([])] * crop.height
+
+    def _age_retired_shms(self) -> None:
+        """Close grown-out Windows mappings once they've survived a few frames."""
+        if not self._retired_shms:
+            return
+        survivors: list[tuple[SharedMemory, int]] = []
+        for shm, frames_left in self._retired_shms:
+            if frames_left > 1:
+                survivors.append((shm, frames_left - 1))
+            else:
+                shm.close()
+        self._retired_shms = survivors
 
     def on_unmount(self) -> None:
         for entry in self._images.values():
             self._queue_cmd(f"\x1b_Ga=d,d=I,i={entry.image_id},q=0\x1b\\")
             if entry.pending_shm is not None:
                 entry.pending_shm.close()
+        for shm, _ in self._retired_shms:
+            shm.close()
+        self._retired_shms.clear()
         self._images.clear()
 
-    def _write_shm(self, entry: _ImageEntry, raw: bytes) -> None:
+    def _write_shm(self, entry: _ImageEntry, flat: np.ndarray) -> None:
+        if sys.platform == "win32":
+            self._write_shm_persistent(entry, flat)
+        else:
+            self._write_shm_recreate(entry, flat)
+
+    def _write_shm_persistent(self, entry: _ImageEntry, flat: np.ndarray) -> None:
+        """Windows: keep one mapping alive and overwrite it in place each frame.
+
+        The terminal never unlinks on Windows (kitty spec — it "just closes" its
+        own handle) and reads asynchronously, so recreating per frame races the
+        read and ``unlink()`` is a no-op that can't clear a stale name. Instead we
+        hold the handle for the image's lifetime; the mapping always exists for the
+        terminal to open, and a re-sent ``a=T`` re-reads it (with S= bounding the
+        read to the live bytes). Capacity grows geometrically so a steadily growing
+        image (e.g. a filling waterfall strip) reallocates O(log) times, not every
+        frame; the superseded mapping is retired (closed a few frames later) so the
+        terminal's read of the previous frame can't lose the race.
+        """
+        n = flat.nbytes
+        if entry.pending_shm is None or entry.shm_capacity < n:
+            if entry.pending_shm is not None:
+                self._retired_shms.append((entry.pending_shm, self._SHM_RETIRE_FRAMES))
+            cap = max(n, entry.shm_capacity * 2)
+            entry.pending_shm = self._create_unique_shm(entry, cap)
+            entry.shm_capacity = cap
+        entry.pending_shm.buf[:n] = flat  # type: ignore[index]
+
+    def _create_unique_shm(self, entry: _ImageEntry, size: int) -> SharedMemory:
+        """Create a fresh-named Windows mapping, skipping any name still in use.
+
+        A mapping leaked by a crashed prior tsdr can stay alive if the terminal
+        still holds its handle; reusing that exact name would raise
+        ERROR_ALREADY_EXISTS. Advance the counter until an unused name is found.
+        """
+        while True:
+            entry.shm_name = f"tsdr_{entry.image_id}_{next(_shm_seq)}"
+            try:
+                return SharedMemory(create=True, name=entry.shm_name, size=size, track=False)
+            except FileExistsError:
+                continue
+
+    def _write_shm_recreate(self, entry: _ImageEntry, flat: np.ndarray) -> None:
+        """POSIX: recreate the named object each frame.
+
+        The terminal unlinks it after reading, so the name is gone by the next
+        frame; the object survives our close (done in ``_release_shm``) until the
+        terminal unlinks it. The except branch clears a stale object the terminal
+        never read.
+        """
+        n = flat.nbytes
         if entry.pending_shm is not None:
             entry.pending_shm.close()
             entry.pending_shm = None
         try:
-            shm = SharedMemory(create=True, name=entry.shm_name, size=len(raw), track=False)
+            shm = SharedMemory(create=True, name=entry.shm_name, size=n, track=False)
         except FileExistsError:
             try:
                 stale = SharedMemory(name=entry.shm_name, track=False)
@@ -387,6 +513,6 @@ class KittyImageWidget(Widget):
                 stale.unlink()
             except FileNotFoundError, OSError:
                 pass
-            shm = SharedMemory(create=True, name=entry.shm_name, size=len(raw), track=False)
-        shm.buf[: len(raw)] = raw  # type: ignore[index]
+            shm = SharedMemory(create=True, name=entry.shm_name, size=n, track=False)
+        shm.buf[:n] = flat  # type: ignore[index]
         entry.pending_shm = shm

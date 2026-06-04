@@ -14,12 +14,13 @@ import sys
 import numpy as np
 from textual.app import App, ComposeResult
 
+from tsdr.tui.widgets.kitty_host import KittyHostMixin
 from tsdr.tui.widgets.kitty_image import KittyImageWidget
 
 logger = logging.getLogger(__name__)
 
 
-class KittyTestApp(App):
+class KittyTestApp(KittyHostMixin, App):
     BINDINGS = [
         ("q", "quit", "Quit"),
         ("h", "adjust(-1, 0)", "xpixel -1"),
@@ -33,34 +34,6 @@ class KittyTestApp(App):
         height: 1fr;
     }
     """
-
-    def __init__(self) -> None:
-        super().__init__()
-        self._pending_oob_escapes: list[str] = []
-
-    def queue_oob_escape(self, cmd: str) -> None:
-        logger.debug(
-            "kitty_test_queue_oob_escape bytes=%d pending=%d",
-            len(cmd),
-            len(self._pending_oob_escapes) + 1,
-        )
-        self._pending_oob_escapes.append(cmd)
-
-    def post_display_hook(self) -> None:
-        logger.debug(
-            "kitty_test_post_display_hook pending=%d driver=%s",
-            len(self._pending_oob_escapes),
-            self._driver is not None,
-        )
-        if self._pending_oob_escapes and self._driver is not None:
-            payload = "".join(self._pending_oob_escapes)
-            logger.debug(
-                "kitty_test_flush_oob commands=%d bytes=%d",
-                len(self._pending_oob_escapes),
-                len(payload),
-            )
-            self._driver.write(payload)
-            self._pending_oob_escapes.clear()
 
     def compose(self) -> ComposeResult:
         yield KittyImageWidget(id="image")
@@ -109,7 +82,7 @@ class KittyTestApp(App):
         widget.update_image("main", img)
 
 
-class KittyMultiImageApp(App):
+class KittyMultiImageApp(KittyHostMixin, App):
     BINDINGS = [
         ("q", "quit", "Quit"),
         ("a", "move_left", "Move left"),
@@ -127,35 +100,10 @@ class KittyMultiImageApp(App):
 
     def __init__(self) -> None:
         super().__init__()
-        self._pending_oob_escapes: list[str] = []
         self._img2_x = 100
         self._img2_y = 50
         self._img3_crop_y = 0
         self._img2_removed = False
-
-    def queue_oob_escape(self, cmd: str) -> None:
-        logger.debug(
-            "kitty_multi_queue_oob_escape bytes=%d pending=%d",
-            len(cmd),
-            len(self._pending_oob_escapes) + 1,
-        )
-        self._pending_oob_escapes.append(cmd)
-
-    def post_display_hook(self) -> None:
-        logger.debug(
-            "kitty_multi_post_display_hook pending=%d driver=%s",
-            len(self._pending_oob_escapes),
-            self._driver is not None,
-        )
-        if self._pending_oob_escapes and self._driver is not None:
-            payload = "".join(self._pending_oob_escapes)
-            logger.debug(
-                "kitty_multi_flush_oob commands=%d bytes=%d",
-                len(self._pending_oob_escapes),
-                len(payload),
-            )
-            self._driver.write(payload)
-            self._pending_oob_escapes.clear()
 
     def compose(self) -> ComposeResult:
         yield KittyImageWidget(id="image")
