@@ -1,34 +1,8 @@
 import platform
 import sys
-import types
 
-print("Starting TSDR (this may take a moment on first run)...", file=sys.stderr, flush=True)
-
-
-def _install_windows_stubs() -> None:
-    """Stub POSIX-only stdlib modules the TUI imports for terminal features.
-
-    core.platform (TTY pixel size) and tui.tty (Textual's Linux driver) import
-    fcntl/termios/tty unconditionally. None of it runs under Textual's Windows
-    driver, so inert stubs let the imports succeed and the features no-op.
-    """
-
-    def _ioctl_unavailable(*_args, **_kwargs) -> None:
-        raise OSError("fcntl.ioctl is unavailable on Windows")
-
-    fcntl_stub = types.ModuleType("fcntl")
-    fcntl_stub.ioctl = _ioctl_unavailable  # type: ignore[attr-defined]
-    sys.modules.setdefault("fcntl", fcntl_stub)
-
-    termios_stub = types.ModuleType("termios")
-    termios_stub.TIOCGWINSZ = 0  # type: ignore[attr-defined]
-    sys.modules.setdefault("termios", termios_stub)
-
-    sys.modules.setdefault("tty", types.ModuleType("tty"))
-
-
-if platform.system() == "Windows":
-    _install_windows_stubs()
+if len(sys.argv) <= 1:
+    print("Starting TSDR (this may take a moment on first run)...", file=sys.stderr, flush=True)
 
 try:
     # Preflight: a missing native runtime (e.g. the MSVC redistributable on a
