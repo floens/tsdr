@@ -9,7 +9,10 @@ from tsdr import __version__
 from tsdr.core.storage import config_dir
 from tsdr.core.tracing import log_stats, span
 from tsdr.headless import run_headless
+from tsdr.tui import tty
 from tsdr.tui.app import TSDRApp
+from tsdr.tui.doctor import run_doctor
+from tsdr.tui.doctor.logbuffer import install_log_buffer
 
 _LOG_FORMAT = "%(asctime)s.%(msecs)03d [%(levelname)s] %(name)s:%(lineno)d - %(message)s"
 _LOG_DATEFMT = "%Y-%m-%d %H:%M:%S"
@@ -73,11 +76,36 @@ uv run tsdr -e "add rtl0 --type rtltcp --host localhost --port 1234 --frequency 
         action="store_true",
         help="Log at DEBUG level (default: INFO). Affects both tsdr.log and --headless stdout.",
     )
+    sub = parser.add_subparsers(dest="command")
+    doctor_p = sub.add_parser("doctor", help="Diagnose terminal & environment capabilities")
+    doctor_p.add_argument(
+        "--check",
+        action="store_true",
+        help="Non-interactive: print a text report and exit (0=ok, 1=required failure)",
+    )
+    doctor_p.add_argument(
+        "--json",
+        action="store_true",
+        help="Print JSON diagnostics to stdout and exit (for sharing/upload)",
+    )
     return parser
 
 
 def main() -> None:
     args = _build_parser().parse_args()
+
+    # The interactive doctor captures logs (incl. the probe round-trip) in memory
+    # for its Logs tab; install the buffer before the probe so its output lands.
+    if args.command == "doctor" and not (args.check or args.json):
+        install_log_buffer()
+
+    # Probe the terminal once, in cooked mode, before any Textual app grabs the
+    # tty. TUI + doctor only; headless never touches the terminal.
+    if not args.headless:
+        tty.probe_capabilities()
+
+    if args.command == "doctor":
+        sys.exit(run_doctor(check=args.check, json_out=args.json))
 
     _configure_logging(verbose=args.verbose)
     if args.headless:

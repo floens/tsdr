@@ -63,6 +63,12 @@ dmr_burst
 dmr_voice_call_confirmed
 dmr_voice_call_ended
 dmr_voice_call_started
+doctor_app_mounted
+doctor_check
+doctor_checks_start
+doctor_export
+doctor_logs_copied
+doctor_tone_toggle
 engine_prefs_sync_flushed
 engine_shutdown_complete
 engine_shutdown_starting
@@ -100,15 +106,9 @@ jitter_buffer_stop_timeout
 jitter_buffer_underflow
 kitty_image_remove_miss
 kitty_image_zero_region
-kitty_multi_flush_oob
 kitty_multi_image_on_resize
-kitty_multi_post_display_hook
-kitty_multi_queue_oob_escape
 kitty_test_adjusted_cell
-kitty_test_flush_oob
 kitty_test_on_resize
-kitty_test_post_display_hook
-kitty_test_queue_oob_escape
 kitty_test_send_all
 kitty_test_send_image
 kitty_test_zero_size
@@ -200,6 +200,10 @@ storage_read_failed
 storage_save_failed
 storage_write_failed
 sync_close_failed
+terminal_probe_reply
+terminal_probe_result
+terminal_probe_send
+terminal_probe_skipped
 tetra_block_crc_failed
 tetra_decoder_reset
 tetra_locked
@@ -218,6 +222,7 @@ textual_adapter_starting
 textual_adapter_stopped
 textual_adapter_stopping
 textual_event_adapter_initialized
+tone_player_failed
 tracing_stats
 tracing_stats_begin
 tracing_stats_empty
@@ -226,6 +231,8 @@ tsdr_starting
 ui_pipeline_error
 ui_store_mutation
 ui_store_subscriber_error
+win_console_open_failed
+win_console_query
 worker_run_crashed
 worker_started
 worker_stop_failed

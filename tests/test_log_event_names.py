@@ -75,7 +75,7 @@ def _collect_names() -> tuple[set[str], list[tuple[Path, int, str]]]:
     violations: list[tuple[Path, int, str]] = []
 
     for path in sorted(SRC_ROOT.rglob("*.py")):
-        text = path.read_text()
+        text = path.read_text(encoding="utf-8")
         try:
             tree = ast.parse(text, filename=str(path))
         except SyntaxError:
@@ -119,7 +119,9 @@ def test_log_event_names_match_snapshot() -> None:
         )
 
     expected = [
-        line for line in SNAPSHOT_PATH.read_text().splitlines() if line and not line.startswith("#")
+        line
+        for line in SNAPSHOT_PATH.read_text(encoding="utf-8").splitlines()
+        if line and not line.startswith("#")
     ]
     if observed != expected:
         SNAPSHOT_PATH.write_text("\n".join(observed) + "\n")

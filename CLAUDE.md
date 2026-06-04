@@ -30,7 +30,9 @@ src/tsdr/
     ├── events/       - EventRouter (engine events), engine_sync, prefs_sync
     ├── commands/     - Command framework, registry, and all commands
     ├── console/      - Console widget and terminal input
-    └── widgets/      - Textual widgets
+    ├── doctor/       - `tsdr doctor` terminal/env capability diagnostic (interactive + --check)
+    ├── tty.py        - APC-aware XTermParser patch + TTYWindowSpec/tty_window_spec (TTY pixel geometry)
+    └── widgets/      - Textual widgets (incl. KittyImageWidget + KittyHostMixin)
 ```
 
 ## Core Architecture
@@ -51,7 +53,7 @@ Each device runs two worker threads:
 
 Audio runs in a separate worker:
 
-- **Audio Worker**: Separate thread per audio source, outputs via sounddevice
+- **Audio Worker**: Separate thread per audio source, outputs via the `soundcard` library
 
 Queue-based communication between workers (queues live on `SDRDeviceContext`):
 - `sample_queue`: I/O → Pipeline worker (raw IQ samples)
@@ -141,6 +143,13 @@ widgets, or sets its own `.display`.
   unkeyed sibling of the reconciler tree and steal layout space.
 - **The four `_force_refresh_all` timers in `TSDRApp.on_mount`** work around
   a terminal-IO drop bug on startup. Not a mount race — keep them.
+- **Kitty images are out-of-band**: `KittyImageWidget` paints via escape
+  sequences, not cells. Any hosting `App` must inherit `KittyHostMixin`
+  (`tui/widgets/kitty_host.py`, listed before `App`) to flush queued escapes.
+  The widget hides/re-shows its own images on `Hide`/`Show` (tab switch,
+  occlusion); it can't track *scrolling* (Textual doesn't notify a moved-but-
+  visible widget), so keep kitty images out of scroll containers / in fixed
+  regions, as the visualizations do.
 
 ### Debug
 
@@ -292,7 +301,7 @@ Let errors crash with full tracebacks during development. Catch specific excepti
 
 Use pre-commit to verify code style.
 
-Do not use broad exception clauses like `except Exception:`. Exception: when catching arbitrary errors raised by external libraries or hardware drivers (e.g. SoapySDR, rtlsdr, sounddevice), narrowing is impractical because the upstream code does not document its exception types — `except Exception:` with a `# noqa: BLE001` and a justifying comment is acceptable there.
+Do not use broad exception clauses like `except Exception:`. Exception: when catching arbitrary errors raised by external libraries or hardware drivers (e.g. SoapySDR, rtlsdr, soundcard), narrowing is impractical because the upstream code does not document its exception types — `except Exception:` with a `# noqa: BLE001` and a justifying comment is acceptable there.
 
 Do not use imports on function level. Do not use `# noqa: PLC0415` to circumvent this requirement. Exception: importing optional third-party dependencies that may not be installed (e.g. `SoapySDR`, `rtlsdr`) — these belong inside the function that needs them so that the absence of the package raises an `ImportError` only when the user tries to use that backend.
 
