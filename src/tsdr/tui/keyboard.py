@@ -195,15 +195,15 @@ class KeyboardMixin(MixinBase):
                 self._adjust_gain(1)
                 event.prevent_default()
                 event.stop()
-            elif event.key == "q":
+            elif event.key == "u":
                 self._adjust_squelch(-1)
                 event.prevent_default()
                 event.stop()
-            elif event.key == "Q":
+            elif event.key == "U":
                 self._adjust_squelch(1)
                 event.prevent_default()
                 event.stop()
-            elif event.key == "ctrl+q":
+            elif event.key == "ctrl+u":
                 self._disable_squelch()
                 event.prevent_default()
                 event.stop()
