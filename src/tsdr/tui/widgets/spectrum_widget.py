@@ -751,7 +751,10 @@ class SpectrumWidget(ImageModeMixin, Widget):
         )
         freq = round(freq / step) * step
         save_previous_tune_state(device)
-        engine.update_device_config(device.device_id, center_frequency=freq)
+        try:
+            engine.update_device_config(device.device_id, center_frequency=freq)
+        except SDRException as e:
+            self.app._show_error(str(e))
         event.stop()
 
     def on_mouse_scroll_up(self, event: MouseScrollUp) -> None:
@@ -787,7 +790,10 @@ class SpectrumWidget(ImageModeMixin, Widget):
         freq = device.config.center_frequency
         new_freq = freq + direction * step
         new_freq = round(new_freq / step) * step
-        engine.update_device_config(device.device_id, center_frequency=new_freq)
+        try:
+            engine.update_device_config(device.device_id, center_frequency=new_freq)
+        except SDRException as e:
+            self.app._show_error(str(e))
 
     def _actual_freq_range(self, event: FFTUpdateEvent) -> tuple[float, float]:
         """Return (freq_min, freq_max) for the captured FFT event, accounting for zoom."""
