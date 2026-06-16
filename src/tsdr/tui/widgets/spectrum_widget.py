@@ -162,13 +162,12 @@ class SpectrumWidget(ImageModeMixin, Widget):
         device = engine.get_focused_device()
         if device is None:
             return
-        demod_info = device.active_demod_info
-        self._sideband = demod_info.sideband if demod_info else None
-        # Prefer explicit config value; fall back to demodulator default
+        profile = device.demod_profile
+        self._sideband = profile.sideband if profile else None
         if device.config.channel_bandwidth is not None:
             self._channel_bandwidth = device.config.channel_bandwidth
         else:
-            self._channel_bandwidth = demod_info.channel_bandwidth if demod_info else None
+            self._channel_bandwidth = profile.channel_bandwidth if profile else None
 
     def update_config(self) -> None:
         """Config changed - bars shift within visible range, overlays follow new config."""

@@ -8,7 +8,7 @@ from dataclasses import dataclass
 import numpy as np
 from numpy.typing import NDArray
 
-from tsdr.core.sdr.datatypes import SignalInfo
+from tsdr.core.sdr.datatypes import DemodStatus
 from tsdr.devices.base import DeviceCapabilities
 
 
@@ -227,15 +227,15 @@ class ConstellationUpdateEvent(Event):
 
 
 @dataclass(frozen=True)
-class SignalInfoEvent(Event):
-    """Live signal info from the active demodulator/decoder.
+class DemodStatusEvent(Event):
+    """Live dynamic status from the active demodulator/decoder.
 
-    Published when the SignalInfo reported by the demodulator changes
-    (e.g. decoder updating its label with a newly decoded station name).
+    Published when the DemodStatus reported by the demodulator changes
+    (e.g. decoder updating its description with a newly decoded station name).
     """
 
     device_id: str
-    signal_info: SignalInfo
+    demod_status: DemodStatus
 
 
 # Memory Events

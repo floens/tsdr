@@ -101,7 +101,7 @@ class TuningMixin(MixinBase):
         device = self._focused()
         if device is None:
             return
-        if device.active_demod_info is None:
+        if device.demod_profile is None:
             self._show_error("No active channel")
             return
         current_bw = int(current_channel_bandwidth(device))

@@ -1155,12 +1155,11 @@ class TestCheckpoint10Integration:
             decoder.demodulate(iq[start:end], i * 0.5)
             total_msgs += len(decoder.get_messages())
 
-        info = decoder.info()
         quality = decoder._state.quality
         crc_events = quality.crc_events
         n_crc = len(crc_events)
         n_ok = sum(1 for _, ok in crc_events if ok)
-        print(f"\n=== {info.label} ===")
+        print(f"\n=== {type(decoder).LABEL} ===")
         print(f"Total bursts: {quality.lifetime_bursts}")
         print(f"CRC OK: {n_ok}/{n_crc}")
         print(f"Messages: {total_msgs}")

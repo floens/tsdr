@@ -5,10 +5,8 @@ from textual.widgets import Static
 
 from tsdr.core.events.events import (
     JitterBufferUpdateEvent,
-    SignalInfoEvent,
     StatsUpdateEvent,
 )
-from tsdr.core.sdr.datatypes import SignalInfo
 from tsdr.core.sdr.device_context import DeviceState
 from tsdr.core.sdr.engine import get_engine
 from tsdr.core.units import format_hz
@@ -40,7 +38,7 @@ class StatsWidget(Static, PanelWidget):
     def __init__(self):
         super().__init__("Statistics: No data")
         self.current_event: StatsUpdateEvent | None = None
-        self._signal_info: SignalInfo | None = None
+        self._channel_bandwidth: float | None = None
         self._device_id: str | None = None
         self._jitter: JitterBufferUpdateEvent | None = None
         self._network_address: str | None = None
@@ -86,13 +84,11 @@ class StatsWidget(Static, PanelWidget):
             device.device.wire_bytes_per_sec if isinstance(device.device, HasJitterBuffer) else 0.0
         )
         self._device_state = device.state
+        profile = device.demod_profile
+        self._channel_bandwidth = profile.channel_bandwidth if profile else None
 
     def update_stats(self, event: StatsUpdateEvent) -> None:
         self.current_event = event
-        self._update()
-
-    def update_signal_info(self, event: SignalInfoEvent) -> None:
-        self._signal_info = event.signal_info
         self._update()
 
     def update_jitter_buffer(self, event: JitterBufferUpdateEvent) -> None:
@@ -193,8 +189,8 @@ class StatsWidget(Static, PanelWidget):
             if event.demod_mode == "WFM" and event.stereo is not None:
                 label = "[green]STEREO[/green]" if event.stereo else "[dim]MONO[/dim]"
                 lines.append(f"  Decode:        {label:>8}")
-            if self._signal_info is not None:
-                bw_khz = self._signal_info.channel_bandwidth / 1000
+            if self._channel_bandwidth is not None:
+                bw_khz = self._channel_bandwidth / 1000
                 lines.append(f"  Bandwidth:     [green]{bw_khz:>7.1f}[/green] kHz")
 
         lines.append("[bold cyan]Queue:[/bold cyan]")

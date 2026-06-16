@@ -32,7 +32,7 @@ from __future__ import annotations
 import numpy as np
 
 from tsdr.core.events.events import DecodedMessage
-from tsdr.core.sdr.datatypes import SignalInfo
+from tsdr.core.sdr.datatypes import DemodStatus
 from tsdr.radio.decoders.morse import MorseDecoder
 from tsdr.radio.demodulators import NYQUIST_MARGIN, Demodulator
 from tsdr.radio.dsp import (
@@ -49,7 +49,11 @@ from tsdr.radio.dsp._kernels import apply_freq_shift_c64
 class CWDemodulator(Demodulator):
     """CW (Morse code) demodulator with explicit BFO."""
 
-    has_audio = True
+    HAS_AUDIO = True
+    LABEL = "CW"
+    MODULATION = "CW"
+    MESSAGE_TYPE = "text"
+    HAS_TEXT = True
 
     DEFAULT_CHANNEL_BANDWIDTH = 200.0
     MAX_CHANNEL_BANDWIDTH = 48_000 * NYQUIST_MARGIN
@@ -123,15 +127,10 @@ class CWDemodulator(Demodulator):
         self._squelch = SquelchGate(audio_rate=self.decimated_rate)
         self._morse = MorseDecoder(self.decimated_rate)
 
-    def info(self) -> SignalInfo:
+    def status(self) -> DemodStatus:
         """Thread-safe: callable from any thread."""
-        return SignalInfo(
-            label=f"CW {int(self.tone_hz)} Hz",
-            channel_bandwidth=self.channel_bandwidth,
-            modulation="CW",
-            has_audio=True,
-            has_text=True,
-            message_type="text",
+        return DemodStatus(
+            description=f"{int(self.tone_hz)} Hz",
             squelch_open=self._squelch.is_open if self._squelch.enabled else None,
             squelch_threshold_db=self._squelch.threshold_db,
         )

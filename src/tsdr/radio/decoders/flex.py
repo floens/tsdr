@@ -16,7 +16,7 @@ import time
 import numpy as np
 
 from tsdr.core.events.events import DecodedMessage
-from tsdr.core.sdr.datatypes import SignalInfo
+from tsdr.core.sdr.datatypes import DemodStatus
 from tsdr.radio.demodulators import Demodulator
 from tsdr.radio.dsp import FMDiscriminator, MuellerMuller, StreamingFilter, firwin
 
@@ -159,6 +159,12 @@ class FLEXDecoder(Demodulator):
     Processes raw IQ samples through the full chain:
     decimate -> FM discriminator -> Mueller-Muller timing -> bit sync -> frame decode -> BCH -> messages
     """
+
+    LABEL = "FLEX 1600/2"
+    MODULATION = "2-FSK"
+    MESSAGE_TYPE = "text"
+    HAS_TEXT = True
+    FIXED_CHANNEL_BANDWIDTH = 25_000
 
     def __init__(self, sample_rate: float = 250_000):
         super().__init__()
@@ -553,7 +559,7 @@ class FLEXDecoder(Demodulator):
             return ""
         return result
 
-    def info(self) -> SignalInfo:
+    def status(self) -> DemodStatus:
         """Thread-safe: callable from any thread. Reads scalar counters only."""
         quality = None
         quality_label = None
@@ -561,15 +567,7 @@ class FLEXDecoder(Demodulator):
         if total_cw > 0:
             quality = self._codewords_ok / total_cw
             quality_label = f"BCH {quality * 100:.0f}%"
-        return SignalInfo(
-            label="FLEX 1600/2",
-            channel_bandwidth=25_000,
-            modulation="2-FSK",
-            has_text=True,
-            message_type="text",
-            quality_label=quality_label,
-            quality=quality,
-        )
+        return DemodStatus(quality_label=quality_label, quality=quality)
 
     def reset(self) -> None:
         """Reset decoder state."""

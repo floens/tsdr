@@ -96,7 +96,7 @@ def _make_router(store: UIStore, reconciler: _FakeReconciler, engine: _FakeEngin
         "handle_samples_dropped",
         "handle_pipeline_error",
         "handle_recording_finished",
-        "handle_signal_info",
+        "handle_demod_status",
         "handle_memories_changed",
         "handle_bandplan_changed",
         "handle_band_stack_changed",
@@ -310,7 +310,7 @@ def test_pipeline_changed_seeds_devices_from_engine() -> None:
     engine.devices["rtl0"] = types.SimpleNamespace(
         device_id="rtl0",
         config=types.SimpleNamespace(pipelines={"audio": object(), "visualization": object()}),
-        active_demod_info=demod,
+        demod_profile=demod,
     )
     engine._focused_id = "rtl0"
     router = _make_router(store, _FakeReconciler(), engine)
@@ -332,7 +332,7 @@ def test_pipeline_changed_visualization_still_seeds_device() -> None:
     engine.devices["rtl0"] = types.SimpleNamespace(
         device_id="rtl0",
         config=types.SimpleNamespace(pipelines={"visualization": object()}),
-        active_demod_info=None,
+        demod_profile=None,
     )
     engine._focused_id = "rtl0"
     router = _make_router(store, _FakeReconciler(), engine)
@@ -368,7 +368,7 @@ def test_seed_from_engine_populates_store() -> None:
     ctx = types.SimpleNamespace(
         device_id="rtl0",
         config=types.SimpleNamespace(pipelines={"audio": object(), "visualization": object()}),
-        active_demod_info=types.SimpleNamespace(message_type="rds"),
+        demod_profile=types.SimpleNamespace(message_type="rds"),
     )
     engine.devices["rtl0"] = ctx
     engine._focused_id = "rtl0"
@@ -397,7 +397,7 @@ def test_device_added_seeds_store_from_engine() -> None:
     engine.devices["rtl0"] = types.SimpleNamespace(
         device_id="rtl0",
         config=types.SimpleNamespace(pipelines={"visualization": object()}),
-        active_demod_info=None,
+        demod_profile=None,
     )
     engine._focused_id = "rtl0"
     router = _make_router(store, _FakeReconciler(), engine)
@@ -430,7 +430,7 @@ def test_focus_changed_reseeds_and_nudges_widgets() -> None:
     engine.devices["rtl1"] = types.SimpleNamespace(
         device_id="rtl1",
         config=types.SimpleNamespace(pipelines={"visualization": object()}),
-        active_demod_info=None,
+        demod_profile=None,
     )
     engine._focused_id = "rtl1"
     store = UIStore(

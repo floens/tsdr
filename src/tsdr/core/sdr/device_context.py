@@ -13,11 +13,12 @@ from tsdr.core.sdr.pipeline.stages.demodulator_stage import DemodulatorStage
 from tsdr.core.sdr.workers.io_worker import IOWorker
 from tsdr.core.sdr.workers.pipeline_worker import PipelineWorker
 from tsdr.core.tracing import traced
+from tsdr.radio.registry import demod_profile as build_profile
 
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
-    from tsdr.core.sdr.datatypes import SignalInfo
+    from tsdr.core.sdr.datatypes import DemodProfile, DemodStatus
     from tsdr.core.workers import WorkerHandle
     from tsdr.devices import DeviceParams, SDRDevice
 
@@ -103,16 +104,27 @@ class SDRDeviceContext:
             return self._device_config
 
     @property
-    def active_demod_info(self) -> SignalInfo | None:
-        """Thread-safe: callable from any thread.
+    def demod_profile(self) -> DemodProfile | None:
+        """Structural (desired-state) profile of the active demod, from the spec.
 
-        Derived from pipeline stages - read-only. Delegates to the
-        demodulator's `info()`, which must itself be thread-safe.
+        None when no audio demod is configured (RAW). Thread-safe.
+        """
+        mode = self.active_mode
+        if mode == "RAW":
+            return None
+        return build_profile(mode, self.config.channel_bandwidth)
+
+    @property
+    def demod_status(self) -> DemodStatus | None:
+        """Live (actual-state) status of the running demodulator instance.
+
+        Thread-safe: delegates to the demodulator's `status()`, which must
+        itself be thread-safe.
         """
         for pipeline in self.pipelines.values():
             for stage in pipeline.stages:
                 if isinstance(stage, DemodulatorStage):
-                    return stage.demodulator.info()
+                    return stage.demodulator.status()
         return None
 
     @property

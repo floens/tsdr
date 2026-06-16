@@ -10,6 +10,7 @@ from tsdr.core.events.events import (
     ConfigChangedEvent,
     ConstellationUpdateEvent,
     DecoderOutputEvent,
+    DemodStatusEvent,
     DeviceAddedEvent,
     DeviceCapabilitiesChangedEvent,
     DeviceErrorEvent,
@@ -24,7 +25,6 @@ from tsdr.core.events.events import (
     PipelineErrorEvent,
     RecordingFinishedEvent,
     SamplesDroppedEvent,
-    SignalInfoEvent,
     StatsUpdateEvent,
     TuningStateChangedEvent,
 )
@@ -36,6 +36,7 @@ from tsdr.tui.messages import (
     ConfigChanged,
     ConstellationUpdate,
     DecoderOutput,
+    DemodStatusUpdate,
     DeviceAdded,
     DeviceCapabilitiesChanged,
     DeviceError,
@@ -49,7 +50,6 @@ from tsdr.tui.messages import (
     PipelineError,
     RecordingFinished,
     SamplesDropped,
-    SignalInfoUpdate,
     StatsUpdate,
     TuningStateChanged,
 )
@@ -125,7 +125,9 @@ class TextualEventAdapter:
         self._subscriptions.append(
             self.event_bus.subscribe(PipelineChangedEvent, self._on_pipeline_changed)
         )
-        self._subscriptions.append(self.event_bus.subscribe(SignalInfoEvent, self._on_signal_info))
+        self._subscriptions.append(
+            self.event_bus.subscribe(DemodStatusEvent, self._on_demod_status)
+        )
         self._subscriptions.append(
             self.event_bus.subscribe(DecoderOutputEvent, self._on_decoder_output)
         )
@@ -253,10 +255,10 @@ class TextualEventAdapter:
             return
         self.app.post_message(PipelineChanged(event))
 
-    def _on_signal_info(self, event: Event) -> None:
-        if not isinstance(event, SignalInfoEvent):
+    def _on_demod_status(self, event: Event) -> None:
+        if not isinstance(event, DemodStatusEvent):
             return
-        self.app.post_message(SignalInfoUpdate(event))
+        self.app.post_message(DemodStatusUpdate(event))
 
     def _on_decoder_output(self, event: Event) -> None:
         if not isinstance(event, DecoderOutputEvent):

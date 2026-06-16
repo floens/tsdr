@@ -5,12 +5,12 @@ import numpy as np
 from tsdr.core.events.events import (
     ConstellationUpdateEvent,
     DecoderOutputEvent,
+    DemodStatusEvent,
     FFTUpdateEvent,
-    SignalInfoEvent,
     StatsUpdateEvent,
 )
 from tsdr.core.sdr.config import SDRConfig
-from tsdr.core.sdr.datatypes import SignalInfo
+from tsdr.core.sdr.datatypes import DemodStatus
 from tsdr.core.sdr.pipeline.pipeline import PipelineContext
 from tsdr.core.sdr.processing import compute_statistics
 from tsdr.core.sdr.samples_batch import SamplesBatch
@@ -54,7 +54,7 @@ class EventEmitterStage:
         self.fft_rate_limiter = RateLimiter(target_fps=config.update_rate_fps)
         self.stats_rate_limiter = RateLimiter(target_fps=config.update_rate_fps)
         self.constellation_rate_limiter = RateLimiter(target_fps=20)
-        self._last_signal_info: SignalInfo | None = None
+        self._last_demod_status: DemodStatus | None = None
 
     @traced("event_emitter")
     def process(self, data: SamplesBatch, context: PipelineContext) -> SamplesBatch | None:
@@ -63,7 +63,7 @@ class EventEmitterStage:
 
         self._emit_fft(data, context, device_id)
         self._emit_stats(data, context, device_id)
-        self._emit_signal_info(data, context, device_id)
+        self._emit_demod_status(data, context, device_id)
         self._emit_decoder_messages(data, context, device_id)
         self._emit_constellation(data, context, device_id)
 
@@ -93,8 +93,8 @@ class EventEmitterStage:
             return
 
         dc = context.device_context
-        demod_info = dc.active_demod_info if dc else None
-        channel_bw = demod_info.channel_bandwidth if demod_info else None
+        profile = dc.demod_profile if dc else None
+        channel_bw = profile.channel_bandwidth if profile else None
         signal_stats = compute_statistics(
             data.spectrum,
             data.center_frequency,
@@ -146,19 +146,19 @@ class EventEmitterStage:
             )
         )
 
-    def _emit_signal_info(
+    def _emit_demod_status(
         self, data: SamplesBatch, context: PipelineContext, device_id: str
     ) -> None:
-        if data.signal_info is None:
+        if data.demod_status is None:
             return
-        if data.signal_info == self._last_signal_info:
+        if data.demod_status == self._last_demod_status:
             return
-        self._last_signal_info = data.signal_info
+        self._last_demod_status = data.demod_status
         context.event_bus.publish(
-            SignalInfoEvent(
-                source_id=f"signal_info_{device_id}",
+            DemodStatusEvent(
+                source_id=f"demod_status_{device_id}",
                 device_id=device_id,
-                signal_info=data.signal_info,
+                demod_status=data.demod_status,
             )
         )
 
@@ -200,4 +200,4 @@ class EventEmitterStage:
             self.stats_rate_limiter.set_target_fps(config.update_rate_fps)
 
     def reset(self) -> None:
-        self._last_signal_info = None
+        self._last_demod_status = None

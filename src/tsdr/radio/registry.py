@@ -1,11 +1,12 @@
 from collections.abc import Callable
 from functools import partial
 
+from tsdr.core.sdr.datatypes import DemodProfile
 from tsdr.radio.demodulators import Demodulator
 
 # mode name -> factory callable (receives sample_rate kwarg, returns Demodulator)
 DEMODULATORS: dict[str, Callable[..., Demodulator]] = {}
-# Parallel to DEMODULATORS, for class-attribute lookups (e.g. has_audio) without instantiating.
+# Parallel to DEMODULATORS, for class-attribute lookups (e.g. HAS_AUDIO) without instantiating.
 DEMODULATOR_CLASSES: dict[str, type[Demodulator]] = {}
 
 
@@ -33,6 +34,15 @@ def make_demodulator(
     if mode == "SSTV" and sstv_mode is not None:
         kw["sstv_mode"] = sstv_mode
     return DEMODULATORS[mode](sample_rate=sample_rate, **kw)
+
+
+def demod_profile(mode: str, channel_bandwidth: float | None = None) -> DemodProfile:
+    """Structural profile for `mode` without building the demodulator (desired state)."""
+    mode = mode.upper()
+    cls = DEMODULATOR_CLASSES.get(mode)
+    if cls is None:
+        raise ValueError(f"Unknown demodulator mode: {mode}")
+    return cls.profile(mode=mode, channel_bandwidth=channel_bandwidth)
 
 
 # Built-in audio demodulators

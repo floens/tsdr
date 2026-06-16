@@ -20,7 +20,6 @@ from typing import ClassVar, Literal
 import numpy as np
 
 from tsdr.core.events.events import DecodedMessage
-from tsdr.core.sdr.datatypes import SignalInfo
 from tsdr.radio.decoders.wsjt.decode import analyze_slot, decode_candidates
 from tsdr.radio.decoders.wsjt.tables import FT4_SLOT_TIME, FT8_SLOT_TIME
 from tsdr.radio.demodulators import NYQUIST_MARGIN, Demodulator
@@ -37,7 +36,11 @@ SUPPORTED_MODES: tuple[WSJTMode, ...] = ("FT8", "FT4")
 class WSJTDemodulator(Demodulator):
     """Slot-based FT8 / FT4 demodulator + decoder."""
 
-    has_audio: ClassVar[bool] = True
+    HAS_AUDIO: ClassVar[bool] = True
+    MODULATION = "FSK"
+    MESSAGE_TYPE = "text"
+    HAS_TEXT = True
+    SIDEBAND = "upper"
 
     DEFAULT_CHANNEL_BANDWIDTH = 3_000.0
     MAX_CHANNEL_BANDWIDTH = TARGET_RATE * NYQUIST_MARGIN
@@ -127,18 +130,9 @@ class WSJTDemodulator(Demodulator):
         self._slot0_utc_s = None
         self._slot_index = 0
 
-    def info(self) -> SignalInfo:
-        return SignalInfo(
-            label=self.mode,
-            channel_bandwidth=self.channel_bandwidth,
-            modulation="FSK",
-            sample_rate=self.sample_rate,
-            has_audio=True,
-            has_text=True,
-            message_type="text",
-            # USB: audio band is +200..+3000 Hz of the suppressed carrier.
-            sideband="upper",
-        )
+    @classmethod
+    def _label_for(cls, mode: str) -> str:
+        return mode.upper()
 
     def demodulate(self, iq_samples: np.ndarray, capture_utc_s: float) -> None:
         if len(iq_samples) == 0:

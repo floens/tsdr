@@ -19,8 +19,8 @@ from textual.widgets import Static
 
 from tsdr.core.band_stack import get_band_stack
 from tsdr.core.clock_sync import get_clock_sync_monitor, now
-from tsdr.core.events.events import DeviceStateChangedEvent, SignalInfoEvent, StatsUpdateEvent
-from tsdr.core.sdr.datatypes import SignalInfo
+from tsdr.core.events.events import DemodStatusEvent, DeviceStateChangedEvent, StatsUpdateEvent
+from tsdr.core.sdr.datatypes import DemodProfile, DemodStatus
 from tsdr.core.sdr.device_context import DeviceState
 from tsdr.core.sdr.engine import get_engine
 from tsdr.core.tracing import span
@@ -36,29 +36,31 @@ Half = Literal["top", "bottom"]
 _DOT_REPLACEMENTS = str.maketrans({".": "\u2022"})
 
 
-def _format_signal_info(info: SignalInfo, device_sample_rate: float | None) -> str:
-    """Format SignalInfo for the 3-line tuner widget.
+def _format_signal_info(
+    profile: DemodProfile, status: DemodStatus | None, device_sample_rate: float | None
+) -> str:
+    """Format the demod profile + status for the 3-line tuner widget.
 
     Layout:
-        <label>
-        <modulation>
+        <label>            (structural, from the profile)
+        <modulation>       (structural, from the profile)
         <description, or sample-rate mismatch warning if the decoder requires
         a rate different from the device's: in that case it's producing
         garbage and the description is moot>
 
     Decoder-specific role badges (e.g. TETRA MCCH/TCH) live inside
-    `info.description`; the tuner just renders it as-is.
+    `status.description`; the tuner just renders it as-is.
     """
-    lines = [f"[bold]{info.label}[/bold]", f"[dim]{info.modulation}[/dim]"]
+    lines = [f"[bold]{profile.label}[/bold]", f"[dim]{profile.modulation}[/dim]"]
     if (
-        info.sample_rate is not None
+        profile.sample_rate is not None
         and device_sample_rate is not None
-        and abs(info.sample_rate - device_sample_rate) > 1.0
+        and abs(profile.sample_rate - device_sample_rate) > 1.0
     ):
-        value, unit = format_rate(info.sample_rate, precision=3)
+        value, unit = format_rate(profile.sample_rate, precision=3)
         lines.append(f"[red bold]Needs {value} {unit}[/red bold]")
-    elif info.description:
-        lines.append(f"[dim]{info.description}[/dim]")
+    elif status is not None and status.description:
+        lines.append(f"[dim]{status.description}[/dim]")
     return "\n".join(lines)
 
 
@@ -299,6 +301,7 @@ class TunerWidget(Vertical):
     _sr_line: str = ""
     _gain_line: str = ""
     _sample_rate: float | None = None
+    _demod_profile: DemodProfile | None = None
 
     def compose(self) -> ComposeResult:
         with Horizontal(id="tuner-row"):
@@ -363,13 +366,18 @@ class TunerWidget(Vertical):
             f"{self._sr_line}\n{self._gain_line}\n{self._vol_line()}"
         )
 
-        demod_info = device.active_demod_info
-        mode_text = _format_signal_info(demod_info, config.sample_rate) if demod_info else ""
+        profile = device.demod_profile
+        self._demod_profile = profile
+        status = device.demod_status
+        mode_text = _format_signal_info(profile, status, config.sample_rate) if profile else ""
         self.query_one("#tuner-mode", Static).update(mode_text)
-        if demod_info:
-            meter = self.query_one("#tuner-meter", SNRWidget)
-            meter.update_quality(demod_info.quality_label, demod_info.quality)
-            meter.update_squelch(demod_info.squelch_threshold_db, demod_info.squelch_open)
+        meter = self.query_one("#tuner-meter", SNRWidget)
+        if profile is not None and status is not None:
+            meter.update_quality(status.quality_label, status.quality)
+            meter.update_squelch(status.squelch_threshold_db, status.squelch_open)
+        else:
+            meter.update_quality(None, None)
+            meter.update_squelch(None, None)
 
         self._render_state_column(device.active_mode, float(config.center_frequency))
 
@@ -414,14 +422,14 @@ class TunerWidget(Vertical):
             f"{self._sr_line}\n{clip_prefix}{self._gain_line}\n{self._vol_line()}"
         )
 
-    def update_signal_info(self, event: SignalInfoEvent) -> None:
-        self.query_one("#tuner-mode", Static).update(
-            _format_signal_info(event.signal_info, self._sample_rate)
-        )
-        info = event.signal_info
+    def update_status(self, event: DemodStatusEvent) -> None:
+        profile = self._demod_profile
+        status = event.demod_status
+        mode_text = _format_signal_info(profile, status, self._sample_rate) if profile else ""
+        self.query_one("#tuner-mode", Static).update(mode_text)
         meter = self.query_one("#tuner-meter", SNRWidget)
-        meter.update_quality(info.quality_label, info.quality)
-        meter.update_squelch(info.squelch_threshold_db, info.squelch_open)
+        meter.update_quality(status.quality_label, status.quality)
+        meter.update_squelch(status.squelch_threshold_db, status.squelch_open)
 
     def on_hoverable_digits_digit_adjusted(self, event: HoverableDigits.DigitAdjusted) -> None:
         with span("ui.tuner_scroll"):

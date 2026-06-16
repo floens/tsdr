@@ -418,10 +418,11 @@ class KeyboardMixin(MixinBase):
 
         freq = int(device.config.center_frequency)
         mode = device.active_mode
-        demod_info = device.active_demod_info
-        bandwidth = int(demod_info.channel_bandwidth) if demod_info else 12500
+        profile = device.demod_profile
+        status = device.demod_status
+        bandwidth = int(profile.channel_bandwidth) if profile else 12500
 
-        desc = demod_info.description if demod_info and demod_info.description else ""
+        desc = status.description if status and status.description else ""
         desc = Text.from_markup(desc).plain if desc else ""
 
         if not desc:
@@ -446,8 +447,8 @@ class KeyboardMixin(MixinBase):
             return
 
         freq = int(device.config.center_frequency)
-        demod_info = device.active_demod_info
-        max_dist = int(demod_info.channel_bandwidth) if demod_info else 12500
+        profile = device.demod_profile
+        max_dist = int(profile.channel_bandwidth) if profile else 12500
 
         store = get_memory_store()
         memory = store.find_nearest(freq, max_dist)
@@ -465,8 +466,8 @@ class KeyboardMixin(MixinBase):
             return
 
         freq = int(device.config.center_frequency)
-        demod_info = device.active_demod_info
-        max_dist = int(demod_info.channel_bandwidth) if demod_info else 12500
+        profile = device.demod_profile
+        max_dist = int(profile.channel_bandwidth) if profile else 12500
 
         store = get_memory_store()
         memory = store.find_nearest(freq, max_dist)

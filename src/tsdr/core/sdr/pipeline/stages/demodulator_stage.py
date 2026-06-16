@@ -25,7 +25,7 @@ class DemodulatorStage:
         pipeline_name: str = "",
     ):
         self._demodulator = demodulator
-        raw_name = mode_name or demodulator.info().label
+        raw_name = mode_name or type(demodulator).LABEL
         self.mode_name = raw_name.upper().replace(" ", "")
         self._pipeline_name = pipeline_name
         self._last_freq: float | None = None
@@ -56,11 +56,10 @@ class DemodulatorStage:
         if batches and context.device_context is not None:
             context.device_context.stereo = batches[-1].stereo
 
-        # Put decoded messages and signal info on SamplesBatch
         messages = self._demodulator.get_messages()
         changes: dict = {
             "stage_name": "demodulator",
-            "signal_info": self._demodulator.info(),
+            "demod_status": self._demodulator.status(),
             "audio_batches": batches,
         }
         if messages:

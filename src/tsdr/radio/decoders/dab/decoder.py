@@ -6,7 +6,7 @@ import time
 import numpy as np
 
 from tsdr.core.events.events import DecodedMessage
-from tsdr.core.sdr.datatypes import AudioBatch, SignalInfo
+from tsdr.core.sdr.datatypes import AudioBatch, DemodStatus
 from tsdr.core.tracing import span
 from tsdr.radio.demodulators import Demodulator
 
@@ -180,7 +180,13 @@ class DABDecoder(Demodulator):
     Audio output: call get_audio() to retrieve decoded PCM batches.
     """
 
-    has_audio = True
+    HAS_AUDIO = True
+    LABEL = "DAB+ Mode I"
+    MODULATION = "OFDM-DQPSK"
+    MESSAGE_TYPE = "dab"
+    HAS_TEXT = True
+    FIXED_CHANNEL_BANDWIDTH = 1_536_000
+    FIXED_SAMPLE_RATE = 2_048_000
 
     def __init__(self, sample_rate: float = 2_048_000):
         super().__init__()
@@ -492,7 +498,7 @@ class DABDecoder(Demodulator):
                 )
             )
 
-    def info(self) -> SignalInfo:
+    def status(self) -> DemodStatus:
         """Thread-safe: callable from any thread. Reads scalar counters only."""
         quality = None
         quality_label = None
@@ -503,14 +509,7 @@ class DABDecoder(Demodulator):
         if self._selected_service is not None and self._selected_service.label:
             description = self._selected_service.label.strip()
 
-        return SignalInfo(
-            label="DAB+ Mode I",
-            channel_bandwidth=1_536_000,
-            modulation="OFDM-DQPSK",
-            sample_rate=2_048_000,
-            has_audio=True,
-            has_text=True,
-            message_type="dab",
+        return DemodStatus(
             quality_label=quality_label,
             quality=quality,
             description=description or None,

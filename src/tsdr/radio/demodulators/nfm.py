@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from tsdr.core.sdr.datatypes import SignalInfo
+from tsdr.core.sdr.datatypes import DemodStatus
 from tsdr.radio.demodulators import NYQUIST_MARGIN, Demodulator
 from tsdr.radio.dsp import (
     FMDiscriminator,
@@ -33,7 +33,9 @@ class NarrowbandFMDemodulator(Demodulator):
         >>> batches = demod.get_audio()
     """
 
-    has_audio = True
+    HAS_AUDIO = True
+    LABEL = "Narrowband FM"
+    MODULATION = "FM"
 
     # Default channel bandwidth for NFM (12.5 kHz standard channel spacing)
     DEFAULT_CHANNEL_BANDWIDTH = 12_500
@@ -124,13 +126,9 @@ class NarrowbandFMDemodulator(Demodulator):
         self._deviation_override = self.deviation
         self._fm_discrim.set_deviation(self.decimated_rate, self.deviation)
 
-    def info(self) -> SignalInfo:
+    def status(self) -> DemodStatus:
         """Thread-safe: callable from any thread."""
-        return SignalInfo(
-            label="Narrowband FM",
-            channel_bandwidth=self.channel_bandwidth,
-            modulation="FM",
-            has_audio=True,
+        return DemodStatus(
             squelch_open=self._squelch.is_open if self._squelch.enabled else None,
             squelch_threshold_db=self._squelch.threshold_db,
         )

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from tsdr.core.sdr.datatypes import SignalInfo
+from tsdr.core.sdr.datatypes import DemodStatus
 from tsdr.radio.demodulators import NYQUIST_MARGIN, Demodulator
 from tsdr.radio.dsp import (
     AGC,
@@ -28,7 +28,9 @@ class AMDemodulator(Demodulator):
     impractical -- transition bandwidth scales with fs/numtaps).
     """
 
-    has_audio = True
+    HAS_AUDIO = True
+    LABEL = "AM"
+    MODULATION = "AM"
 
     DEFAULT_CHANNEL_BANDWIDTH = 10_000
     MAX_CHANNEL_BANDWIDTH = 48_000 * NYQUIST_MARGIN
@@ -102,12 +104,8 @@ class AMDemodulator(Demodulator):
         )
         self._squelch = SquelchGate(audio_rate=self.decimated_rate)
 
-    def info(self) -> SignalInfo:
-        return SignalInfo(
-            label="AM",
-            channel_bandwidth=self.channel_bandwidth,
-            modulation="AM",
-            has_audio=True,
+    def status(self) -> DemodStatus:
+        return DemodStatus(
             squelch_open=self._squelch.is_open if self._squelch.enabled else None,
             squelch_threshold_db=self._squelch.threshold_db,
         )

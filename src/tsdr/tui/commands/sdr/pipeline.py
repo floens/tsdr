@@ -5,6 +5,7 @@ from types import MappingProxyType
 from tsdr.core.sdr.config import StageType
 from tsdr.core.sdr.engine import get_engine
 from tsdr.core.sdr.exceptions import SDRException
+from tsdr.radio.registry import demod_profile
 from tsdr.tui.commands._format import freq_mhz, rate_sps, success
 from tsdr.tui.commands.base import Command, CommandParser, Completion
 from tsdr.tui.commands.sdr._utils import device_id_completions, get_focused_device_id
@@ -102,11 +103,11 @@ class SDRPipelineCommand(Command):
             offset_khz = stage.frequency_offset / 1e3
             return f"[yellow]FrequencyShiftStage[/] [dim]offset=[/]{offset_khz:+.1f} kHz"
         elif stage_type == "DemodulatorStage":
-            info = stage.demodulator.info()
+            profile = demod_profile(stage.mode_name)
             return (
                 f"[green]DemodulatorStage[/] "
-                f"[bold green]{info.label}[/] "
-                f"[dim]({info.modulation})[/]"
+                f"[bold green]{profile.label}[/] "
+                f"[dim]({profile.modulation})[/]"
             )
         elif stage_type == "RecordStage":
             return f"[cyan]RecordStage[/] [dim]→[/] {stage._path.name}"

@@ -10,7 +10,7 @@ from tsdr.radio.dsp._kernels import _sint8_iq_to_complex64, _uint8_iq_to_complex
 
 if TYPE_CHECKING:
     from tsdr.core.events.events import DecodedMessage
-    from tsdr.core.sdr.datatypes import AudioBatch, SignalInfo
+    from tsdr.core.sdr.datatypes import AudioBatch, DemodStatus
 
 
 class SampleFormat(Enum):
@@ -59,7 +59,7 @@ class SamplesBatch:
     constellation_points: np.ndarray | None = None
     constellation_modulation: str = ""  # e.g. "BPSK", "QPSK"
     decoded_messages: tuple[DecodedMessage, ...] = field(default_factory=tuple)
-    signal_info: SignalInfo | None = None
+    demod_status: DemodStatus | None = None
     audio_batches: tuple[AudioBatch, ...] = field(default_factory=tuple)
 
     # RF context at time of capture

@@ -6,7 +6,7 @@ import numba as nb
 import numpy as np
 
 from tsdr.core.events.events import DecodedMessage
-from tsdr.core.sdr.datatypes import SignalInfo
+from tsdr.core.sdr.datatypes import DemodStatus
 from tsdr.core.tracing import span
 from tsdr.radio.decoders.rds import RDSData, RDSDecoder
 from tsdr.radio.demodulators import Demodulator
@@ -72,7 +72,11 @@ class WidebandFMDemodulator(Demodulator):
         >>> batches = demod.get_audio()
     """
 
-    has_audio = True
+    HAS_AUDIO = True
+    LABEL = "Wideband FM"
+    MODULATION = "FM"
+    MESSAGE_TYPE = "rds"
+    HAS_TEXT = True
 
     # Default channel bandwidth for WFM (200 kHz for stereo + RDS)
     DEFAULT_CHANNEL_BANDWIDTH = 200_000
@@ -123,7 +127,6 @@ class WidebandFMDemodulator(Demodulator):
         self._channel_decim_phase = 0
         self._rds_decoder: RDSDecoder | None = None
         self.stereo_detected: bool = False
-        # Cached station name kept for SignalInfo while the worker mutates state on another thread.
         self._last_ps_name: str = ""
         self._messages: list[DecodedMessage] = []
 
@@ -178,19 +181,12 @@ class WidebandFMDemodulator(Demodulator):
         self._last_ps_name = ""
         self._messages.clear()
 
-    def info(self) -> SignalInfo:
+    def status(self) -> DemodStatus:
         """Thread-safe: callable from any thread. Reads scalar fields only."""
         # Normalize pilot SNR: 3 dB (unlock) = 0.0, 20 dB (strong) = 1.0
         quality = max(0.0, min(1.0, (self.pilot_snr_ema - 3.0) / 17.0))
-        quality_label = f"Pilot {self.pilot_snr_ema:.0f} dB"
-        return SignalInfo(
-            label="Wideband FM",
-            channel_bandwidth=self.channel_bandwidth,
-            modulation=("Stereo " if self.stereo_detected else "") + "FM",
-            has_audio=True,
-            has_text=True,
-            message_type="rds",
-            quality_label=quality_label,
+        return DemodStatus(
+            quality_label=f"Pilot {self.pilot_snr_ema:.0f} dB",
             quality=quality,
             description=self._last_ps_name or None,
         )

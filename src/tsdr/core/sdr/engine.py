@@ -230,7 +230,7 @@ class SDREngine:
         # Start device workers (pipeline worker materializes pipelines in setup)
         context.start(worker_runner=self.worker_runner)
 
-        if context.active_demod_info and context.active_demod_info.has_audio:
+        if context.demod_profile and context.demod_profile.has_audio:
             self.start_audio_output(device_id)
 
         self.event_bus.publish(
@@ -584,7 +584,7 @@ class SDREngine:
         new_stages_tuple = tuple(new_stages)
 
         new_cls = DEMODULATOR_CLASSES.get(spec.mode.upper())
-        new_has_audio = new_cls is not None and new_cls.has_audio
+        new_has_audio = new_cls is not None and new_cls.HAS_AUDIO
         new_bw = (
             new_cls.bandwidth_override_on_mode_switch(context.config.channel_bandwidth)
             if new_cls is not None
@@ -621,7 +621,7 @@ class SDREngine:
             PipelineConfig(stages=new_stages_tuple, audio_spec=spec),
         )
 
-        if context.active_demod_info and context.active_demod_info.has_audio:
+        if context.demod_profile and context.demod_profile.has_audio:
             self.start_audio_output(device_id)
 
     def _on_agc_gain_change(self, event: Event) -> None:

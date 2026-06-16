@@ -21,9 +21,11 @@ SDRangel's ``m_rfBandwidth``).
 
 from __future__ import annotations
 
+from typing import Literal
+
 import numpy as np
 
-from tsdr.core.sdr.datatypes import SignalInfo
+from tsdr.core.sdr.datatypes import DemodStatus
 from tsdr.radio.demodulators import NYQUIST_MARGIN, Demodulator
 from tsdr.radio.dsp import (
     AGC,
@@ -40,7 +42,8 @@ from tsdr.radio.dsp._kernels import apply_freq_shift_c64
 class SSBDemodulator(Demodulator):
     """SSB (Single Sideband) demodulator for USB/LSB amateur-radio voice."""
 
-    has_audio = True
+    HAS_AUDIO = True
+    MODULATION = "SSB"
 
     # Audio passband upper cutoff in Hz; matches SDRangel default.
     DEFAULT_CHANNEL_BANDWIDTH = 3_000
@@ -131,16 +134,19 @@ class SSBDemodulator(Demodulator):
         )
         self._squelch = SquelchGate(audio_rate=self.decimated_rate)
 
-    def info(self) -> SignalInfo:
+    @classmethod
+    def _label_for(cls, mode: str) -> str:
+        return mode.upper()
+
+    @classmethod
+    def _sideband_for(cls, mode: str) -> Literal["upper", "lower"] | None:
+        return "upper" if mode.upper() == "USB" else "lower"
+
+    def status(self) -> DemodStatus:
         """Thread-safe: callable from any thread."""
-        return SignalInfo(
-            label=self.mode,
-            channel_bandwidth=self.channel_bandwidth,
-            modulation="SSB",
-            has_audio=True,
+        return DemodStatus(
             squelch_open=self._squelch.is_open if self._squelch.enabled else None,
             squelch_threshold_db=self._squelch.threshold_db,
-            sideband="upper" if self.mode == "USB" else "lower",
         )
 
     def set_squelch(self, enabled: bool, threshold_db: float, hang_ms: float) -> None:

@@ -19,7 +19,7 @@ import numba as nb
 import numpy as np
 
 from tsdr.core.events.events import DecodedMessage
-from tsdr.core.sdr.datatypes import SignalInfo
+from tsdr.core.sdr.datatypes import DemodStatus
 from tsdr.radio.demodulators import Demodulator
 
 logger = logging.getLogger(__name__)
@@ -1038,6 +1038,13 @@ _OVERLAP_SAMPLES = 288
 class ADSBDecoder(Demodulator):
     """ADS-B 1090ES decoder."""
 
+    LABEL = "ADS-B 1090ES"
+    MODULATION = "PPM"
+    MESSAGE_TYPE = "adsb"
+    HAS_TEXT = True
+    FIXED_CHANNEL_BANDWIDTH = 2_000_000
+    FIXED_SAMPLE_RATE = 2_400_000
+
     def __init__(self, sample_rate: float = 2_400_000):
         super().__init__()
         self.sample_rate = sample_rate
@@ -1080,23 +1087,14 @@ class ADSBDecoder(Demodulator):
             messages[-1] = DecodedMessage(text=last.text, timestamp=last.timestamp, data=snapshot)
         return messages
 
-    def info(self) -> SignalInfo:
+    def status(self) -> DemodStatus:
         """Thread-safe: callable from any thread. Reads scalar counters only."""
         quality = None
         quality_label = None
         if self._messages_decoded > 0:
             quality = min(1.0, self._df17_count / self._messages_decoded)
             quality_label = f"DF17 {quality * 100:.0f}%"
-        return SignalInfo(
-            label="ADS-B 1090ES",
-            channel_bandwidth=2_000_000,
-            modulation="PPM",
-            sample_rate=2_400_000,
-            has_text=True,
-            message_type="adsb",
-            quality_label=quality_label,
-            quality=quality,
-        )
+        return DemodStatus(quality_label=quality_label, quality=quality)
 
     def reset(self) -> None:
         self._overlap = np.zeros(0, dtype=np.uint16)

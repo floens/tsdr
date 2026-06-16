@@ -26,32 +26,48 @@ class AudioBatch:
 
 
 @dataclass(frozen=True)
-class SignalInfo:
-    """Describes the signal a demodulator or decoder is processing.
+class DemodProfile:
+    """Structural (desired-state) description of a demodulator/decoder.
 
     Attributes:
         label: Human-readable name (e.g. "Wideband FM", "DAB+ Mode I")
-        channel_bandwidth: Channel bandwidth in Hz
         modulation: Modulation type (e.g. "FM", "OFDM-DQPSK")
+        channel_bandwidth: Channel bandwidth in Hz
         sample_rate: Required input sample rate in Hz, or None if any rate works
+        message_type: None, "text", "rds", … — UI picks the decoder widget
+        sideband: SSB-style asymmetric filter — channel passband sits entirely
+            on one side of the carrier ("upper" → [center, center+bw], "lower" →
+            [center-bw, center]). None means symmetric around the carrier.
     """
 
     label: str
-    channel_bandwidth: float
     modulation: str
+    channel_bandwidth: float
     sample_rate: float | None = None
     has_audio: bool = False
     has_text: bool = False
-    message_type: str | None = None  # None, "text", "rds" - UI picks widget
-    quality_label: str | None = None  # e.g. "50% CRC", "98% BER"
-    quality: float | None = None  # 0.0 (worst) to 1.0 (best)
-    description: str | None = None  # Protocol-specific identifier for display
-    squelch_open: bool | None = None  # None = no squelch, True/False = gate state
-    squelch_threshold_db: float | None = None  # Threshold (dBFS) when squelch is configured
-    # SSB-style asymmetric filter: channel passband sits entirely on one side
-    # of the carrier ("upper" → [center, center+bw], "lower" → [center-bw, center]).
-    # None means symmetric around the carrier.
+    message_type: str | None = None
     sideband: Literal["upper", "lower"] | None = None
+
+
+@dataclass(frozen=True)
+class DemodStatus:
+    """Dynamic (actual-state) status of a running demodulator/decoder.
+
+    Attributes:
+        quality_label: e.g. "Pilot 12 dB", "CRC 98%"
+        quality: 0.0 (worst) to 1.0 (best)
+        description: protocol-specific identifier / refinement for display
+            (RDS station name, detected SSTV submode, DMR colour code, …)
+        squelch_open: None = no squelch, True/False = gate state
+        squelch_threshold_db: threshold (dBFS) when squelch is configured
+    """
+
+    quality_label: str | None = None
+    quality: float | None = None
+    description: str | None = None
+    squelch_open: bool | None = None
+    squelch_threshold_db: float | None = None
 
 
 @dataclass(frozen=True)

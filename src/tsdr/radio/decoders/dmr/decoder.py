@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 import numpy as np
 
 from tsdr.core.events.events import DecodedMessage
-from tsdr.core.sdr.datatypes import AudioBatch, SignalInfo
+from tsdr.core.sdr.datatypes import AudioBatch, DemodStatus
 from tsdr.radio.decoders.dmr.constants import (
     BURST_DIBITS,
     CACH_START,
@@ -145,7 +145,12 @@ class DMRDecoder(Demodulator):
     Voice bursts are decoded through AMBE+2 vocoder to 8 kHz PCM audio.
     """
 
-    has_audio = True
+    HAS_AUDIO = True
+    LABEL = "DMR"
+    MODULATION = "4FSK"
+    MESSAGE_TYPE = "dmr"
+    HAS_TEXT = True
+    FIXED_CHANNEL_BANDWIDTH = 12_500.0
 
     @property
     def audio_prebuffer_seconds(self) -> float:
@@ -221,8 +226,6 @@ class DMRDecoder(Demodulator):
         self._color_code_counts: dict[int, int] = {}
         self._data_type_counts: dict[int, int] = {}
         self._sync_type_counts: dict[SyncType, int] = {}
-        # Dominant color code cached as a scalar so info() (UI thread) never
-        # iterates _color_code_counts while the decoder thread mutates it.
         self._dominant_cc: int | None = None
         self._dominant_cc_count: int = 0
 
@@ -653,7 +656,7 @@ class DMRDecoder(Demodulator):
             return None
         return points, "4FSK"
 
-    def info(self) -> SignalInfo:
+    def status(self) -> DemodStatus:
         """Thread-safe: callable from any thread. Reads scalar counters only."""
         quality = None
         quality_label = None
@@ -666,13 +669,7 @@ class DMRDecoder(Demodulator):
         if cc is not None:
             description = f"CC{cc}"
 
-        return SignalInfo(
-            label="DMR",
-            channel_bandwidth=12_500.0,
-            modulation="4FSK",
-            has_audio=True,
-            has_text=True,
-            message_type="dmr",
+        return DemodStatus(
             quality_label=quality_label,
             quality=quality,
             description=description,

@@ -1,10 +1,10 @@
 from abc import ABC, abstractmethod
-from typing import ClassVar
+from typing import ClassVar, Literal
 
 import numpy as np
 
 from tsdr.core.events.events import DecodedMessage
-from tsdr.core.sdr.datatypes import AudioBatch, SignalInfo
+from tsdr.core.sdr.datatypes import AudioBatch, DemodProfile, DemodStatus
 
 # Fraction of Nyquist below which a post-decimation channel filter's cutoff
 # must sit to keep the FIR transition band inside the passband.
@@ -15,12 +15,20 @@ class Demodulator(ABC):
     """Base class for all demodulators and decoders."""
 
     stereo_detected: bool = False
-    has_audio: ClassVar[bool] = False
     DEFAULT_CHANNEL_BANDWIDTH: ClassVar[float] = 12_500
     # Post-decimation demods override with their decimated audio Nyquist cap;
     # the inf default applies to WFM (filters at native sample rate) and to
     # protocol decoders that ignore channel_bandwidth.
     MAX_CHANNEL_BANDWIDTH: ClassVar[float] = float("inf")
+
+    LABEL: ClassVar[str] = ""
+    MODULATION: ClassVar[str] = ""
+    MESSAGE_TYPE: ClassVar[str | None] = None
+    HAS_AUDIO: ClassVar[bool] = False
+    HAS_TEXT: ClassVar[bool] = False
+    SIDEBAND: ClassVar[Literal["upper", "lower"] | None] = None
+    FIXED_CHANNEL_BANDWIDTH: ClassVar[float | None] = None
+    FIXED_SAMPLE_RATE: ClassVar[float | None] = None
 
     def __init__(self) -> None:
         self._audio_batches: list[AudioBatch] = []
@@ -28,17 +36,49 @@ class Demodulator(ABC):
     @abstractmethod
     def demodulate(self, iq_samples: np.ndarray, capture_utc_s: float) -> None: ...
 
-    @abstractmethod
-    def info(self) -> SignalInfo:
-        """Thread-safe: callable from any thread.
+    @classmethod
+    def profile(cls, *, mode: str, channel_bandwidth: float | None) -> DemodProfile:
+        """Structural (desired-state) description for `mode` — no instance needed.
 
-        Called from the UI thread via `SDRDeviceContext.active_demod_info`
-        while the pipeline worker is concurrently mutating the demodulator's
-        state. Implementations must not iterate mutable containers
-        (list/dict/deque/set) without synchronization. Prefer cached scalar
-        fields updated by the worker on writes.
+        The single source of the demod's fixed fields; `status()` carries the
+        runtime ones. Derivable synchronously from (mode, config), so the UI can
+        read it the instant config changes.
         """
-        ...
+        if cls.FIXED_CHANNEL_BANDWIDTH is not None:
+            bw = cls.FIXED_CHANNEL_BANDWIDTH
+        elif channel_bandwidth is not None:
+            bw = channel_bandwidth
+        else:
+            bw = cls.DEFAULT_CHANNEL_BANDWIDTH
+        return DemodProfile(
+            label=cls._label_for(mode),
+            modulation=cls.MODULATION,
+            channel_bandwidth=bw,
+            sample_rate=cls.FIXED_SAMPLE_RATE,
+            has_audio=cls.HAS_AUDIO,
+            has_text=cls.HAS_TEXT,
+            message_type=cls.MESSAGE_TYPE,
+            sideband=cls._sideband_for(mode),
+        )
+
+    @classmethod
+    def _label_for(cls, mode: str) -> str:
+        return cls.LABEL
+
+    @classmethod
+    def _sideband_for(cls, mode: str) -> Literal["upper", "lower"] | None:
+        return cls.SIDEBAND
+
+    def status(self) -> DemodStatus:
+        """Dynamic (actual-state) status. Thread-safe: callable from any thread.
+
+        Called from the UI thread via `SDRDeviceContext.demod_status` and from
+        the pipeline worker while it mutates demodulator state. Implementations
+        must not iterate mutable containers without synchronization; prefer
+        cached scalar fields updated by the worker on writes. Default: no
+        dynamic fields.
+        """
+        return DemodStatus()
 
     @classmethod
     def bandwidth_override_on_mode_switch(cls, current_bw: float | None) -> float | None:
@@ -128,6 +168,7 @@ class Demodulator(ABC):
 
 
 __all__ = [
+    "DemodProfile",
+    "DemodStatus",
     "Demodulator",
-    "SignalInfo",
 ]

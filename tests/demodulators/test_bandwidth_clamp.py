@@ -34,7 +34,6 @@ EXPECTED_CLAMP = 48_000.0 * 0.95
 def test_post_decim_demods_clamp_inherited_wide_bandwidth(factory):
     demod = factory()
     assert demod.channel_bandwidth == pytest.approx(EXPECTED_CLAMP)
-    assert demod.info().channel_bandwidth == pytest.approx(EXPECTED_CLAMP)
 
 
 def test_set_channel_bandwidth_clamps_too_wide_value():

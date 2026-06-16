@@ -13,6 +13,7 @@ from tsdr.core.events.events import (
     ConfigChangedEvent,
     ConstellationUpdateEvent,
     DecoderOutputEvent,
+    DemodStatusEvent,
     DeviceAddedEvent,
     DeviceCapabilitiesChangedEvent,
     DeviceErrorEvent,
@@ -26,7 +27,6 @@ from tsdr.core.events.events import (
     PipelineErrorEvent,
     RecordingFinishedEvent,
     SamplesDroppedEvent,
-    SignalInfoEvent,
     StatsUpdateEvent,
     TuningStateChangedEvent,
 )
@@ -144,10 +144,10 @@ class PipelineChanged(Message):
         self.event = event
 
 
-class SignalInfoUpdate(Message):
-    """Wrapper for SignalInfoEvent."""
+class DemodStatusUpdate(Message):
+    """Wrapper for DemodStatusEvent."""
 
-    def __init__(self, event: SignalInfoEvent) -> None:
+    def __init__(self, event: DemodStatusEvent) -> None:
         super().__init__()
         self.event = event
 

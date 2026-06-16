@@ -15,7 +15,7 @@ import numpy as np
 
 from tsdr.core.clock_sync import now_utc_seconds
 from tsdr.core.events.events import DecodedMessage
-from tsdr.core.sdr.datatypes import SignalInfo
+from tsdr.core.sdr.datatypes import DemodStatus
 from tsdr.radio.decoders.sstv import (
     MODES_BY_NAME,
     Mode,
@@ -38,7 +38,11 @@ from tsdr.radio.dsp._kernels import apply_freq_shift_c64
 class SSTVDemodulator(Demodulator):
     """USB SSTV demodulator with an inline streaming line decoder."""
 
-    has_audio = True
+    HAS_AUDIO = True
+    LABEL = "SSTV"
+    MODULATION = "USB"
+    MESSAGE_TYPE = "sstv"
+    SIDEBAND = "upper"
 
     DEFAULT_CHANNEL_BANDWIDTH = 3_000
     MAX_CHANNEL_BANDWIDTH = 48_000 * NYQUIST_MARGIN
@@ -171,19 +175,10 @@ class SSTVDemodulator(Demodulator):
         self._last_line_emit_mono = 0.0
         self._next_looking_emit_sample = 0
 
-    def info(self) -> SignalInfo:
+    def status(self) -> DemodStatus:
         """Thread-safe: callable from any thread."""
         mode = self._decoder.mode
-        label = f"SSTV {mode.name}" if mode is not None else "SSTV"
-        return SignalInfo(
-            label=label,
-            channel_bandwidth=self.channel_bandwidth,
-            modulation="USB",
-            has_audio=True,
-            has_text=False,
-            message_type="sstv",
-            sideband="upper",
-        )
+        return DemodStatus(description=mode.name if mode is not None else None)
 
     def demodulate(self, iq_samples: np.ndarray, capture_utc_s: float) -> None:
         if len(iq_samples) == 0:

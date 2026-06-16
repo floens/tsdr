@@ -14,7 +14,7 @@ import logging
 
 from textual import on
 
-from tsdr.core.sdr.datatypes import SignalInfo
+from tsdr.core.sdr.datatypes import DemodProfile
 from tsdr.core.sdr.engine import SDREngine
 from tsdr.core.tracing import span
 from tsdr.tui._mixin_base import MixinBase
@@ -26,6 +26,7 @@ from tsdr.tui.messages import (
     ConfigChanged,
     ConstellationUpdate,
     DecoderOutput,
+    DemodStatusUpdate,
     DeviceAdded,
     DeviceCapabilitiesChanged,
     DeviceError,
@@ -39,7 +40,6 @@ from tsdr.tui.messages import (
     PipelineError,
     RecordingFinished,
     SamplesDropped,
-    SignalInfoUpdate,
     StatsUpdate,
     TuningStateChanged,
 )
@@ -50,10 +50,10 @@ from tsdr.tui.view.reconciler import Reconciler
 logger = logging.getLogger(__name__)
 
 
-def _decoder_kind(info: SignalInfo | None) -> DecoderKind | None:
-    if info is None:
+def _decoder_kind(profile: DemodProfile | None) -> DecoderKind | None:
+    if profile is None:
         return None
-    kind = info.message_type
+    kind = profile.message_type
     if kind in ("rds", "dab", "adsb", "tetra", "dmr", "text", "sstv"):
         return kind  # type: ignore[return-value]
     return None
@@ -91,7 +91,7 @@ class EventRouter(MixinBase):
             DeviceUIState(
                 device_id=ctx.device_id,
                 has_audio_pipeline="audio" in ctx.config.pipelines,
-                active_decoder_kind=_decoder_kind(ctx.active_demod_info),
+                active_decoder_kind=_decoder_kind(ctx.demod_profile),
             )
             for ctx in self._engine.devices.values()
         )
@@ -197,12 +197,11 @@ class EventRouter(MixinBase):
         if console is not None:
             console.write_info(notice)  # type: ignore[attr-defined]
 
-    @on(SignalInfoUpdate)
-    def handle_signal_info(self, message: SignalInfoUpdate) -> None:
-        for key in ("tuner", "panel:stats"):
-            w = self._reconciler.get(key)
-            if w is not None:
-                w.update_signal_info(message.event)  # type: ignore[attr-defined]
+    @on(DemodStatusUpdate)
+    def handle_demod_status(self, message: DemodStatusUpdate) -> None:
+        tuner = self._reconciler.get("tuner")
+        if tuner is not None:
+            tuner.update_status(message.event)  # type: ignore[attr-defined]
 
     @on(MemoriesChanged)
     def handle_memories_changed(self, message: MemoriesChanged) -> None:

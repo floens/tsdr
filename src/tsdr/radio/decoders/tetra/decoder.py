@@ -20,7 +20,7 @@ from dataclasses import dataclass, field
 import numpy as np
 
 from tsdr.core.events.events import DecodedMessage
-from tsdr.core.sdr.datatypes import AudioBatch, SignalInfo
+from tsdr.core.sdr.datatypes import AudioBatch, DemodStatus
 from tsdr.radio.decoders.tetra import trackers
 from tsdr.radio.decoders.tetra.bit_reader import BitReader
 from tsdr.radio.decoders.tetra.burst import (
@@ -108,7 +108,12 @@ class _FragChain:
 class TETRADecoder(Demodulator):
     """TETRA digital trunked radio decoder."""
 
-    has_audio = True
+    HAS_AUDIO = True
+    LABEL = "TETRA"
+    MODULATION = "pi/4-DQPSK"
+    MESSAGE_TYPE = "tetra"
+    HAS_TEXT = True
+    FIXED_CHANNEL_BANDWIDTH = 25_000.0
 
     @property
     def audio_prebuffer_seconds(self) -> float:
@@ -575,7 +580,7 @@ class TETRADecoder(Demodulator):
 
     # Demodulator API
 
-    def info(self) -> SignalInfo:
+    def status(self) -> DemodStatus:
         """Thread-safe: callable from any thread.
 
         Reads cached scalars (crc_pct, carrier_role inputs) only. Does not
@@ -589,19 +594,10 @@ class TETRADecoder(Demodulator):
             quality = crc_pct / 100.0
             quality_label = f"CRC {crc_pct:.0f}%"
 
-        description = self._format_description()
-
-        return SignalInfo(
-            label="TETRA",
-            channel_bandwidth=25000.0,
-            modulation="pi/4-DQPSK",
-            sample_rate=self._sample_rate,
-            has_audio=True,
-            has_text=True,
-            message_type="tetra",
+        return DemodStatus(
             quality_label=quality_label,
             quality=quality,
-            description=description,
+            description=self._format_description(),
         )
 
     def _format_description(self) -> str | None:
