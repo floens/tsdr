@@ -11,6 +11,7 @@ from types import MappingProxyType
 from typing import TypedDict, Unpack
 
 from tsdr.core.audio_spec import AudioDemodSpec
+from tsdr.core.sdr.samples_batch import SampleFormat
 
 
 class StageType(Enum):
@@ -36,6 +37,7 @@ class PipelineConfig:
     record_path: str | None = None
     record_resample: tuple[int, int] | None = None
     record_max_samples: int | None = None
+    record_sample_format: SampleFormat = SampleFormat.UINT8_IQ
     squelch_enabled: bool = False
     squelch_threshold_db: float = -50.0
     squelch_hang_ms: float = 100.0

@@ -12,7 +12,7 @@ from tsdr.core.sdr.engine import SDREngine
 from tsdr.core.sdr.io import load_iq
 from tsdr.core.sdr.pipeline.pipeline import PipelineContext
 from tsdr.core.sdr.pipeline.stages.record_stage import RecordStage
-from tsdr.core.sdr.samples_batch import SamplesBatch
+from tsdr.core.sdr.samples_batch import SampleFormat, SamplesBatch
 from tsdr.devices import MockParams
 
 
@@ -61,6 +61,37 @@ def test_passthrough_round_trip(tmp_path: Path) -> None:
     assert len(loaded) == n
     # cu8 has ~1/127.5 quantization on each component → RMS error ≲ 0.005 for unit-scale.
     assert np.mean(np.abs(loaded - iq)) < 0.01
+
+
+def test_complex64_preserves_subcu8_lsb(tmp_path: Path) -> None:
+    """cf32 format preserves low-amplitude signal that cu8 would crush to 127/128.
+
+    Mirrors the Airspy HF+ / SpyServer case: a real but tiny-amplitude signal is
+    below one cu8 LSB, so 8-bit recording flatlines it. float32 is lossless.
+    """
+    rng = np.random.default_rng(0)
+    n = 8_000
+    # Far below one cu8 LSB (1/255): every sample rounds to the 127/128 boundary.
+    iq = ((rng.standard_normal(n) + 1j * rng.standard_normal(n)) * 0.0005).astype(np.complex64)
+
+    cf32_out = tmp_path / "hi.cf32.zst"
+    stage = RecordStage(output_path=cf32_out, sample_format=SampleFormat.COMPLEX64)
+    ctx, _, _ = _make_context()
+    stage.process(_batch(iq, 250_000.0), ctx)
+    stage.close()
+    loaded = load_iq(cf32_out)
+    assert len(loaded) == n
+    np.testing.assert_array_equal(loaded, iq)  # float32 -> float32: bit-exact
+
+    # The same data through cu8 collapses to the two center codes (information lost).
+    cu8_out = tmp_path / "lo.cu8.zst"
+    stage2 = RecordStage(output_path=cu8_out, sample_format=SampleFormat.UINT8_IQ)
+    stage2.process(_batch(iq, 250_000.0), ctx)
+    stage2.close()
+    crushed = load_iq(cu8_out)
+    # Collapsed to the two center codes (127/128): only one bit of amplitude survives.
+    assert len(np.unique(crushed.real)) <= 2
+    assert len(np.unique(crushed.imag)) <= 2
 
 
 def test_tone_preserved(tmp_path: Path) -> None:

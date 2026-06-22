@@ -87,4 +87,5 @@ def create_stage(
                 output_path=pipeline_config.record_path,
                 resample=pipeline_config.record_resample,
                 max_samples=pipeline_config.record_max_samples,
+                sample_format=pipeline_config.record_sample_format,
             )

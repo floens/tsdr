@@ -9,6 +9,7 @@ from pathlib import Path
 from tsdr.core.sdr.config import PipelineConfig, StageType
 from tsdr.core.sdr.engine import SDREngine, get_engine
 from tsdr.core.sdr.exceptions import ConfigurationError, SDRException
+from tsdr.core.sdr.samples_batch import SampleFormat
 from tsdr.core.units import parse_hz
 from tsdr.tui.commands._format import device_id, safe, success
 from tsdr.tui.commands.base import Command, CommandParser, Completion
@@ -91,6 +92,9 @@ class SDRRecordCommand(Command):
         resample, out_rate = _compute_resample(device_rate, target_rate)
         max_samples = int(duration * out_rate) if duration is not None else None
 
+        write_format = _resolve_record_format(args.sample_format, device, args.output)
+        ext = _FORMAT_EXT[write_format]
+
         output_path = (
             Path(args.output)
             if args.output
@@ -99,6 +103,7 @@ class SDRRecordCommand(Command):
                 out_rate=out_rate,
                 duration=int(duration) if duration is not None else None,
                 rf_gain=device.config.rf_gain,
+                ext=ext,
             )
         )
 
@@ -107,12 +112,13 @@ class SDRRecordCommand(Command):
             record_path=str(output_path),
             record_resample=resample,
             record_max_samples=max_samples,
+            record_sample_format=write_format,
         )
 
         engine.add_pipeline(did, PIPELINE_NAME, pipeline_config)
 
         path_md = safe(str(output_path))
-        rate_md = f"[yellow]{int(out_rate)} Hz[/]"
+        rate_md = f"[yellow]{int(out_rate)} Hz[/] [dim]{ext}[/]"
         if duration is not None:
             return success(f"Recording {duration:g}s on {device_id(did)} @ {rate_md} → {path_md}")
         return success(
@@ -169,7 +175,15 @@ def _add_common(parser: CommandParser) -> None:
         "--output",
         dest="output",
         default=None,
-        help="Output file path (default: samples/<auto>.cu8.zst)",
+        help="Output file path (default: samples/<auto>.<fmt>.zst)",
+    )
+    parser.add_argument(
+        "--format",
+        dest="sample_format",
+        choices=["auto", "cu8", "cf32"],
+        default="auto",
+        help="On-disk IQ format: auto (match device bit depth), cu8 (8-bit, compact), "
+        "cf32 (float32, full precision for Airspy/SpyServer). Default: auto",
     )
 
 
@@ -189,8 +203,27 @@ def _compute_resample(device_rate: float, target_rate: int) -> tuple[tuple[int, 
     return (frac.numerator, frac.denominator), out_rate
 
 
+_FORMAT_EXT = {SampleFormat.UINT8_IQ: "cu8", SampleFormat.COMPLEX64: "cf32"}
+_EXT_FORMAT = {ext: fmt for fmt, ext in _FORMAT_EXT.items()}
+
+
+def _resolve_record_format(choice: str, device, output: str | None) -> SampleFormat:
+    """Pick on-disk format. ``auto`` infers from an explicit output extension,
+    else from the device's native bit depth (cf32 for high-bit-depth devices)."""
+    if choice in _EXT_FORMAT:
+        return _EXT_FORMAT[choice]
+    if output:
+        low = output.lower()
+        for ext, fmt in _EXT_FORMAT.items():
+            if f".{ext}" in low:
+                return fmt
+    if device.device.get_sample_format() is SampleFormat.COMPLEX64:
+        return SampleFormat.COMPLEX64
+    return SampleFormat.UINT8_IQ
+
+
 def _autogenerate_path(
-    center_frequency: float, out_rate: float, duration: int | None, rf_gain: float
+    center_frequency: float, out_rate: float, duration: int | None, rf_gain: float, ext: str
 ) -> Path:
     SAMPLES_DIR.mkdir(parents=True, exist_ok=True)
     fmhz = f"{center_frequency / 1e6:g}"
@@ -200,7 +233,7 @@ def _autogenerate_path(
     gain = int(round(rf_gain))
     ts = datetime.now().strftime("%Y%m%dT%H%M")
     dur_segment = f"_dur={int(round(duration))}s" if duration is not None else ""
-    name = f"freq={fmhz}M_sr={sr_khz}k{dur_segment}_gain={gain}_{ts}.cu8.zst"
+    name = f"freq={fmhz}M_sr={sr_khz}k{dur_segment}_gain={gain}_{ts}.{ext}.zst"
     return SAMPLES_DIR / name
 
 
