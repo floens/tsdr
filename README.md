@@ -19,8 +19,8 @@ interactive radio and as a general SDR toolkit.
   high-frame-rate image rendering.
 - Audio demodulators: WFM (with stereo and RDS), NFM, AM, USB, LSB (SSB), CW (Morse).
 - Protocol decoders: RDS, FLEX paging (2-FSK), ADS-B (1090 MHz Mode S), DAB+
-  (AAC), DMR (AMBE+2), TETRA (ACELP), FT8/FT4 (WSJT-X), and SSTV
-  (Martin/Scottie/Robot).
+  (AAC), DMR (AMBE+2), TETRA (ACELP), FT8/FT4 (WSJT-X), APRS (AFSK1200/AX.25),
+  and SSTV (Martin/Scottie/Robot).
 - Multiple devices and multiple independent processing pipelines per device.
 - A command console with history, tab-completion, and argparse-style help.
 - Frequency memories, bandplan overlays, IQ recording, and squelch.

@@ -180,6 +180,9 @@ class DecodedMessage:
     text: str
     timestamp: float
     data: object = None  # Optional typed payload (e.g. RDSData for RDS messages)
+    # When True, `text` carries Rich markup the decoder is responsible for
+    # escaping; the output widget renders it instead of escaping the whole line.
+    markup: bool = False
 
 
 @dataclass(frozen=True)

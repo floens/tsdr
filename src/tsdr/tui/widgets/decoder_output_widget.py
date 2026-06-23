@@ -16,7 +16,10 @@ class DecoderOutputWidget(RichLog, PanelWidget):
     can_focus = False
 
     def __init__(self) -> None:
-        super().__init__(max_lines=500, auto_scroll=True, markup=True, wrap=True)
+        # min_width=0 so wrapping follows the (narrow) panel width; RichLog's
+        # default min_width=78 would render wider than the panel and add a
+        # horizontal scrollbar instead of wrapping.
+        super().__init__(max_lines=500, auto_scroll=True, markup=True, wrap=True, min_width=0)
 
     def on_mount(self) -> None:
         self.border_title = "Decoder Output"
@@ -25,4 +28,7 @@ class DecoderOutputWidget(RichLog, PanelWidget):
         """Append new decoded messages."""
         for msg in event.messages:
             t = time.strftime("%H:%M:%S", time.localtime(msg.timestamp))
-            self.write(f"[dim]{t}[/dim] [cyan]{escape(event.protocol)}[/cyan] {escape(msg.text)}")
+            # Markup-flagged messages carry decoder-escaped Rich markup; others
+            # are plain text and must be escaped so stray '[' don't render as tags.
+            body = msg.text if msg.markup else escape(msg.text)
+            self.write(f"[dim]{t}[/dim] [cyan]{escape(event.protocol)}[/cyan] {body}")

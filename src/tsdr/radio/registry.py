@@ -89,6 +89,7 @@ register(
 
 # Protocol decoders
 from tsdr.radio.decoders.adsb import ADSBDecoder  # noqa: E402
+from tsdr.radio.decoders.aprs import APRSDecoder  # noqa: E402
 from tsdr.radio.decoders.dab import DABDecoder  # noqa: E402
 from tsdr.radio.decoders.dmr import DMRDecoder  # noqa: E402
 from tsdr.radio.decoders.flex import FLEXDecoder  # noqa: E402
@@ -96,6 +97,7 @@ from tsdr.radio.decoders.flex import FLEXDecoder  # noqa: E402
 # Protocol decoders have fixed, spec-defined bandwidths; they ignore the
 # device's channel_bandwidth and any other audio-demod tuning kwargs.
 register("ADSB", ADSBDecoder, lambda sample_rate, **_: ADSBDecoder(sample_rate=sample_rate))
+register("APRS", APRSDecoder, lambda sample_rate, **_: APRSDecoder(sample_rate=sample_rate))
 register("DAB", DABDecoder, lambda sample_rate, **_: DABDecoder(sample_rate=sample_rate))
 register("DMR", DMRDecoder, lambda sample_rate, **_: DMRDecoder(sample_rate=sample_rate))
 register("FLEX", FLEXDecoder, lambda sample_rate, **_: FLEXDecoder(sample_rate=sample_rate))

@@ -91,9 +91,7 @@ class TestStage2SymbolRecovery:
     @staticmethod
     def _run_frontend(flex_iq):
         decoder = FLEXDecoder(sample_rate=SAMPLE_RATE)
-        filtered = decoder._antialias.process(flex_iq)
-        decimated = filtered[:: decoder._decimation]
-        fm = decoder._fm.process(decimated)
+        fm = decoder._channelizer.process(flex_iq)
         symbols = decoder._mm.process(fm)
         return symbols
 

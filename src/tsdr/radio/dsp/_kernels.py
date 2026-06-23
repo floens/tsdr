@@ -191,6 +191,39 @@ def _fm_discriminator_f32(
 
 
 @nb.njit(cache=True, fastmath=True)
+def _dpll_bitsync(
+    x: np.ndarray,
+    inc: float,
+    k: float,
+    phase: float,
+    prev: float,
+) -> tuple[np.ndarray, float, float]:
+    """DPLL bit-clock recovery on an NRZ soft-decision signal.
+
+    Emits one hard bit per symbol period, sampled at the eye centre (phase
+    wrap). On each sign transition of *x* the phase is nudged so transitions
+    land mid-period (phase 0.5), locking the bit clock. Returns
+    (bits, new_phase, new_prev).
+    """
+    n = x.shape[0]
+    out = np.empty(n, dtype=np.uint8)
+    count = 0
+    ph = phase
+    pv = prev
+    for i in range(n):
+        v = x[i]
+        if (v >= 0.0) != (pv >= 0.0):
+            ph += k * (0.5 - ph)
+        pv = v
+        ph += inc
+        if ph >= 1.0:
+            ph -= 1.0
+            out[count] = 1 if v >= 0.0 else 0
+            count += 1
+    return out[:count], ph, pv
+
+
+@nb.njit(cache=True, fastmath=True)
 def _iq_metrics_c64(iq: np.ndarray) -> tuple[float, float, float]:
     """Compute IQ signal metrics in a single pass (no intermediate arrays).
 

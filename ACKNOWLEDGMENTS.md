@@ -53,3 +53,10 @@ TSDR includes code derived from or inspired by the following projects:
   https://github.com/kgoba/ft8_lib
 - **WSJT-X** by Joe Taylor (K1JT) et al.
   https://wsjt.sourceforge.io
+
+## APRS (AFSK1200 / AX.25) Decoder
+
+- **Dire Wolf** by John Langner (WB2OSZ)
+  https://github.com/wb2osz/direwolf
+- **multimon-ng** by Elias Oenal et al.
+  https://github.com/EliasOenal/multimon-ng

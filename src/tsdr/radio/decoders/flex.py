@@ -18,7 +18,7 @@ import numpy as np
 from tsdr.core.events.events import DecodedMessage
 from tsdr.core.sdr.datatypes import DemodStatus
 from tsdr.radio.demodulators import Demodulator
-from tsdr.radio.dsp import FMDiscriminator, MuellerMuller, StreamingFilter, firwin
+from tsdr.radio.dsp import FMChannelizer, MuellerMuller
 
 logger = logging.getLogger(__name__)
 
@@ -170,22 +170,10 @@ class FLEXDecoder(Demodulator):
         super().__init__()
         self.sample_rate = sample_rate
 
-        # Decimation to ~32 kHz (~20 samples/symbol at 1600 baud)
-        self._decimation = max(1, round(sample_rate / 32000.0))
-        self._decimated_rate = sample_rate / self._decimation
+        # Channelize to ~32 kHz (~20 samples/symbol at 1600 baud) + FM discriminate
+        self._channelizer = FMChannelizer(sample_rate, FLEX_DEVIATION, target_rate=32000.0)
+        self._decimated_rate = self._channelizer.audio_rate
         self._sps = self._decimated_rate / FLEX_BAUD
-
-        # Anti-alias filter before decimation
-        cutoff = min(self._decimated_rate * 0.45, FLEX_DEVIATION * 2)
-        self._antialias = StreamingFilter(
-            firwin(101, cutoff, fs=sample_rate),
-            [1.0],
-            dtype=np.complex64,
-        )
-        self._decim_phase = 0
-
-        # FM discriminator
-        self._fm = FMDiscriminator(self._decimated_rate, FLEX_DEVIATION)
 
         # Mueller-Muller symbol timing recovery
         self._mm = MuellerMuller(self._sps)
@@ -207,15 +195,7 @@ class FLEXDecoder(Demodulator):
         self._pending_messages: list[DecodedMessage] = []
 
     def demodulate(self, iq_samples: np.ndarray, capture_utc_s: float) -> None:
-        # Anti-alias filter + decimate
-        filtered = self._antialias.process(iq_samples)
-        n_before = len(filtered)
-        decimated = filtered[self._decim_phase :: self._decimation]
-        n_used = n_before - self._decim_phase
-        self._decim_phase = (self._decimation - n_used % self._decimation) % self._decimation
-
-        # FM discriminator
-        fm = self._fm.process(decimated)
+        fm = self._channelizer.process(iq_samples)
 
         # Mueller-Muller symbol timing recovery
         symbols = self._mm.process(fm)
@@ -571,9 +551,7 @@ class FLEXDecoder(Demodulator):
 
     def reset(self) -> None:
         """Reset decoder state."""
-        self._antialias.reset()
-        self._decim_phase = 0
-        self._fm.reset()
+        self._channelizer.reset()
         self._mm.reset()
         self._shift_reg = 0
         self._inverted = False
