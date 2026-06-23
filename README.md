@@ -228,6 +228,10 @@ the event bus), and a `tui` layer renders it. s written in Python so it is easy
 to read, modify, and experiment with, with hot DSP paths accelerated by NumPy
 and Numba.
 
+## Development
+
+Parts of TSDR were written with the help of LLMs.
+
 ## Acknowledgments
 
 TSDR includes code derived from or inspired by several other projects. See
