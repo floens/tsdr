@@ -75,3 +75,23 @@ def format_hz(
 
     d = 1 if divisor >= 1e6 else 0
     return f"{hz / divisor:.{d}f}{sep}{suffix}"
+
+
+def axis_si_prefix(interval: float, ref_hz: float) -> tuple[float, str, int]:
+    """Pick one SI (divisor, suffix, decimals) for a whole frequency axis.
+
+    Unlike per-value formatting, an axis needs a single shared prefix so ticks
+    don't mix units (e.g. `980k` next to `1.00M`). The prefix is driven by the
+    tick `interval` and the axis's largest magnitude `ref_hz`: use the smallest
+    prefix (k → M → G) whose integer part stays under 10000, so HF reads as
+    integer kHz (`6910k`) while VHF and up stay in MHz (`145.45M`). `decimals`
+    is the minimum needed to render `interval` exactly in the chosen unit.
+    """
+    divisor, suffix = 1e9, "G"
+    for div, suf in ((1e3, "k"), (1e6, "M")):
+        if abs(ref_hz) / div < 1e4:
+            divisor, suffix = div, suf
+            break
+    ratio = interval / divisor
+    decimals = max(0, ceil(-log10(ratio))) if ratio < 1 else 0
+    return divisor, suffix, decimals

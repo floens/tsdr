@@ -25,7 +25,7 @@ from tsdr.core.sdr.exceptions import SDRException
 from tsdr.core.tracing import traced
 from tsdr.core.tuning import resolve_auto_step, save_previous_tune_state
 from tsdr.core.tuning_state import get_tuning_state
-from tsdr.core.units import format_hz
+from tsdr.core.units import axis_si_prefix
 from tsdr.tui.inline_edit import InlineEditBuffer
 from tsdr.tui.model import adjusted_zoom
 from tsdr.tui.model.store import get_ui_store
@@ -859,28 +859,30 @@ class SpectrumWidget(ImageModeMixin, Widget):
     ) -> tuple[tuple[int, str], ...]:
         """Compute frequency axis label positions."""
         span = freq_max - freq_min
+        ref = max(abs(freq_min), abs(freq_max))
 
         nice_intervals = [1e3, 2e3, 5e3, 10e3, 20e3, 50e3, 100e3, 200e3, 500e3, 1e6, 2e6, 5e6, 10e6]
 
         # Pick the smallest nice interval where labels don't overlap.
-        # Estimate label width from a representative tick, add min gap.
+        # Estimate label width from the widest tick (highest magnitude), add min gap.
         min_gap = 3
         interval = nice_intervals[-1]
         for ni in nice_intervals:
-            sample_label = self._format_frequency(freq_min + ni, ni)
-            cols_per_label = len(sample_label) + min_gap
+            divisor, suffix, decimals = axis_si_prefix(ni, ref)
+            cols_per_label = len(f"{ref / divisor:.{decimals}f}{suffix}") + min_gap
             tick_spacing = ni / span * width
             if tick_spacing >= cols_per_label:
                 interval = ni
                 break
 
+        divisor, suffix, decimals = axis_si_prefix(interval, ref)
         labels: list[tuple[int, str]] = []
         first_tick = ((freq_min // interval) + 1) * interval
         freq = first_tick
         while freq < freq_max:
             col = int((freq - freq_min) / span * width)
             if 0 <= col < width:
-                label = self._format_frequency(freq, interval)
+                label = f"{freq / divisor:.{decimals}f}{suffix}"
                 start = col - len(label) // 2
                 end = start + len(label)
                 if start >= 0 and end <= width:
@@ -945,10 +947,3 @@ class SpectrumWidget(ImageModeMixin, Widget):
         col_high = min(width, col_high)
 
         return (col_low, col_high)
-
-    def _format_frequency(self, hz: float, interval: float | None = None) -> str:
-        """Format frequency in Hz to human-readable string.
-
-        When interval is provided, precision adapts so adjacent ticks differ.
-        """
-        return format_hz(hz, interval=interval)

@@ -2,7 +2,53 @@ from __future__ import annotations
 
 import pytest
 
-from tsdr.core.units import parse_hz
+from tsdr.core.units import axis_si_prefix, parse_hz
+
+
+def _label(interval: float, value: float, ref: float) -> str:
+    divisor, suffix, decimals = axis_si_prefix(interval, ref)
+    return f"{value / divisor:.{decimals}f}{suffix}"
+
+
+def test_axis_hf_is_integer_khz() -> None:
+    # 6.9 MHz HF with 10 kHz ticks reads as integer kHz, not 6.94M.
+    assert _label(10e3, 6.94e6, 6.965e6) == "6940k"
+
+
+def test_axis_hf_5k_step_integer_khz() -> None:
+    assert _label(5e3, 7.035e6, 7.04e6) == "7035k"
+
+
+def test_axis_fm_stays_mhz() -> None:
+    # VHF stays in conventional MHz with decimals.
+    assert _label(50e3, 100.05e6, 100.3e6) == "100.05M"
+
+
+def test_axis_2m_stays_mhz() -> None:
+    assert _label(50e3, 145.45e6, 145.6e6) == "145.45M"
+
+
+def test_axis_wide_span_stays_mhz() -> None:
+    assert _label(500e3, 97e6, 100e6) == "97.0M"
+
+
+def test_axis_ghz() -> None:
+    assert _label(5e6, 1.2e9, 1.22e9) == "1200M"
+
+
+def test_axis_prefix_shared_across_ten_mhz_reference() -> None:
+    # A single axis picks one prefix from its top magnitude, so a range that
+    # crosses 1 MHz stays in kHz for every tick instead of mixing k and M.
+    ref = 1.08e6
+    assert _label(20e3, 0.96e6, ref) == "960k"
+    assert _label(20e3, 1.0e6, ref) == "1000k"
+    assert _label(20e3, 1.08e6, ref) == "1080k"
+
+
+def test_axis_prefix_flips_to_mhz_at_10mhz() -> None:
+    # 10000 kHz is the cutoff: at/above it the whole axis uses MHz.
+    assert axis_si_prefix(20e3, 9.9e6)[1] == "k"
+    assert axis_si_prefix(20e3, 10.1e6)[1] == "M"
 
 
 def test_plain_integer() -> None:
