@@ -513,10 +513,6 @@ class KeyboardMixin(MixinBase):
             self.show_status("Demod: off")
             return
 
-        if device.state != DeviceState.RUNNING:
-            self._show_error("Device must be running")
-            return
-
         try:
             engine.set_audio_demod(device.device_id, AudioDemodSpec(mode=mode))
         except SDRException as e:

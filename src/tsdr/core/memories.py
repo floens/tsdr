@@ -7,9 +7,7 @@ from pydantic import BaseModel, ConfigDict, ValidationError
 
 from tsdr.core import storage
 from tsdr.core.audio_spec import AudioDemodSpec
-from tsdr.core.sdr.device_context import DeviceState
 from tsdr.core.sdr.engine import get_engine
-from tsdr.core.sdr.exceptions import SDRException
 from tsdr.core.tuning import save_previous_tune_state
 from tsdr.core.tuning_state import get_tuning_state
 from tsdr.radio.registry import DEMODULATORS
@@ -171,9 +169,6 @@ def recall_memory(memory: Memory, device_id: str) -> None:
     """Tune to memory frequency and set demod mode."""
     engine = get_engine()
     context = engine.get_device(device_id)
-
-    if context.state != DeviceState.RUNNING:
-        raise SDRException(f"Device {device_id} must be running")
 
     ts = get_tuning_state()
     ts.step = None  # context change → reset step ladder to auto

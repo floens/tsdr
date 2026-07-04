@@ -1,9 +1,8 @@
 from argparse import Namespace
 
 from tsdr.core.audio_spec import AudioDemodSpec
-from tsdr.core.sdr.device_context import DeviceState
 from tsdr.core.sdr.engine import get_engine
-from tsdr.core.sdr.exceptions import ConfigurationError, SDRException
+from tsdr.core.sdr.exceptions import ConfigurationError
 from tsdr.core.units import parse_hz
 from tsdr.radio.decoders.sstv import MODES_BY_NAME as SSTV_MODES_BY_NAME
 from tsdr.radio.registry import DEMODULATORS
@@ -60,9 +59,6 @@ class SDRDemodCommand(Command):
             raise ConfigurationError(f"Unknown mode '{mode}'. Available: {available}")
 
         context = manager.get_device(did)
-
-        if context.state != DeviceState.RUNNING:
-            raise SDRException(f"Device {did} must be running")
 
         if frequency_offset != 0.0:
             max_offset = context.config.sample_rate / 2.0
