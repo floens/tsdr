@@ -62,11 +62,7 @@ def create_stage(
             if spec is None:
                 raise ValueError("DEMODULATOR stage requires audio_spec in PipelineConfig")
             demodulator = make_demodulator(
-                spec.mode,
-                device_config.sample_rate,
-                device_config.channel_bandwidth,
-                spec.fm_deviation_hz,
-                spec.sstv_mode,
+                spec, device_config.sample_rate, device_config.channel_bandwidth
             )
             demodulator.set_squelch(
                 enabled=pipeline_config.squelch_enabled,

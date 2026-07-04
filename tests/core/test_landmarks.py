@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import numpy as np
 
-from tsdr.core.audio_spec import AudioDemodSpec
 from tsdr.core.bandplans import Band, Bandplan
+from tsdr.core.demod_spec import DemodSpec
 from tsdr.core.events.events import FFTUpdateEvent
 from tsdr.core.landmarks import find_landmarks, next_target
 from tsdr.core.memories import Memory
@@ -14,7 +14,7 @@ def _memory(freq: int, name: str = "m") -> Memory:
         id=name,
         frequency=freq,
         name=name,
-        audio_spec=AudioDemodSpec(mode="AM"),
+        audio_spec=DemodSpec(mode="AM"),
         bandwidth=10_000,
     )
 

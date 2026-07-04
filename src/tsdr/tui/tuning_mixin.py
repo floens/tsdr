@@ -4,7 +4,6 @@ import logging
 
 from textual import on
 
-from tsdr.core.audio_spec import PreviousTuneState
 from tsdr.core.band_stack import (
     REGISTERS_PER_BAND,
     BandRegister,
@@ -12,6 +11,7 @@ from tsdr.core.band_stack import (
     suspended_writeback,
 )
 from tsdr.core.bandplans import get_bandplan_store
+from tsdr.core.demod_spec import PreviousTuneState
 from tsdr.core.events.events import (
     BandStackChangedEvent,
     TuningStateChangedEvent,

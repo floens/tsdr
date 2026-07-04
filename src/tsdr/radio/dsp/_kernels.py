@@ -224,6 +224,149 @@ def _dpll_bitsync(
 
 
 @nb.njit(cache=True, fastmath=True)
+def _decayavg(avg: float, value: float, weight: float) -> float:
+    """One-pole running average, ``avg + (value - avg) / weight``."""
+    if weight <= 1.0:
+        return value
+    return avg + (value - avg) / weight
+
+
+@nb.njit(cache=True, fastmath=True)
+def _fsk_gated_bitsync(
+    mark_abs: np.ndarray,
+    space_abs: np.ndarray,
+    bit_sample_count: float,
+    env_state: np.ndarray,
+    acc_state: np.ndarray,
+    avg_state: np.ndarray,
+    evt_state: np.ndarray,
+    out_bits: np.ndarray,
+) -> int:
+    """Non-coherent 2-FSK bit-sync: mark/space envelopes -> one soft bit per baud.
+
+    An adaptive-threshold discriminator (per-tone envelope + noise-floor trackers)
+    feeds three early/prompt/late gated integrators that recover the bit clock and
+    emit one soft bit (sign = mark(+)/space(-)) per symbol. All loop-carried state
+    lives in the four ``*_state`` arrays (mutated in place), so processing resumes
+    exactly across streaming chunks. Returns the number of soft bits written.
+
+    The soft value keeps float ``log1p`` precision; do not truncate it to int,
+    which discards the low-confidence bits the FEC layer relies on.
+    """
+    mark_env = env_state[0]
+    space_env = env_state[1]
+    mark_noise = env_state[2]
+    space_noise = env_state[3]
+    early_acc = acc_state[0]
+    prompt_acc = acc_state[1]
+    late_acc = acc_state[2]
+    avg_early = avg_state[0]
+    avg_prompt = avg_state[1]
+    avg_late = avg_state[2]
+    next_early = evt_state[0]
+    next_prompt = evt_state[1]
+    next_late = evt_state[2]
+    sc = evt_state[3]
+
+    bsc = bit_sample_count
+    w_up = bsc / 4.0
+    w_env_dn = bsc * 16.0
+    w_noise_dn = bsc / 4.0
+    w_noise_up = bsc * 48.0
+    period = int(bsc * 8.0)
+
+    n = mark_abs.shape[0]
+    out_count = 0
+    for i in range(n):
+        ma = mark_abs[i]
+        sa = space_abs[i]
+
+        # Re-centre the sampling instants every 8 bits toward maximum eye opening.
+        if period > 0 and sc > 0.5 and (int(sc) % period) == 0:
+            slope = avg_late - avg_early
+            if avg_prompt * 1.05 < avg_early and avg_prompt * 1.05 < avg_late:
+                if avg_early > avg_late:
+                    slope = np.fmod((next_early - next_prompt) - bsc, bsc)
+                    avg_late = avg_prompt
+                    avg_prompt = avg_early
+                else:
+                    slope = np.fmod((next_late - next_prompt) + bsc, bsc)
+                    avg_early = avg_prompt
+                    avg_prompt = avg_late
+            else:
+                slope = slope / 1024.0
+            if slope != 0.0:
+                next_early += slope
+                next_prompt += slope
+                next_late += slope
+
+        # Envelope tracks the peak (fast up, slow down); noise tracks the floor.
+        mark_env = _decayavg(mark_env, ma, w_up if ma > mark_env else w_env_dn)
+        mark_noise = _decayavg(mark_noise, ma, w_noise_dn if ma < mark_noise else w_noise_up)
+        space_env = _decayavg(space_env, sa, w_up if sa > space_env else w_env_dn)
+        space_noise = _decayavg(space_noise, sa, w_noise_dn if sa < space_noise else w_noise_up)
+        nf = (space_noise + mark_noise) / 2.0
+
+        mc = ma
+        if mc > mark_env:
+            mc = mark_env
+        if mc < nf:
+            mc = nf
+        scl = sa
+        if scl > space_env:
+            scl = space_env
+        if scl < nf:
+            scl = nf
+
+        # Mark-space discriminator with automatic threshold correction.
+        logic = (
+            (mc - nf) * (mark_env - nf)
+            - (scl - nf) * (space_env - nf)
+            - 0.5 * ((mark_env - nf) * (mark_env - nf) - (space_env - nf) * (space_env - nf))
+        )
+        ms = math.log1p(abs(logic))
+        if logic < 0.0:
+            ms = -ms
+
+        early_acc += ms
+        prompt_acc += ms
+        late_acc += ms
+
+        if sc >= next_early:
+            avg_early = _decayavg(avg_early, abs(early_acc), 64.0)
+            next_early += bsc
+            early_acc = 0.0
+        if sc >= next_late:
+            avg_late = _decayavg(avg_late, abs(late_acc), 64.0)
+            next_late += bsc
+            late_acc = 0.0
+        if sc >= next_prompt:
+            avg_prompt = _decayavg(avg_prompt, abs(prompt_acc), 64.0)
+            next_prompt += bsc
+            out_bits[out_count] = np.float32(prompt_acc)
+            out_count += 1
+            prompt_acc = 0.0
+
+        sc += 1.0
+
+    env_state[0] = mark_env
+    env_state[1] = space_env
+    env_state[2] = mark_noise
+    env_state[3] = space_noise
+    acc_state[0] = early_acc
+    acc_state[1] = prompt_acc
+    acc_state[2] = late_acc
+    avg_state[0] = avg_early
+    avg_state[1] = avg_prompt
+    avg_state[2] = avg_late
+    evt_state[0] = next_early
+    evt_state[1] = next_prompt
+    evt_state[2] = next_late
+    evt_state[3] = sc
+    return out_count
+
+
+@nb.njit(cache=True, fastmath=True)
 def _iq_metrics_c64(iq: np.ndarray) -> tuple[float, float, float]:
     """Compute IQ signal metrics in a single pass (no intermediate arrays).
 

@@ -6,7 +6,7 @@ import uuid
 from pydantic import BaseModel, ConfigDict, ValidationError
 
 from tsdr.core import storage
-from tsdr.core.audio_spec import AudioDemodSpec
+from tsdr.core.demod_spec import DemodSpec
 from tsdr.core.sdr.engine import get_engine
 from tsdr.core.tuning import save_previous_tune_state
 from tsdr.core.tuning_state import get_tuning_state
@@ -38,7 +38,7 @@ class Memory(BaseModel):
     id: str
     frequency: int
     name: str
-    audio_spec: AudioDemodSpec
+    audio_spec: DemodSpec
     bandwidth: int
     tags: tuple[str, ...] = ()
     color: str | None = None
@@ -61,7 +61,7 @@ class MemoryStore:
         self,
         frequency: int,
         name: str,
-        spec: AudioDemodSpec,
+        spec: DemodSpec,
         bandwidth: int,
         tags: tuple[str, ...] = (),
         color: str | None = None,

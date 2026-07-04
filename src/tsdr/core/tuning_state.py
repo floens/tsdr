@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from tsdr.core.audio_spec import PreviousTuneState
+from tsdr.core.demod_spec import PreviousTuneState
 
 
 @dataclass

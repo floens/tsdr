@@ -82,6 +82,8 @@ engine_sync_rate
 event_adapter_stop_failed
 event_handler_failed
 flex_sync_found
+fsk_acquire_retry
+fsk_acquired
 global_config_update
 hardware_config_update_failed
 hardware_enable_agc

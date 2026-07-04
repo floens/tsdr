@@ -9,7 +9,7 @@ from collections.abc import Iterator
 from pydantic import BaseModel, ConfigDict, ValidationError
 
 from tsdr.core import storage
-from tsdr.core.audio_spec import AudioDemodSpec
+from tsdr.core.demod_spec import DemodSpec
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +22,7 @@ class BandRegister(BaseModel):
 
     slot: int  # 0..REGISTERS_PER_BAND-1
     frequency: int
-    audio_spec: AudioDemodSpec
+    audio_spec: DemodSpec
     bandwidth: int
 
 

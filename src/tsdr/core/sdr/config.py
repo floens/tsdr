@@ -10,7 +10,7 @@ from enum import Enum
 from types import MappingProxyType
 from typing import TypedDict, Unpack
 
-from tsdr.core.audio_spec import AudioDemodSpec
+from tsdr.core.demod_spec import DemodSpec
 from tsdr.core.sdr.samples_batch import SampleFormat
 
 
@@ -31,7 +31,7 @@ class PipelineConfig:
     """Immutable pipeline composition descriptor."""
 
     stages: tuple[StageType, ...]
-    audio_spec: AudioDemodSpec | None = None
+    audio_spec: DemodSpec | None = None
     # RecordStage config: output path, optional (up, down) rational resample,
     # optional max sample count at which the stage self-terminates.
     record_path: str | None = None
