@@ -10,7 +10,7 @@ from queue import Empty, Queue
 from types import MappingProxyType
 from typing import Any, Unpack
 
-from tsdr.core.audio_spec import AudioDemodSpec
+from tsdr.core.demod_spec import DemodSpec
 from tsdr.core.events.bus import EventBus
 from tsdr.core.events.events import (
     AGCGainChangeEvent,
@@ -553,7 +553,7 @@ class SDREngine:
         )
         self.update_device_config(device_id, pipelines=new_pipelines)
 
-    def set_audio_demod(self, device_id: str, spec: AudioDemodSpec) -> None:
+    def set_audio_demod(self, device_id: str, spec: DemodSpec) -> None:
         """Rebuild the 'audio' pipeline from the given demod spec.
 
         Fast path: when the audio worker is already running and the stage

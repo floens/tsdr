@@ -1,16 +1,16 @@
 from __future__ import annotations
 
-from tsdr.core.audio_spec import AudioDemodSpec
 from tsdr.core.band_stack import (
     BAND_DEFAULTS,
     REGISTERS_PER_BAND,
     BandRegister,
     BandStackStore,
 )
+from tsdr.core.demod_spec import DemodSpec
 
 
-def _spec(mode: str) -> AudioDemodSpec:
-    return AudioDemodSpec(mode=mode)
+def _spec(mode: str) -> DemodSpec:
+    return DemodSpec(mode=mode)
 
 
 def test_seed_defaults() -> None:

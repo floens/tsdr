@@ -4,8 +4,8 @@ from rich.text import Text
 from textual import events
 from textual.timer import Timer
 
-from tsdr.core.audio_spec import AudioDemodSpec
 from tsdr.core.bandplans import find_band_at, get_bandplan_store
+from tsdr.core.demod_spec import DemodSpec
 from tsdr.core.events.events import MemoriesChangedEvent
 from tsdr.core.memories import Memory, get_memory_store
 from tsdr.core.sdr.device_context import DeviceState
@@ -518,7 +518,7 @@ class KeyboardMixin(MixinBase):
             return
 
         try:
-            engine.set_audio_demod(device.device_id, AudioDemodSpec(mode=mode))
+            engine.set_audio_demod(device.device_id, DemodSpec(mode=mode))
         except SDRException as e:
             self._show_error(str(e))
             return

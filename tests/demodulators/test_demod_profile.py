@@ -7,6 +7,7 @@ the runtime fields.
 
 import pytest
 
+from tsdr.core.demod_spec import DemodSpec
 from tsdr.radio.registry import DEMODULATORS, demod_profile, make_demodulator
 
 
@@ -69,7 +70,7 @@ def test_every_registered_mode_has_a_profile() -> None:
 
 
 def test_nfm_status_reports_squelch() -> None:
-    demod = make_demodulator("NFM", sample_rate=240_000)
+    demod = make_demodulator(DemodSpec(mode="NFM"), 240_000)
     demod.set_squelch(enabled=True, threshold_db=-42.0, hang_ms=100.0)
     status = demod.status()
     assert status.squelch_open is not None
@@ -77,7 +78,7 @@ def test_nfm_status_reports_squelch() -> None:
 
 
 def test_wfm_status_reports_pilot_quality() -> None:
-    demod = make_demodulator("WFM", sample_rate=2_400_000)
+    demod = make_demodulator(DemodSpec(mode="WFM"), 2_400_000)
     status = demod.status()
     assert status.quality_label is not None
     assert status.quality_label.startswith("Pilot")

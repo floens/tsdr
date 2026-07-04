@@ -5,12 +5,12 @@ import math
 import time
 from typing import TYPE_CHECKING
 
-from tsdr.core.audio_spec import AudioDemodSpec, PreviousTuneState
 from tsdr.core.band_stack import (
     BandRegister,
     get_band_stack,
     is_writeback_suspended,
 )
+from tsdr.core.demod_spec import DemodSpec, PreviousTuneState
 from tsdr.core.events.events import (
     ConfigChangedEvent,
     Event,
@@ -122,7 +122,7 @@ def current_channel_bandwidth(context: SDRDeviceContext) -> float:
     return float(default_bandwidth(context.active_mode))
 
 
-def active_demod_spec(context: SDRDeviceContext) -> AudioDemodSpec | None:
+def active_demod_spec(context: SDRDeviceContext) -> DemodSpec | None:
     """Return the audio pipeline's spec, or None if no audio pipeline is configured."""
     audio = context.config.pipelines.get("audio")
     return audio.audio_spec if audio is not None else None
@@ -130,7 +130,7 @@ def active_demod_spec(context: SDRDeviceContext) -> AudioDemodSpec | None:
 
 def current_spec_or_default(
     context: SDRDeviceContext, *, override_mode: str | None = None
-) -> AudioDemodSpec:
+) -> DemodSpec:
     """Return the active demod spec, falling back to a fresh one for the
     device's current mode. If ``override_mode`` is set, rebrand the spec
     under that mode (preserving fm_deviation_hz / sstv_mode) — used by sites
@@ -139,9 +139,9 @@ def current_spec_or_default(
     spec = active_demod_spec(context)
     mode = override_mode if override_mode is not None else context.active_mode
     if spec is None:
-        return AudioDemodSpec(mode=mode)
+        return DemodSpec(mode=mode)
     if override_mode is not None and spec.mode != override_mode:
-        copied: AudioDemodSpec = spec.model_copy(update={"mode": override_mode})
+        copied: DemodSpec = spec.model_copy(update={"mode": override_mode})
         return copied
     return spec
 

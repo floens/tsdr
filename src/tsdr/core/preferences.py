@@ -5,8 +5,8 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from tsdr.core import storage
-from tsdr.core.audio_spec import PreviousTuneState
 from tsdr.core.bandplans import get_bandplan_store
+from tsdr.core.demod_spec import PreviousTuneState
 from tsdr.core.devices import PersistedDevice, get_device_store
 from tsdr.core.sdr.config import DeviceConfig
 from tsdr.core.sdr.engine import get_engine

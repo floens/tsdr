@@ -1,6 +1,7 @@
 from collections.abc import Callable
 from functools import partial
 
+from tsdr.core.demod_spec import DemodSpec
 from tsdr.core.sdr.datatypes import DemodProfile
 from tsdr.radio.demodulators import Demodulator
 
@@ -17,22 +18,35 @@ def register(mode: str, cls: type[Demodulator], factory: Callable[..., Demodulat
 
 
 def make_demodulator(
-    mode: str,
-    sample_rate: float,
-    channel_bandwidth: float | None = None,
-    fm_deviation_hz: float | None = None,
-    sstv_mode: str | None = None,
+    spec: DemodSpec, sample_rate: float, channel_bandwidth: float | None = None
 ) -> Demodulator:
-    mode = mode.upper()
+    """Build the demodulator for `spec` at the device's sample rate / channel bandwidth.
+
+    Per-demod knobs travel on the spec, so adding one means adding a field here and to
+    `DemodSpec` — never re-threading call sites.
+    """
+    mode = spec.mode.upper()
     if mode not in DEMODULATORS:
         raise ValueError(f"Unknown demodulator mode: {mode}")
     kw: dict = {}
     if channel_bandwidth is not None:
         kw["channel_bandwidth"] = channel_bandwidth
-    if mode == "NFM" and fm_deviation_hz is not None:
-        kw["deviation"] = fm_deviation_hz
-    if mode == "SSTV" and sstv_mode is not None:
-        kw["sstv_mode"] = sstv_mode
+    if mode == "NFM" and spec.fm_deviation_hz is not None:
+        kw["deviation"] = spec.fm_deviation_hz
+    if mode == "SSTV" and spec.sstv_mode is not None:
+        kw["sstv_mode"] = spec.sstv_mode
+    if mode in ("RTTY", "FSK"):
+        if spec.fsk_baud is not None:
+            kw["baud"] = spec.fsk_baud
+        if spec.fsk_shift_hz is not None:
+            kw["shift_hz"] = spec.fsk_shift_hz
+        if spec.fsk_reverse is not None:
+            kw["reverse"] = spec.fsk_reverse
+    if mode == "FSK":
+        if spec.fsk_alphabet is not None:
+            kw["alphabet"] = spec.fsk_alphabet
+        if spec.fsk_framing is not None:
+            kw["framing"] = spec.fsk_framing
     return DEMODULATORS[mode](sample_rate=sample_rate, **kw)
 
 
@@ -93,6 +107,7 @@ from tsdr.radio.decoders.aprs import APRSDecoder  # noqa: E402
 from tsdr.radio.decoders.dab import DABDecoder  # noqa: E402
 from tsdr.radio.decoders.dmr import DMRDecoder  # noqa: E402
 from tsdr.radio.decoders.flex import FLEXDecoder  # noqa: E402
+from tsdr.radio.decoders.fsk import FSKGenericDecoder, NAVTEXDecoder, RTTYDecoder  # noqa: E402
 
 # Protocol decoders have fixed, spec-defined bandwidths; they ignore the
 # device's channel_bandwidth and any other audio-demod tuning kwargs.
@@ -101,6 +116,28 @@ register("APRS", APRSDecoder, lambda sample_rate, **_: APRSDecoder(sample_rate=s
 register("DAB", DABDecoder, lambda sample_rate, **_: DABDecoder(sample_rate=sample_rate))
 register("DMR", DMRDecoder, lambda sample_rate, **_: DMRDecoder(sample_rate=sample_rate))
 register("FLEX", FLEXDecoder, lambda sample_rate, **_: FLEXDecoder(sample_rate=sample_rate))
+register("NAVTEX", NAVTEXDecoder, lambda sample_rate, **_: NAVTEXDecoder(sample_rate=sample_rate))
+register(
+    "RTTY",
+    RTTYDecoder,
+    lambda sample_rate, baud=None, shift_hz=None, reverse=None, **_: RTTYDecoder(
+        sample_rate=sample_rate, baud=baud, shift_hz=shift_hz, reverse=reverse
+    ),
+)
+register(
+    "FSK",
+    FSKGenericDecoder,
+    lambda sample_rate, baud=None, shift_hz=None, reverse=None, alphabet=None, framing=None, **_: (
+        FSKGenericDecoder(
+            sample_rate=sample_rate,
+            baud=baud,
+            shift_hz=shift_hz,
+            reverse=reverse,
+            alphabet=alphabet,
+            framing=framing,
+        )
+    ),
+)
 
 from tsdr.radio.decoders.tetra import TETRADecoder  # noqa: E402
 

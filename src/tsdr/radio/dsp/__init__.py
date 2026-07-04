@@ -7,6 +7,7 @@ from tsdr.radio.dsp.dpll import DPLLBitSync
 from tsdr.radio.dsp.filters import butter, firwin, lfilter_zi, resample_poly
 from tsdr.radio.dsp.fm_channelizer import FMChannelizer
 from tsdr.radio.dsp.fm_discriminator import FMDiscriminator
+from tsdr.radio.dsp.fsk import FSKFrontEnd, estimate_fsk_shift
 from tsdr.radio.dsp.mm import MuellerMuller
 from tsdr.radio.dsp.squelch import SquelchGate, iq_power_db
 
@@ -18,11 +19,13 @@ __all__ = [
     "DPLLBitSync",
     "FMChannelizer",
     "FMDiscriminator",
+    "FSKFrontEnd",
     "MuellerMuller",
     "SquelchGate",
     "StreamingDecimFilter",
     "StreamingFilter",
     "butter",
+    "estimate_fsk_shift",
     "firwin",
     "iq_power_db",
     "lfilter",

@@ -88,13 +88,7 @@ class DemodulatorStage:
             new_mode = spec.mode.upper()
             if new_mode != self.mode_name:
                 # Build before assigning so a failed make_demodulator leaves the old demod intact.
-                new_demod = make_demodulator(
-                    new_mode,
-                    config.sample_rate,
-                    config.channel_bandwidth,
-                    spec.fm_deviation_hz,
-                    spec.sstv_mode,
-                )
+                new_demod = make_demodulator(spec, config.sample_rate, config.channel_bandwidth)
                 logger.info("demodulator_swapped old=%s new=%s", self.mode_name, new_mode)
                 self._demodulator = new_demod
                 self.mode_name = new_mode
