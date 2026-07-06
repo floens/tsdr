@@ -139,17 +139,17 @@ from tsdr.tui.commands.sdr.config import SDRConfigCommand  # noqa: E402
 from tsdr.tui.commands.sdr.dab import DABCommand  # noqa: E402
 from tsdr.tui.commands.sdr.demod import SDRDemodCommand  # noqa: E402
 from tsdr.tui.commands.sdr.denoise import SDRDenoiseCommand  # noqa: E402
-from tsdr.tui.commands.sdr.focus import SDRFocusCommand  # noqa: E402
 from tsdr.tui.commands.sdr.frequency import FrequencyCommand  # noqa: E402
 from tsdr.tui.commands.sdr.list import SDRListCommand  # noqa: E402
 from tsdr.tui.commands.sdr.memory import MemoryCommand  # noqa: E402
 from tsdr.tui.commands.sdr.pipeline import SDRPipelineCommand  # noqa: E402
 from tsdr.tui.commands.sdr.record import SDRRecordCommand  # noqa: E402
 from tsdr.tui.commands.sdr.remove import SDRRemoveCommand  # noqa: E402
-from tsdr.tui.commands.sdr.scan import ScanCommand  # noqa: E402
+from tsdr.tui.commands.sdr.soapy import SoapyCommand  # noqa: E402
 from tsdr.tui.commands.sdr.squelch import SDRSquelchCommand  # noqa: E402
 from tsdr.tui.commands.sdr.start import SDRStartCommand  # noqa: E402
 from tsdr.tui.commands.sdr.stop import SDRStopCommand  # noqa: E402
+from tsdr.tui.commands.sdr.use import SDRUseCommand  # noqa: E402
 
 register("echo", EchoCommand())
 register("exit", ExitCommand())
@@ -164,14 +164,14 @@ register("remove", SDRRemoveCommand())
 register("start", SDRStartCommand())
 register("stop", SDRStopCommand())
 register("list", SDRListCommand())
-register("focus", SDRFocusCommand())
+register("use", SDRUseCommand())
 register("config", SDRConfigCommand())
 register("dab", DABCommand())
 register("demod", SDRDemodCommand())
 register("denoise", SDRDenoiseCommand())
 register("pipeline", SDRPipelineCommand())
 register("audio", AudioCommand())
-register("scan", ScanCommand())
+register("soapy", SoapyCommand())
 register("squelch", SDRSquelchCommand())
 register("f", FrequencyCommand())
 register("memory", MemoryCommand())

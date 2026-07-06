@@ -57,5 +57,5 @@ def test_longer_match_still_valid_when_exact_entry_is_newer() -> None:
 def test_no_matching_entry_returns_empty() -> None:
     h = history_mod.get_history()
     h.add("list")
-    h.add("focus")
+    h.add("use")
     assert autosuggest.compute_suggestion("echo") == ""

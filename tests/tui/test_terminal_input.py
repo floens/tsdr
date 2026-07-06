@@ -150,7 +150,7 @@ def test_transpose_words_mid() -> None:
 def test_history_up_down_prefix_search() -> None:
     t = _make_input()
     h = history_mod.get_history()
-    for line in ["echo a", "list", "echo b", "focus 0"]:
+    for line in ["echo a", "list", "echo b", "use 0"]:
         h.add(line)
 
     _setv(t, "echo", cursor=4)
@@ -196,7 +196,7 @@ def test_history_no_entries() -> None:
 def test_enter_search_and_extend() -> None:
     t = _make_input()
     h = history_mod.get_history()
-    for line in ["echo a", "list", "echo foo", "focus 0", "foo bar"]:
+    for line in ["echo a", "list", "echo foo", "use 0", "foo bar"]:
         h.add(line)
 
     _setv(t, "", cursor=0)

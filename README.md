@@ -81,7 +81,7 @@ sudo apt install python3-soapysdr soapysdr-tools
 sudo apt install soapysdr-module-rtlsdr   # or -hackrf, -airspy, -remote, ...
 ```
 
-Run `scan` in the console to enumerate the devices SoapySDR can see.
+Run `soapy probe` in the console to enumerate the devices SoapySDR can see.
 
 ### Checking your terminal
 
@@ -150,7 +150,7 @@ f 100.1M
 demod wfm
 ```
 
-Common commands include `add`, `remove`, `start`, `stop`, `list`, `focus`, and
+Common commands include `add`, `remove`, `start`, `stop`, `list`, `use`, and
 `config` (device management); `f` (tune), `demod` (select a demodulator or
 decoder), `squelch`, `denoise`, and `audio` (audio); `memory` and `bandplan`
 (frequency presets); `record` (IQ capture); and `pipeline` (inspect or modify

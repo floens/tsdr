@@ -50,7 +50,7 @@ def test_empty_line_ignored() -> None:
 
 def test_walk_back_prefix() -> None:
     h = CommandHistory()
-    for line in ["echo a", "list", "echo b", "focus 0", "echo c"]:
+    for line in ["echo a", "list", "echo b", "use 0", "echo c"]:
         h.add(line)
 
     r = h.walk_back(None, "echo")
@@ -76,7 +76,7 @@ def test_walk_back_no_prefix() -> None:
 def test_walk_back_substring_match() -> None:
     """Query matches anywhere in the entry, not just the start."""
     h = CommandHistory()
-    for line in ["echo bar foo baz", "list", "focus rtl0"]:
+    for line in ["echo bar foo baz", "list", "use rtl0"]:
         h.add(line)
 
     r = h.walk_back(None, "foo")
@@ -103,7 +103,7 @@ def test_walk_forward_case_insensitive() -> None:
 
 def test_walk_forward_prefix() -> None:
     h = CommandHistory()
-    for line in ["echo a", "list", "echo b", "focus 0", "echo c"]:
+    for line in ["echo a", "list", "echo b", "use 0", "echo c"]:
         h.add(line)
 
     r = h.walk_forward(0, "echo")
@@ -115,7 +115,7 @@ def test_walk_forward_prefix() -> None:
 
 def test_search_reverse() -> None:
     h = CommandHistory()
-    for line in ["echo a", "list", "echo foo", "focus 0", "foo bar"]:
+    for line in ["echo a", "list", "echo foo", "use 0", "foo bar"]:
         h.add(line)
 
     # Reverse search from newest
@@ -128,7 +128,7 @@ def test_search_reverse() -> None:
 
 def test_search_forward() -> None:
     h = CommandHistory()
-    for line in ["echo a", "list", "echo foo", "focus 0", "foo bar"]:
+    for line in ["echo a", "list", "echo foo", "use 0", "foo bar"]:
         h.add(line)
 
     r = h.search("foo", 0, 1)

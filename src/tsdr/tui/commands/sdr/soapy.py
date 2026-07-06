@@ -6,16 +6,23 @@ from tsdr.tui.commands._format import field, header
 from tsdr.tui.commands.base import Command, CommandParser
 
 
-class ScanCommand(Command):
+class SoapyCommand(Command):
     @property
     def description(self) -> str:
-        return "Scan for available SoapySDR devices"
+        return "SoapySDR device operations"
 
     def configure(self, parser: CommandParser) -> None:
-        parser.add_argument("--driver", default="", help="Filter by driver (e.g. rtlsdr, remote)")
-        parser.add_argument("--remote", default="", help="Remote hostname (SoapyRemote)")
+        sub = parser.add_subparsers(dest="action")
+        probe_p = sub.add_parser("probe", help="Probe for available SoapySDR devices")
+        probe_p.add_argument("--driver", default="", help="Filter by driver (e.g. rtlsdr, remote)")
+        probe_p.add_argument("--remote", default="", help="Remote hostname (SoapyRemote)")
 
     def run(self, args: Namespace) -> str:
+        if getattr(args, "action", None) != "probe":
+            return self.help_text()
+        return self._probe(args)
+
+    def _probe(self, args: Namespace) -> str:
         if not _HAS_SOAPY:
             raise ConfigurationError("SoapySDR not installed. Install via system package manager.")
 

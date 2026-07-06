@@ -167,7 +167,7 @@ Commands extend the `Command` ABC from `tui/commands/base.py`. Required: `descri
 
 Commands are organized by domain:
 - `tui/commands/builtin/` — echo, exit, help, paths, time, trace
-- `tui/commands/sdr/` — add, bandplan, config, dab, demod, focus, frequency, list, memory, pipeline, record, remove, scan, squelch, start, stop
+- `tui/commands/sdr/` — add, bandplan, config, dab, demod, frequency, list, memory, pipeline, record, remove, soapy, squelch, start, stop, use
 - `tui/commands/audio/` — audio
 
 Adding a new command:

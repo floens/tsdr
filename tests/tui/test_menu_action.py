@@ -17,7 +17,7 @@ def test_single_item_tab_applies() -> None:
 def test_single_item_auto_open_shows_menu() -> None:
     """Auto-open with a single match must NOT silently complete.
 
-    Regression: after backspacing back to `focus `, auto-open would fire and,
+    Regression: after backspacing back to `use `, auto-open would fire and,
     because rtl0 was the only device, auto-apply would revert the edit.
     """
     items = [MenuItem("rtl0", "", (0,))]
