@@ -128,6 +128,19 @@ Each widget exposes:
 No widget calls `query_one` outside its own subtree, reads/writes other
 widgets, or sets its own `.display`.
 
+**Transposable panels (`SectionPanel`).** Panel content that is "columns of
+labeled rows" (stats, performance, and the demod-specific panels) extends
+`SectionPanel(Static, PanelWidget)` (`tui/widgets/section_panel.py`): implement
+`build_sections() -> list[Section]` and call `self.refresh()` (never
+`self.update()`) on data change. The base renders sections stacked (vertical
+`Group`) on the side docks and side-by-side (`Table.grid`) on the bottom bar,
+keyed off `dock_edge`. Per-column widths live on `Section`, not CSS.
+`watch_dock_edge` (via `set_orientation_classes` in `panel.py`) toggles the
+`panel-tall`/`panel-wide` classes; canvas/embedded demod-specific panels reuse
+the same hook to flip their container layout. Generic height rules are scoped
+`SectionPanel.panel-tall { height: 1fr }` so they don't collapse the canvas
+panels' fixed heights.
+
 ### Gotchas
 
 - **Don't hardcode `id=` in a widget's `__init__`** — the reconciler assigns

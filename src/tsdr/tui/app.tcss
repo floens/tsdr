@@ -38,6 +38,8 @@
 $border-muted: rgb(83, 83, 83);
 $prompt-color: rgb(255, 255, 255);
 $app-bg: ansi_default;
+/* Active-panel amber: the launcher-bar highlight and the panel title header. */
+$panel-accent: rgb(255, 180, 60);
 
 /* Global Layout. App is created with `ansi_color=True`, which disables
    Textual's default `ANSIToTruecolor` line filter so `ansi_default`
@@ -108,11 +110,23 @@ EdgeStrip {
 EdgeStrip#panel-bar { width: 100%; height: 1; }
 EdgeStrip > .edge-strip--digit  { text-style: bold; }
 EdgeStrip > .edge-strip--title  { text-style: dim; }
-EdgeStrip > .edge-strip--active { text-style: bold; color: rgb(255, 180, 60); }
+EdgeStrip > .edge-strip--active { text-style: bold; color: $panel-accent; }
 
 /* Panel-content wrappers — fixed-column for L/R, full-width auto-height for
    bottom. Children lay out vertically so multi-widget panels (stats +
-   constellation) stack correctly. */
+   constellation) stack correctly. The wrapper owns the panel chrome: a one-line
+   top border hosting the panel title (border_title renders on the top edge).
+   The line stays muted; the title uses the active-panel amber to match the
+   launcher bar. */
+#panel-content--left,
+#panel-content--right,
+#panel-content--bottom {
+    border-top: solid $border-muted;
+    border-title-color: $panel-accent;
+    border-title-style: bold;
+    border-title-align: left;
+}
+
 #panel-content--left,
 #panel-content--right {
     width: 42;
@@ -124,7 +138,7 @@ EdgeStrip > .edge-strip--active { text-style: bold; color: rgb(255, 180, 60); }
     width: 100%;
     height: auto;
     min-height: 8;
-    layout: vertical;
+    layout: horizontal;
 }
 
 /* === Console + status overlay ============================================= */
@@ -212,18 +226,41 @@ WaterfallWidget {
 
 /* === Panel widgets ======================================================== */
 
+/* SectionPanels transpose by dock edge. watch_dock_edge sets panel-tall on the
+   side docks (fill height) and panel-wide on the bottom bar (size to content).
+   The base rule is the pre-reconcile fallback before either class is applied.
+   Scoped to SectionPanel so the bare classes can also drive the canvas panels'
+   layout flip without clobbering their fixed heights. */
+SectionPanel {
+    width: 100%;
+    height: auto;
+    overflow-x: hidden;
+    overflow-y: auto;
+    scrollbar-size-vertical: 1;
+}
+/* Side docks: fill the dock height, scroll if the content is taller. */
+SectionPanel.panel-tall { height: 1fr; }
+/* Bottom bar: take the width left of the companion image, grow to content up to
+   a cap so it can't swallow the spectrum, then scroll the overflow. */
+SectionPanel.panel-wide { width: 1fr; height: auto; max-height: 12; }
+
 /* Sidebar-style panels (stats / performance) and the constellation Kitty
    image. Each fills its panel-content wrapper's width. */
 StatsWidget,
 PerformanceWidget {
-    width: 100%;
-    height: 1fr;
     padding: 1;
 }
 
 ConstellationWidget {
     width: 100%;
     height: auto;
+}
+/* Bottom bar: a compact square to the right of the stats columns (a square
+   kitty image at full bar width would be ~60 rows tall). 24 cells wide keeps
+   it square at the standard 8x16 cell size. */
+ConstellationWidget.panel-wide {
+    width: 24;
+    height: 12;
 }
 
 /* === Tuner ================================================================ */
@@ -307,104 +344,26 @@ TunerWidget {
 
 /* === Decoder panels ======================================================= */
 
-/* All decoder widgets fill their panel-content wrapper horizontally. They
-   set their own min-height so the bottom dock auto-sizes around them. */
+/* The demod-specific SectionPanels: a single rendered surface, no child widgets.
+   Column widths live in their Section specs; the border/title live on the
+   panel-content wrapper. Width and height come from the panel-tall / panel-wide
+   orientation classes; min-height keeps the bottom dock from collapsing. */
 
-RDSWidget {
-    width: 100%;
-    height: auto;
-    min-height: 8;
-    padding: 0 1;
-    border: round $border-muted;
-    layout: horizontal;
-}
-
-RDSWidget Static {
-    width: 1fr;
-    height: auto;
-}
-
-RDSWidget #rds-stats {
-    width: 16;
-    min-width: 14;
-}
-
-RDSWidget #rds-main {
-    width: 24;
-    min-width: 18;
-}
-
+RDSWidget,
+DMRWidget,
 TETRAWidget {
-    width: 100%;
-    height: auto;
-    min-height: 9;
-    padding: 0 1;
-    border: round $border-muted;
-    layout: horizontal;
-}
-
-TETRAWidget Static {
-    width: 1fr;
-    height: auto;
-}
-
-TETRAWidget #tetra-network {
-    width: 32;
-    min-width: 18;
     padding: 0 1;
 }
 
-TETRAWidget #tetra-slots {
-    width: 20;
-    min-width: 18;
-}
-
-TETRAWidget #tetra-calls {
-    width: 32;
-    min-width: 24;
-}
-
-TETRAWidget #tetra-quality {
-    width: 18;
-    min-width: 14;
-}
-
-DMRWidget {
-    width: 100%;
-    height: auto;
-    min-height: 8;
-    padding: 0 1;
-    border: round $border-muted;
-    layout: horizontal;
-}
-
-DMRWidget Static {
-    width: 1fr;
-    height: auto;
-}
-
-DMRWidget #dmr-repeater {
-    width: 20;
-    min-width: 16;
-    padding: 0 1;
-}
-
-DMRWidget #dmr-slots {
-    width: 28;
-    min-width: 22;
-}
-
-DMRWidget #dmr-quality {
-    width: 18;
-    min-width: 14;
-}
+RDSWidget { min-height: 8; }
+DMRWidget { min-height: 8; }
+TETRAWidget { min-height: 9; }
 
 DABWidget {
     width: 100%;
     height: auto;
     min-height: 6;
     padding: 0 1;
-    border: round $border-muted;
     layout: horizontal;
 }
 
@@ -434,7 +393,8 @@ DABWidget #dab-signal {
 }
 
 DABWidget #dab-services {
-    width: 1fr;
+    width: auto;
+    max-width: 40;
     height: auto;
     max-height: 5;
     border: none;
@@ -446,7 +406,6 @@ SSTVWidget {
     height: auto;
     min-height: 8;
     padding: 0 1;
-    border: round $border-muted;
     layout: horizontal;
 }
 
@@ -475,7 +434,6 @@ ADSBWidget {
     width: 100%;
     height: 12;
     padding: 0;
-    border: round $border-muted;
     layout: horizontal;
 }
 
@@ -491,9 +449,56 @@ ADSBWidget #adsb-table {
     padding: 0 1;
 }
 
+/* Canvas/embedded decoder panels: on the side docks flip to a vertical stack
+   (text columns and the image/table sit on top of each other) and let the text
+   columns span the narrow sidebar. Heights stay per-widget (these aren't
+   SectionPanels) so their fixed image/map regions don't collapse. Inter-column
+   spacing matches SectionPanel: a 1-row gap between stacked columns (tall) and a
+   1-col gutter between side-by-side columns (wide). margin-top/right skip the
+   first/last column so the gap sits only between. */
+DABWidget.panel-tall { layout: vertical; }
+DABWidget.panel-tall #dab-station,
+DABWidget.panel-tall #dab-slide-text,
+DABWidget.panel-tall #dab-info,
+DABWidget.panel-tall #dab-signal,
+DABWidget.panel-tall #dab-slide-img,
+DABWidget.panel-tall #dab-services { width: 1fr; }
+DABWidget.panel-tall #dab-services { max-width: 100%; }
+DABWidget.panel-tall #dab-info,
+DABWidget.panel-tall #dab-services,
+DABWidget.panel-tall #dab-station,
+DABWidget.panel-tall #dab-slide-text,
+DABWidget.panel-tall #dab-slide-img { margin-top: 1; }
+DABWidget.panel-wide #dab-signal,
+DABWidget.panel-wide #dab-info,
+DABWidget.panel-wide #dab-services,
+DABWidget.panel-wide #dab-station,
+DABWidget.panel-wide #dab-slide-text { margin-right: 1; }
+
+SSTVWidget.panel-tall { layout: vertical; }
+SSTVWidget.panel-tall #sstv-status,
+SSTVWidget.panel-tall #sstv-progress { width: 1fr; }
+SSTVWidget.panel-tall #sstv-progress,
+SSTVWidget.panel-tall #sstv-image-alt,
+SSTVWidget.panel-tall #sstv-image { margin-top: 1; }
+SSTVWidget.panel-wide #sstv-status,
+SSTVWidget.panel-wide #sstv-progress,
+SSTVWidget.panel-wide #sstv-image-alt { margin-right: 1; }
+
+ADSBWidget.panel-tall { layout: vertical; height: 1fr; }
+ADSBWidget.panel-tall #adsb-map { width: 1fr; height: 1fr; }
+ADSBWidget.panel-tall #adsb-table { width: 1fr; }
+
+/* Decoder console: one RichLog whose last line is the live/streaming line. Same
+   transpose as SectionPanel — fill the side dock (tall), grow to content up to a
+   cap on the bottom bar (wide) — since it's a single scroll surface again. */
 DecoderOutputWidget {
     width: 100%;
-    height: 12;
+    height: auto;
     padding: 0 1;
-    border: round $border-muted;
+    overflow-x: hidden;
+    overflow-y: auto;
+    scrollbar-size-vertical: 1;
 }
+DecoderOutputWidget.panel-tall { height: 1fr; }
+DecoderOutputWidget.panel-wide { width: 1fr; height: auto; max-height: 12; }

@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import inspect
+
 import pytest
+from textual.reactive import Reactive
 
 from tsdr.tui.view.factory import FACTORY
 from tsdr.tui.view.tree import _DEMOD_FACTORY_KINDS
@@ -21,5 +24,10 @@ def test_panel_content_widget_is_panel_widget(kind: str) -> None:
 
 @pytest.mark.parametrize("kind", _PANEL_CONTENT_KINDS)
 def test_dock_edge_default_is_none(kind: str) -> None:
-    """The contract's dock_edge hook is present and defaults to None."""
-    assert FACTORY[kind].dock_edge is None
+    """The contract's dock_edge hook is present and defaults to None, whether the
+    widget keeps the plain attr or promotes it to a reactive (SectionPanel)."""
+    dock_edge = inspect.getattr_static(FACTORY[kind], "dock_edge")
+    if isinstance(dock_edge, Reactive):
+        assert dock_edge._default is None
+    else:
+        assert dock_edge is None

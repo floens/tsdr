@@ -1,7 +1,7 @@
-from textual.widgets import Static
+from __future__ import annotations
 
 from tsdr.core.events.events import StatsUpdateEvent
-from tsdr.tui.widgets.panel import PanelWidget
+from tsdr.tui.widgets.section_panel import Section, SectionPanel
 
 
 def _duration_color(ms: float) -> str:
@@ -13,27 +13,38 @@ def _duration_color(ms: float) -> str:
     return "red"
 
 
-class PerformanceWidget(Static, PanelWidget):
-    """Display performance metrics as an indented tree."""
+class PerformanceWidget(SectionPanel):
+    """Display performance metrics as an indented tree.
+
+    Each top-level metric group is a Section: stacked on the tall sidebars,
+    side-by-side columns on the wide bottom bar.
+    """
 
     def __init__(self):
-        super().__init__("[dim]Performance: No data[/dim]")
+        super().__init__()
         self.current_event: StatsUpdateEvent | None = None
 
     def update_stats(self, event: StatsUpdateEvent) -> None:
         self.current_event = event
-        self._update()
+        self.refresh()
 
-    def _update(self):
+    def build_sections(self) -> list[Section]:
         if not self.current_event or not self.current_event.performance_stats:
-            self.update("[dim]Performance: No data[/dim]")
-            return
+            return [Section("[dim]Performance: No data[/dim]")]
 
-        lines: list[str] = ["[bold cyan]Performance[/bold cyan]"]
+        tree = self._build_tree(self.current_event.performance_stats)
+        sections: list[Section] = []
+        for name, data in sorted(tree.items()):
+            lines: list[str] = []
+            self._render_tree({name: data}, lines, indent=0, parent_ms=0.0)
+            sections.append(Section("\n".join(lines)))
+        return sections
 
-        # Build tree structure from dot-separated names
+    @staticmethod
+    def _build_tree(stats: dict[str, float]) -> dict:
+        """Build a nested tree from dot-separated metric names."""
         tree: dict = {}
-        for name, duration in self.current_event.performance_stats.items():
+        for name, duration in stats.items():
             parts = name.split(".")
             node = tree
             for part in parts[:-1]:
@@ -44,9 +55,7 @@ class PerformanceWidget(Static, PanelWidget):
             if leaf not in node:
                 node[leaf] = {"_children": {}}
             node[leaf]["_duration"] = duration
-
-        self._render_tree(tree, lines, indent=0, parent_ms=0.0)
-        self.update("\n".join(lines))
+        return tree
 
     def _render_tree(
         self, node: dict, lines: list[str], indent: int, parent_ms: float, is_root: bool = True

@@ -1,4 +1,5 @@
 import math
+import time
 
 import numpy as np
 from numba import njit
@@ -6,11 +7,18 @@ from numpy.typing import NDArray
 from textual.geometry import Size
 from textual.reactive import reactive
 from textual.strip import Strip
+from textual.timer import Timer
 from textual.widget import Widget
 
 from tsdr.core.events.events import ConstellationUpdateEvent
 from tsdr.core.tracing import span
 from tsdr.tui.widgets.kitty_image import KittyImageWidget
+from tsdr.tui.widgets.panel import set_orientation_classes
+
+# Collapse to zero height (hiding the image) when no constellation has arrived
+# recently.
+_IDLE_TIMEOUT_S = 2.0
+_IDLE_CHECK_S = 1.0
 
 # Alpha decay factor per frame (persistence trail effect)
 _DECAY = np.float32(0.85)
@@ -24,7 +32,7 @@ _RANGE_DECAY = 0.95  # slow shrink per frame (fast attack, slow decay)
 _MAX_POINTS = 2048
 
 _DOT_COLOR = np.array([0x1E, 0x90, 0xFF, 0xFF], dtype=np.uint8)  # dodger blue
-_AXIS_COLOR = np.array([40, 40, 40, 255], dtype=np.uint8)
+_AXIS_COLOR = np.array([80, 80, 80, 255], dtype=np.uint8)
 
 
 @njit(cache=True)
@@ -60,6 +68,7 @@ class ConstellationWidget(Widget):
     """
 
     image_mode = reactive(False)
+    dock_edge = reactive(None)
 
     def __init__(self) -> None:
         super().__init__()
@@ -69,6 +78,9 @@ class ConstellationWidget(Widget):
         self._img_x = 0  # x offset to center the square buffer in the kitty widget
         self._img_y = 0  # y offset to center the square buffer in the kitty widget
         self._range = 1.5  # display range ±_range, auto-scaled
+        self._shown = False  # False → get_content_height reports 0 (collapsed)
+        self._last_data_time: float | None = None
+        self._idle_timer: Timer | None = None
 
     # Default cell pixel sizes (matches KittyImageWidget defaults)
     _cell_width_px = 8
@@ -79,16 +91,17 @@ class ConstellationWidget(Widget):
         self.mount(self._kitty)
         # Layout may have cached height=0 from before mount; force re-query
         self.clear_cached_dimensions()
-        # Paint an initial grid so the widget isn't blank between mount and
-        # the first ConstellationUpdate event (which may take seconds or
-        # never arrive if the engine has nothing to render).
-        if self.image_mode:
-            self.call_after_refresh(self._paint_grid_only)
+        self._idle_timer = self.set_interval(_IDLE_CHECK_S, self._check_idle)
 
     def on_unmount(self) -> None:
+        if self._idle_timer is not None:
+            self._idle_timer.stop()
+            self._idle_timer = None
         self._clear_image()
 
     def get_content_height(self, container: Size, viewport: Size, width: int) -> int:
+        if not self._shown:
+            return 0
         cw = self._cell_width_px
         ch = self._cell_height_px
         if self._kitty is not None:
@@ -98,11 +111,12 @@ class ConstellationWidget(Widget):
             return 0
         return math.ceil(width * cw / ch)
 
+    def watch_dock_edge(self, edge) -> None:
+        set_orientation_classes(self, edge)
+
     def watch_image_mode(self, image_mode: bool) -> None:
-        if image_mode:
-            self.call_after_refresh(self._paint_grid_only)
-        else:
-            self._clear_image()
+        if not image_mode:
+            self._hide()
 
     def _clear_image(self) -> None:
         if self._kitty is not None:
@@ -111,25 +125,34 @@ class ConstellationWidget(Widget):
         self._buf_size = 0
         self._range = 1.5
 
-    def _paint_grid_only(self) -> None:
-        """Allocate the buffer and draw just the axis crosshairs.
+    def _show(self) -> None:
+        if self._shown:
+            return
+        self._shown = True
+        self.clear_cached_dimensions()
+        self.refresh(layout=True)
 
-        Called on mount or image_mode→True so the widget shows a grid even
-        before the first ConstellationUpdate event arrives.
-        """
-        if self._kitty is None or not self.image_mode:
+    def _hide(self) -> None:
+        self._clear_image()
+        if not self._shown:
             return
-        size = self._compute_geometry()
-        if size <= 0:
+        self._shown = False
+        self.clear_cached_dimensions()
+        self.refresh(layout=True)
+
+    def _check_idle(self) -> None:
+        if not self._shown:
             return
-        self._buffer = np.zeros((size, size, 4), dtype=np.uint8)
-        self._buf_size = size
-        self._draw_grid(self._buffer)
-        self._kitty.update_image("constellation", self._buffer, x=self._img_x, y=self._img_y)
+        last = self._last_data_time
+        if last is None or time.monotonic() - last > _IDLE_TIMEOUT_S:
+            self._hide()
 
     def update_constellation(self, event: ConstellationUpdateEvent) -> None:
         if self._kitty is None or not self.image_mode:
             return
+
+        self._last_data_time = time.monotonic()
+        self._show()
 
         size = self._compute_geometry()
         if size <= 0:

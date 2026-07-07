@@ -14,7 +14,7 @@ from tsdr.radio.decoders.dab import DABData, DABServiceInfo, DABSlide
 from tsdr.tui.commands import registry
 from tsdr.tui.markup import escape_forced
 from tsdr.tui.widgets.kitty_image import KittyImageWidget
-from tsdr.tui.widgets.panel import PanelWidget
+from tsdr.tui.widgets.panel import PanelWidget, set_orientation_classes
 from tsdr.tui.widgets.utils import NonFocusableOptionList
 
 logger = logging.getLogger(__name__)
@@ -48,25 +48,27 @@ def _decode_slide_to_rgba(slide: DABSlide) -> np.ndarray | None:
 class DABWidget(Horizontal, PanelWidget):
     """Display DAB ensemble info, signal stats, and service list.
 
-    Col 1: selected station + DLS text.
-    Col 2: slide image (kitty) or alt text.
-    Col 3: ensemble metadata (label, ID, FIB quality).
-    Col 4: signal info (frames, freq offset, audio codec).
-    Col 5: interactive service list - click to select.
+    Columns, in compose order (left-to-right wide, top-to-bottom tall):
+      1. #dab-signal   - signal stats (frames, freq offset, FIB CRC).
+      2. #dab-info      - ensemble metadata (label, ID, service counts).
+      3. #dab-services  - interactive service list; click to select.
+      4. #dab-station   - selected station label + DLS text + audio codec.
+      5. slide          - kitty image (#dab-slide-img) or alt text (#dab-slide-text).
 
     Reactive props:
       image_mode: bool — when True, slide column shows the kitty image; when False, shows alt-text.
     """
 
     image_mode = reactive(False)
+    dock_edge = reactive(None)
 
     def __init__(self) -> None:
         super().__init__()
         self._current: DABData | None = None
         self._col_station = Static("", id="dab-station")
         self._col_slide_text = Static("", id="dab-slide-text")
-        self._col_info = Static("Waiting...", id="dab-info")
-        self._col_signal = Static("", id="dab-signal")
+        self._col_info = Static("", id="dab-info")
+        self._col_signal = Static("Waiting...", id="dab-signal")
         self._service_list = NonFocusableOptionList(id="dab-services")
         self._kitty = KittyImageWidget(id="dab-slide-img")
         self._last_slide: DABSlide | None = None
@@ -82,12 +84,14 @@ class DABWidget(Horizontal, PanelWidget):
         yield self._kitty
 
     def on_mount(self) -> None:
-        self.border_title = "DAB"
         # Apply the initial image_mode (reactive watcher fires once on mount if set)
         self._apply_image_mode(self.image_mode)
 
     def watch_image_mode(self, image_mode: bool) -> None:
         self._apply_image_mode(image_mode)
+
+    def watch_dock_edge(self, edge) -> None:
+        set_orientation_classes(self, edge)
 
     def _apply_image_mode(self, enabled: bool) -> None:
         if enabled:
@@ -118,8 +122,8 @@ class DABWidget(Horizontal, PanelWidget):
         if self._current is None:
             self._col_station.update("")
             self._col_slide_text.update("")
-            self._col_info.update("Waiting...")
-            self._col_signal.update("")
+            self._col_info.update("")
+            self._col_signal.update("Waiting...")
             self._service_list.clear_options()
             return
 

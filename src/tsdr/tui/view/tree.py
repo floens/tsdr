@@ -116,7 +116,8 @@ def _panel_content_wrapper(m: UIModel, edge: Edge, active: str | None) -> tuple[
     children = _build_panel_children(m, panel_def, edge)
     if not children:
         return ()
-    return (WidgetSpec("panel_content", f"panel-content:{edge}", {}, children),)
+    props = {"panel_title": _panel_label(active, m)}
+    return (WidgetSpec("panel_content", f"panel-content:{edge}", props, children),)
 
 
 _DEMOD_FACTORY_KINDS: dict[str, str] = {
@@ -135,10 +136,12 @@ def _build_panel_children(m: UIModel, panel_def: PanelDef, edge: Edge) -> tuple[
     Every panel widget receives `dock_edge` (the edge it's docked on) per the
     PanelWidget contract, so it can adapt its layout later.
 
-    - `demod` multiplexes to the decoder widget matching the focused device's
-      active kind (RDS/DAB/ADSB/TETRA/DMR); no inner widget when there is no
-      active decoder (or kind is `text`, which has its own panel).
-    - `stats` additionally includes a ConstellationWidget when image_mode is on.
+    - `demod` multiplexes to the demod-specific widget matching the focused
+      device's active decoder kind; no inner widget when there is no active
+      decoder (or kind is `text`, which has its own panel).
+    - `stats` additionally includes a ConstellationWidget when image_mode is on:
+      stacked below stats on the side docks, a small square to its right on the
+      bottom bar.
     """
     if panel_def.panel_id == "demod":
         return _build_demod_children(m, edge)
@@ -151,8 +154,18 @@ def _build_panel_children(m: UIModel, panel_def: PanelDef, edge: Edge) -> tuple[
                 {"focused_device_id": m.focused_device_id, "dock_edge": edge},
             ),
         ]
+        # The constellation is a square kitty image whose row height scales with
+        # its width. It needs `dock_edge` so it can shrink to a small square on
+        # the right of the bottom bar (see the ConstellationWidget.panel-wide
+        # CSS) instead of ballooning to the bar's full width there.
         if m.image_mode:
-            children.append(WidgetSpec("constellation", "constellation", {"image_mode": True}))
+            children.append(
+                WidgetSpec(
+                    "constellation",
+                    "constellation",
+                    {"image_mode": True, "dock_edge": edge},
+                )
+            )
         return tuple(children)
     return (WidgetSpec(panel_def.kind, key, {"dock_edge": edge}),)
 

@@ -1,16 +1,15 @@
-from textual.containers import Horizontal
-from textual.widgets import Static
+from __future__ import annotations
 
 from tsdr.core.events.events import DecoderOutputEvent
 from tsdr.radio.decoders.rds import RDSData
 from tsdr.tui.markup import escape_forced
-from tsdr.tui.widgets.panel import PanelWidget
+from tsdr.tui.widgets.section_panel import Section, SectionPanel
 
-# Number of group columns (after stats + main)
+# Number of group columns (after stats + main) when laid out horizontally
 _GROUP_COLS = 3
 
 
-class RDSWidget(Horizontal, PanelWidget):
+class RDSWidget(SectionPanel):
     """Display RDS data in a multi-column layout.
 
     Col 1: Stats (sync, BER, offset)
@@ -22,17 +21,6 @@ class RDSWidget(Horizontal, PanelWidget):
         super().__init__()
         self._current_rds: RDSData | None = None
         self._group_grid: dict[str, str] = {}
-        self._col_stats = Static("Waiting...", id="rds-stats")
-        self._col_main = Static("", id="rds-main")
-        self._col_grps = [Static("", id=f"rds-grp{i}") for i in range(_GROUP_COLS)]
-
-    def compose(self):
-        yield self._col_stats
-        yield self._col_main
-        yield from self._col_grps
-
-    def on_mount(self) -> None:
-        self.border_title = "RDS"
 
     def update_messages(self, event: DecoderOutputEvent) -> None:
         """Update widget with new RDS data from DecoderOutputEvent."""
@@ -56,19 +44,21 @@ class RDSWidget(Horizontal, PanelWidget):
         if not rds_data.sync_locked:
             self._group_grid.clear()
 
-        self._refresh_display()
+        self.refresh()
 
-    def _refresh_display(self) -> None:
-        if self._current_rds is None:
-            self._col_stats.update("Waiting...")
-            self._col_main.update("")
-            for col in self._col_grps:
-                col.update("")
-            return
-
+    def build_sections(self) -> list[Section]:
         rds = self._current_rds
+        if rds is None:
+            return [Section("Waiting...")]
+        sections = [
+            Section("\n".join(self._stats_lines(rds)), width=16, min_width=14),
+            Section("\n".join(self._main_lines(rds)), width=24, min_width=18),
+        ]
+        sections.extend(self._group_sections())
+        return sections
 
-        # Column 1: Stats
+    @staticmethod
+    def _stats_lines(rds: RDSData) -> list[str]:
         stats: list[str] = []
         sync_icon = "[green]●[/green] SYNC" if rds.sync_locked else "[red]○[/red] NO SYNC"
         conf_pct = rds.sync_confidence * 100
@@ -85,10 +75,10 @@ class RDSWidget(Horizontal, PanelWidget):
             stats.append(f"BER: [{ber_color}]{ber_pct:.0f}%[/{ber_color}]")
         if rds.uncorrectable_blocks > 0:
             stats.append(f"Uncorr: {rds.uncorrectable_blocks}")
+        return stats
 
-        self._col_stats.update("\n".join(stats))
-
-        # Column 2: Main RDS data
+    @staticmethod
+    def _main_lines(rds: RDSData) -> list[str]:
         main: list[str] = []
         if not rds.sync_locked:
             main.append("[dim]Searching...[/dim]")
@@ -101,21 +91,22 @@ class RDSWidget(Horizontal, PanelWidget):
                 main.append(f"PTY: {escape_forced(rds.pty_name)}")
             if rds.radio_text:
                 main.append(escape_forced(rds.radio_text))
+        return main
 
-        self._col_main.update("\n".join(main))
-
-        # Group columns: flow sorted entries into available rows
+    def _group_sections(self) -> list[Section]:
         entries = [self._group_grid[k] for k in sorted(self._group_grid)]
+        if not entries:
+            return []
+        rendered = [f"[dim cyan]{escape_forced(e)}[/dim cyan]" for e in entries]
 
-        # Determine rows per column from widget height
-        # content_size.height accounts for padding/border; fall back to entry count
+        # Tall layout: a single stacked column. Wide: flow into up to _GROUP_COLS
+        # columns sized by the available content height.
+        if self.dock_edge != "bottom":
+            return [Section("\n".join(rendered))]
+
         h = self.content_size.height
-        rows_per_col = max(h, 1) if h > 0 else max(len(entries), 1)
-
-        col_lines: list[list[str]] = [[] for _ in range(_GROUP_COLS)]
-        for i, entry in enumerate(entries):
-            col_idx = min(i // rows_per_col, _GROUP_COLS - 1)
-            col_lines[col_idx].append(f"[dim cyan]{escape_forced(entry)}[/dim cyan]")
-
-        for col, lines in zip(self._col_grps, col_lines, strict=True):
-            col.update("\n".join(lines))
+        rows_per_col = max(h, 1) if h > 0 else max(len(rendered), 1)
+        cols: list[list[str]] = [[] for _ in range(_GROUP_COLS)]
+        for i, line in enumerate(rendered):
+            cols[min(i // rows_per_col, _GROUP_COLS - 1)].append(line)
+        return [Section("\n".join(c)) for c in cols if c]
