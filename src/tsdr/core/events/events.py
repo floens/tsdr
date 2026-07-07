@@ -110,6 +110,19 @@ class AudioOutputErrorEvent(Event):
     error: str
 
 
+@dataclass(frozen=True)
+class AudioOutputStatsEvent(Event):
+    """Audio-output health, published (throttled) by the audio worker.
+
+    Counts are cumulative since the stream opened: `underflow_count` is soundcard
+    buffer starvations, `drop_count` is blocks dropped when the queue overflowed.
+    """
+
+    device_id: str
+    underflow_count: int
+    drop_count: int
+
+
 # Configuration Events
 
 

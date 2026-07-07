@@ -8,7 +8,7 @@ from typing import Any
 import numpy as np
 import soundcard
 
-from tsdr.core.events.events import AudioOutputErrorEvent
+from tsdr.core.events.events import AudioOutputErrorEvent, AudioOutputStatsEvent
 from tsdr.core.tracing import span
 from tsdr.core.workers import WorkerContext
 from tsdr.radio.dsp._kernels import StreamingPolyphaseResampler
@@ -74,6 +74,7 @@ class AudioOutputWorker:
         self._stream_start_time: float | None = None
         self._last_stats_time: float | None = None
         self._last_glitch_underflows = 0
+        self._last_audio_stats_emit: float | None = None
 
     def setup(self, context: WorkerContext) -> None:
         logger.info("audio_worker_starting source=%s", self.source_id)
@@ -99,6 +100,7 @@ class AudioOutputWorker:
                 if self._needs_flush:
                     self._flush_pending_audio()
                 self._maybe_follow_default()
+                self._maybe_emit_audio_stats(context)
 
                 with span("audio.queue_get"):
                     try:
@@ -242,6 +244,19 @@ class AudioOutputWorker:
             gap,
             batch_duration,
             depth,
+        )
+
+    def _maybe_emit_audio_stats(self, context: WorkerContext) -> None:
+        now = time.perf_counter()
+        if self._last_audio_stats_emit is not None and now - self._last_audio_stats_emit < 1.0:
+            return
+        self._last_audio_stats_emit = now
+        context.emit_event(
+            AudioOutputStatsEvent(
+                device_id=self.source_id,
+                underflow_count=self._underflow_count,
+                drop_count=self._drop_count,
+            )
         )
 
     def _maybe_emit_glitch_aggregate(self) -> None:
