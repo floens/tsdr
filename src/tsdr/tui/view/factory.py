@@ -20,6 +20,7 @@ from tsdr.tui.widgets.dab_widget import DABWidget
 from tsdr.tui.widgets.decoder_output_widget import DecoderOutputWidget
 from tsdr.tui.widgets.dmr_widget import DMRWidget
 from tsdr.tui.widgets.edge_strip import EdgeStrip
+from tsdr.tui.widgets.panel import PanelContent
 from tsdr.tui.widgets.performance_widget import PerformanceWidget
 from tsdr.tui.widgets.rds_widget import RDSWidget
 from tsdr.tui.widgets.spectrum_widget import SpectrumWidget
@@ -37,7 +38,7 @@ FACTORY: Final[dict[str, Callable[[], Widget]]] = {
     "dock_left": Horizontal,
     "dock_right": Horizontal,
     "center_column": Vertical,
-    "panel_content": Vertical,
+    "panel_content": PanelContent,
     "edge_strip": EdgeStrip,
     "tuner": TunerWidget,
     "status_bar": StatusBar,

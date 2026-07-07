@@ -7,9 +7,6 @@ and also consumes `StatsUpdateEvent` for SNR.
 
 from __future__ import annotations
 
-from textual.containers import Horizontal
-from textual.widgets import Static
-
 from tsdr.core.events.events import DecoderOutputEvent, StatsUpdateEvent
 from tsdr.radio.decoders.tetra.state import (
     CARRIER_ROLE_MULTI,
@@ -21,13 +18,13 @@ from tsdr.radio.decoders.tetra.state import (
     SLOT_USAGE_TRAFFIC,
     TetraSnapshot,
 )
-from tsdr.tui.widgets.panel import PanelWidget
+from tsdr.tui.widgets.section_panel import Section, SectionPanel
 
 _BAR_WIDTH = 5
 _ALLOC_LOG_MAX_ROWS = 6
 
 
-class TETRAWidget(Horizontal, PanelWidget):
+class TETRAWidget(SectionPanel):
     """Four-column TETRA state display.
 
     Col 1: Network / Cell identity + carrier role
@@ -40,19 +37,6 @@ class TETRAWidget(Horizontal, PanelWidget):
         super().__init__()
         self._snapshot: TetraSnapshot | None = None
         self._snr_db: float | None = None
-        self._col_network = Static("Waiting...", id="tetra-network")
-        self._col_slots = Static("", id="tetra-slots")
-        self._col_calls = Static("", id="tetra-calls")
-        self._col_quality = Static("", id="tetra-quality")
-
-    def compose(self):
-        yield self._col_network
-        yield self._col_slots
-        yield self._col_calls
-        yield self._col_quality
-
-    def on_mount(self) -> None:
-        self.border_title = "TETRA"
 
     # event handlers
 
@@ -64,29 +48,26 @@ class TETRAWidget(Horizontal, PanelWidget):
         if latest is None:
             return
         self._snapshot = latest
-        self._refresh()
+        self.refresh()
 
     def update_stats(self, event: StatsUpdateEvent) -> None:
         if not self.display:
             return
         self._snr_db = event.channel_snr
-        self._refresh()
+        self.refresh()
 
     # render
 
-    def _refresh(self) -> None:
+    def build_sections(self) -> list[Section]:
         snap = self._snapshot
         if snap is None:
-            self._col_network.update("Waiting...")
-            self._col_slots.update("")
-            self._col_calls.update("")
-            self._col_quality.update("")
-            return
-
-        self._col_network.update(self._render_network(snap))
-        self._col_slots.update(self._render_slots(snap))
-        self._col_calls.update(self._render_calls(snap))
-        self._col_quality.update(self._render_quality(snap))
+            return [Section("Waiting...")]
+        return [
+            Section(self._render_network(snap), width=32, min_width=18),
+            Section(self._render_slots(snap), width=20, min_width=18),
+            Section(self._render_calls(snap), width=32, min_width=24),
+            Section(self._render_quality(snap), width=18, min_width=14),
+        ]
 
     @staticmethod
     def _render_network(snap: TetraSnapshot) -> str:

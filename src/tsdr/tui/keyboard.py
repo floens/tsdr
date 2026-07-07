@@ -15,7 +15,7 @@ from tsdr.core.tuning import current_spec_or_default
 from tsdr.radio.dsp.rnnoise import rnnoise_available
 from tsdr.tui._mixin_base import MixinBase
 from tsdr.tui.console import ConsoleWidget, TerminalInput
-from tsdr.tui.model import adjusted_db_max, adjusted_db_min, adjusted_zoom
+from tsdr.tui.model import Edge, adjusted_db_max, adjusted_db_min, adjusted_zoom
 from tsdr.tui.model.store import get_ui_store
 from tsdr.tui.widgets import SpectrumWidget
 
@@ -179,6 +179,10 @@ class KeyboardMixin(MixinBase):
                     self._recall_band(digit)
                 event.prevent_default()
                 event.stop()
+            elif len(event.key) == 5 and event.key.startswith("alt+") and event.key[4].isdigit():
+                self._cycle_panel_edge(int(event.key[4]))
+                event.prevent_default()
+                event.stop()
             elif event.key == "s":
                 self._cycle_step(True)
                 event.prevent_default()
@@ -301,6 +305,19 @@ class KeyboardMixin(MixinBase):
 
     def _toggle_panel_store(self, panel: str) -> None:
         get_ui_store().toggle_panel(panel)
+
+    def _cycle_panel_edge(self, digit: int) -> None:
+        store = get_ui_store()
+        layout = store.model.layout
+        panel_id = next((pid for d, pid in layout.hotkeys if d == digit), None)
+        if panel_id is None:
+            return
+        ring: tuple[Edge, ...] = ("left", "bottom", "right")
+        current = next((e for e in ring if panel_id in getattr(layout, e).panels), None)
+        start = ring.index(current) if current is not None else -1
+        target = ring[(start + 1) % len(ring)]
+        store.move_panel(panel_id, target)
+        store.set_panel_active(target, panel_id)
 
     def _toggle_device_running(self) -> None:
         engine = get_engine()

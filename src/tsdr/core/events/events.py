@@ -110,6 +110,19 @@ class AudioOutputErrorEvent(Event):
     error: str
 
 
+@dataclass(frozen=True)
+class AudioOutputStatsEvent(Event):
+    """Audio-output health, published (throttled) by the audio worker.
+
+    Counts are cumulative since the stream opened: `underflow_count` is soundcard
+    buffer starvations, `drop_count` is blocks dropped when the queue overflowed.
+    """
+
+    device_id: str
+    underflow_count: int
+    drop_count: int
+
+
 # Configuration Events
 
 
@@ -183,6 +196,10 @@ class DecodedMessage:
     # When True, `text` carries Rich markup the decoder is responsible for
     # escaping; the output widget renders it instead of escaping the whole line.
     markup: bool = False
+    # When True, this message redraws the current (still-being-decoded) line in
+    # place instead of appending a new one; the decoder seals the line by sending
+    # its finished form as an ordinary `partial=False` message.
+    partial: bool = False
 
 
 @dataclass(frozen=True)

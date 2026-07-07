@@ -8,6 +8,7 @@ from textual.message import Message
 
 from tsdr.core.events.events import (
     AudioOutputErrorEvent,
+    AudioOutputStatsEvent,
     BandplanChangedEvent,
     BandStackChangedEvent,
     ConfigChangedEvent,
@@ -84,6 +85,14 @@ class AudioOutputError(Message):
     """Wrapper for AudioOutputErrorEvent."""
 
     def __init__(self, event: AudioOutputErrorEvent) -> None:
+        super().__init__()
+        self.event = event
+
+
+class AudioOutputStats(Message):
+    """Wrapper for AudioOutputStatsEvent (consumed by the stats panel)."""
+
+    def __init__(self, event: AudioOutputStatsEvent) -> None:
         super().__init__()
         self.event = event
 

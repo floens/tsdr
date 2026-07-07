@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING
 from tsdr.core.events.bus import EventBus
 from tsdr.core.events.events import (
     AudioOutputErrorEvent,
+    AudioOutputStatsEvent,
     BandplanChangedEvent,
     BandStackChangedEvent,
     ConfigChangedEvent,
@@ -31,6 +32,7 @@ from tsdr.core.events.events import (
 from tsdr.core.events.subscription import Subscription
 from tsdr.tui.messages import (
     AudioOutputError,
+    AudioOutputStats,
     BandplanChanged,
     BandStackChanged,
     ConfigChanged,
@@ -101,6 +103,9 @@ class TextualEventAdapter:
         )
         self._subscriptions.append(
             self.event_bus.subscribe(AudioOutputErrorEvent, self._on_audio_output_error)
+        )
+        self._subscriptions.append(
+            self.event_bus.subscribe(AudioOutputStatsEvent, self._on_audio_output_stats)
         )
         self._subscriptions.append(
             self.event_bus.subscribe(ConfigChangedEvent, self._on_config_changed)
@@ -201,6 +206,11 @@ class TextualEventAdapter:
         if not isinstance(event, AudioOutputErrorEvent):
             return
         self.app.post_message(AudioOutputError(event))
+
+    def _on_audio_output_stats(self, event: Event) -> None:
+        if not isinstance(event, AudioOutputStatsEvent):
+            return
+        self.app.post_message(AudioOutputStats(event))
 
     def _on_config_changed(self, event: Event) -> None:
         if not isinstance(event, ConfigChangedEvent):

@@ -127,3 +127,29 @@ def test_closing_panel_unmounts_panel_content() -> None:
             assert len(app.query_one("#dock--right").children) == 0
 
     _run(go)
+
+
+def test_move_active_panel_to_earlier_dock_keeps_widget() -> None:
+    """Regression: moving a mounted panel from the right dock to the left dock
+    must remount it under the new dock. docks-row reconciles left before right,
+    so the key is still mapped to the old (not-yet-removed) widget when the left
+    wrapper is built; the reconciler must mount a fresh instance rather than
+    reuse the stale one in place and drop it."""
+
+    async def go() -> None:
+        app = TSDRApp(startup_commands=[])
+        async with app.run_test(size=(SCREEN_W, SCREEN_H)) as pilot:
+            await pilot.pause()
+            store = get_ui_store()
+            store.set_panel_active("right", "stats")
+            await pilot.pause()
+            app.query_one("#panel-content--right")  # mounted on the right
+
+            store.move_panel("stats", "left")
+            store.set_panel_active("left", "stats")
+            await pilot.pause()
+
+            wrapper = app.query_one("#panel-content--left")
+            assert [w.__class__.__name__ for w in wrapper.children] == ["StatsWidget"]
+
+    _run(go)

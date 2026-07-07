@@ -7,6 +7,7 @@ from rich.style import Style
 from rich.table import Table
 from rich.text import Text
 from textual.containers import Horizontal
+from textual.reactive import reactive
 from textual.strip import Strip
 from textual.widget import Widget
 from textual.widgets import Static
@@ -14,7 +15,7 @@ from textual.widgets import Static
 from tsdr.core.events.events import DecoderOutputEvent
 from tsdr.radio.decoders.adsb import ADSBData
 from tsdr.tui.markup import escape_forced
-from tsdr.tui.widgets.panel import PanelWidget
+from tsdr.tui.widgets.panel import PanelWidget, set_orientation_classes
 
 # Styles
 
@@ -472,6 +473,8 @@ class _ADSBTablePanel(Static):
 class ADSBWidget(Horizontal, PanelWidget):
     """ADS-B aircraft map + table display."""
 
+    dock_edge = reactive(None)
+
     _refresh_timer = None
 
     def __init__(self) -> None:
@@ -479,12 +482,14 @@ class ADSBWidget(Horizontal, PanelWidget):
         self._map = _ADSBMapPanel()
         self._table = _ADSBTablePanel()
 
+    def watch_dock_edge(self, edge) -> None:
+        set_orientation_classes(self, edge)
+
     def compose(self):
         yield self._map
         yield self._table
 
     def on_mount(self) -> None:
-        self.border_title = "ADS-B"
         # Widget is only mounted while ADS-B decoder is active; tick the
         # age refresh as long as we're alive.
         self._refresh_timer = self.set_interval(1.0, self._tick_ages)

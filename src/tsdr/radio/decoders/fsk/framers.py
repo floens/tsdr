@@ -189,9 +189,18 @@ class StartStopFramer(Framer):
         self._nbits = 0
         self._shift.reset()
         self._line = ""
+        self._streamed = ""  # last text emitted as a partial; dedupes idle redraws
         self._synced = False
         self._valid = 0
         self._frames = 0
+
+    def process(self, soft_bits: np.ndarray, ts: float) -> list[DecodedMessage]:
+        out = super().process(soft_bits, ts)
+        line = self._line
+        if line and line != self._streamed:
+            self._streamed = line
+            out.append(DecodedMessage(text=line, timestamp=self._ts, partial=True))
+        return out
 
     def _handle_bit(self, value: float, out: list[DecodedMessage]) -> None:
         mark = value > 0.0
@@ -220,13 +229,17 @@ class StartStopFramer(Framer):
         if char == "\x07":
             return
         if char in ("\r", "\n"):
-            self._emit(self._line, out)
-            self._line = ""
+            self._seal(out)
             return
         self._line += char
         if len(self._line) >= _LINE_WIDTH:
-            self._emit(self._line, out)
-            self._line = ""
+            self._seal(out)
+
+    def _seal(self, out: list[DecodedMessage]) -> None:
+        if self._line.strip():
+            out.append(DecodedMessage(text=self._line, timestamp=self._ts))
+        self._line = ""
+        self._streamed = ""
 
 
 def make_framer(framing: str, alphabet: str, data_bits: int) -> Framer:

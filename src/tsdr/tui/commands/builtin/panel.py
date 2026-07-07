@@ -22,6 +22,13 @@ class PanelCommand(Command):
         hide_p = sub.add_parser("hide", help="Hide the active panel on the named edge")
         hide_p.add_argument("id", help="Panel id (rds, dab, stats, …)")
 
+        move_p = sub.add_parser("move", help="Move a panel to another edge and show it there")
+        move_p.add_argument("id", help="Panel id (stats, performance, demod, decoder-output)")
+        move_p.add_argument("edge", choices=["left", "right", "bottom"], help="Target edge")
+        move_p.add_argument(
+            "--index", type=int, default=None, help="Insert position within the target edge"
+        )
+
         strips_p = sub.add_parser(
             "strips", help="Show or hide the bottom panel bar (default: toggle)"
         )
@@ -40,6 +47,8 @@ class PanelCommand(Command):
             return self._show(args.id)
         if args.action == "hide":
             return self._hide(args.id)
+        if args.action == "move":
+            return self._move(args.id, args.edge, args.index)
         if args.action == "strips":
             return self._strips(args.state)
         return self.help_text()
@@ -52,7 +61,7 @@ class PanelCommand(Command):
         flag: str | None = None,
         subcommand: str | None = None,
     ) -> list[Completion]:
-        if subcommand in ("show", "hide"):
+        if subcommand in ("show", "hide", "move"):
             return [Completion(pid) for pid in PANELS if pid.startswith(prefix)]
         return []
 
@@ -80,6 +89,14 @@ class PanelCommand(Command):
             return f"Panel '{panel_id}' is not currently active on edge '{edge}'"
         store.set_panel_active(edge, None)
         return f"hidden panel={panel_id} edge={edge}"
+
+    def _move(self, panel_id: str, edge: Edge, index: int | None) -> str:
+        if panel_id not in PANELS:
+            return f"Unknown panel: {panel_id}"
+        store = get_ui_store()
+        store.move_panel(panel_id, edge, index=index)
+        store.set_panel_active(edge, panel_id)
+        return f"moved panel={panel_id} edge={edge}"
 
     def _strips(self, state: str) -> str:
         store = get_ui_store()

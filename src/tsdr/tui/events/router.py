@@ -21,6 +21,7 @@ from tsdr.tui._mixin_base import MixinBase
 from tsdr.tui.events.engine_prefs_sync import EnginePrefsSync
 from tsdr.tui.messages import (
     AudioOutputError,
+    AudioOutputStats,
     BandplanChanged,
     BandStackChanged,
     ConfigChanged,
@@ -137,6 +138,12 @@ class EventRouter(MixinBase):
         status = self._reconciler.get("status-bar")
         if status is not None:
             status.update_jitter_buffer(message.event)  # type: ignore[attr-defined]
+
+    @on(AudioOutputStats)
+    def handle_audio_output_stats(self, message: AudioOutputStats) -> None:
+        stats = self._reconciler.get("panel:stats")
+        if stats is not None:
+            stats.update_audio_stats(message.event)  # type: ignore[attr-defined]
 
     @on(DeviceStateChanged)
     def handle_device_state_changed(self, message: DeviceStateChanged) -> None:

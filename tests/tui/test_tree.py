@@ -190,6 +190,16 @@ def test_performance_panel_wrapper_does_not_include_constellation() -> None:
     assert "constellation" not in keys
 
 
+def test_panel_content_wrapper_carries_registry_title() -> None:
+    """The wrapper's spec carries the registry-resolved title (same source as the
+    launcher bar), so PanelContent shows it on the border."""
+    layout = UILayout(right=EdgePanels(panels=("stats",), active="stats"))
+    tree = derive_tree(UIModel(layout=layout))
+    wrapper = _docks_row(tree).children[2].children[0]
+    assert wrapper.key == "panel-content:right"
+    assert wrapper.props["panel_title"] == "Stats"
+
+
 # --- demod multiplexer ------------------------------------------------------
 
 
@@ -229,6 +239,8 @@ def test_demod_panel_rds_kind_mounts_rds_widget() -> None:
     tree = derive_tree(m)
     wrapper = _bottom_wrapper(tree)
     assert wrapper.key == "panel-content:bottom"
+    # The demod wrapper's title follows the active decoder, not a static label.
+    assert wrapper.props["panel_title"] == "RDS"
     panel = wrapper.children[0]
     assert panel.key == "panel:demod:rds"
     assert panel.kind == "decoder_rds"

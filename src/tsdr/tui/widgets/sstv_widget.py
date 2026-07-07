@@ -19,7 +19,7 @@ from tsdr.core.events.events import DecoderOutputEvent
 from tsdr.radio.decoders.sstv import SSTVData, StreamerState
 from tsdr.tui.markup import escape_forced
 from tsdr.tui.widgets.kitty_image import KittyImageWidget
-from tsdr.tui.widgets.panel import PanelWidget
+from tsdr.tui.widgets.panel import PanelWidget, set_orientation_classes
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +49,7 @@ class SSTVWidget(Horizontal, PanelWidget):
     """
 
     image_mode = reactive(False)
+    dock_edge = reactive(None)
 
     def __init__(self) -> None:
         super().__init__()
@@ -66,7 +67,6 @@ class SSTVWidget(Horizontal, PanelWidget):
         yield self._kitty
 
     def on_mount(self) -> None:
-        self.border_title = "SSTV"
         self._refresh_display()
         self._apply_image_mode(self.image_mode)
 
@@ -75,6 +75,9 @@ class SSTVWidget(Horizontal, PanelWidget):
 
     def watch_image_mode(self, image_mode: bool) -> None:
         self._apply_image_mode(image_mode)
+
+    def watch_dock_edge(self, edge) -> None:
+        set_orientation_classes(self, edge)
 
     def _apply_image_mode(self, enabled: bool) -> None:
         self._kitty.display = enabled
