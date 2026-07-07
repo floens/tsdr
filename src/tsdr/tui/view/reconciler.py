@@ -99,6 +99,13 @@ class Reconciler:
         anchor: Widget | None = None
         for spec in specs:
             existing = self._by_key.get(spec.key)
+            if existing is not None and existing.parent is not parent:
+                # The keyed widget still lives under a different parent (a panel
+                # moved docks). Reconcile order can visit the new parent before
+                # the old one is torn down, so the key is still mapped. Textual
+                # can't reparent a live widget, so mount a fresh instance here;
+                # the stale one is unmounted when its old parent is reconciled.
+                existing = None
             if existing is None:
                 w = self._factory[spec.kind]()
                 w.id = _safe_id(spec.key)
