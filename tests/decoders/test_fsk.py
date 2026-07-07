@@ -234,6 +234,43 @@ class TestRoundTripRTTY:
         assert "REVERSE POLARITY" not in " ".join(norm)
 
 
+class TestRTTYStreaming:
+    """RTTY (start/stop framing) streams the in-progress line as `partial=True`
+    redraws, then seals the finished line on CR/LF. SitorB (NAVTEX) does not."""
+
+    def _split(self, decoder, iq, chunk):
+        partial: list[str] = []
+        sealed: list[str] = []
+        for i in range(0, len(iq), chunk):
+            decoder.demodulate(iq[i : i + chunk], 0.0)
+            for m in decoder.get_messages():
+                (partial if m.partial else sealed).append(m.text)
+        return partial, sealed
+
+    def test_partial_lines_grow_then_seal(self):
+        text = "RYRY DE STREAM TEST 123\r\n"
+        fs = RTTY_PROFILE.internal_rate
+        sps = int(round(fs / RTTY_PROFILE.baud))
+        iq = _modulate(_rtty_bits(text), sps, fs)
+        d = RTTYDecoder(sample_rate=fs, baud=45.45, shift_hz=170.0)
+        partial, sealed = self._split(d, iq, chunk=512)
+
+        full = next((t for t in sealed if "STREAM TEST" in t), None)
+        assert full is not None, "line never sealed on CR"
+        assert partial, "expected streaming partials"
+        # some partial is a proper, growing prefix of the eventual sealed line
+        assert any(p != full and full.startswith(p) for p in partial)
+
+    def test_navtex_emits_no_partials(self):
+        text = "ZCZC AB12 NO PARTIALS HERE NNNN"
+        fs = NAVTEX_PROFILE.internal_rate
+        sps = int(round(fs / NAVTEX_PROFILE.baud))
+        iq = _modulate(_sitor_b_bits(text), sps, fs)
+        d = NAVTEXDecoder(sample_rate=fs)
+        partial, sealed = self._split(d, iq, chunk=8192)
+        assert sealed and not partial
+
+
 class TestRoundTripNAVTEX:
     def test_clean(self):
         text = "ZCZC AB12 THE QUICK BROWN FOX 12345 NNNN"

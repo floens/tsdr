@@ -196,6 +196,10 @@ class DecodedMessage:
     # When True, `text` carries Rich markup the decoder is responsible for
     # escaping; the output widget renders it instead of escaping the whole line.
     markup: bool = False
+    # When True, this message redraws the current (still-being-decoded) line in
+    # place instead of appending a new one; the decoder seals the line by sending
+    # its finished form as an ordinary `partial=False` message.
+    partial: bool = False
 
 
 @dataclass(frozen=True)
