@@ -81,7 +81,9 @@ def import_soapysdr() -> Any:
     added: list[str] = []
     for path in _system_site_packages():
         if path not in sys.path:
-            sys.path.insert(0, path)
+            # Append, not insert(0): probe system dirs for SoapySDR without letting
+            # them shadow the venv's own libraries.
+            sys.path.append(path)
             added.append(path)
 
     try:
