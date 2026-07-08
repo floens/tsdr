@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import tomllib
 from pathlib import Path
 from typing import Any
@@ -13,6 +14,9 @@ logger = logging.getLogger(__name__)
 
 
 def config_dir() -> Path:
+    override = os.environ.get("TSDR_CONFIG_DIR")
+    if override:
+        return Path(override)
     return Path(user_config_dir("tsdr"))
 
 

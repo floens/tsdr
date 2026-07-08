@@ -356,3 +356,4 @@ logger.error("pipeline_stage_crash device=%s pipeline=%s stage=%s error=%r", ...
   it executes startup commands and prints events to stdout, so the agent can
   exercise demod/decoder/pipeline paths against real samples or live devices.
 - Logs: `tsdr.log` in the platformdirs user config dir (see `config_dir()` in `core/storage.py`)
+- Config dir override: set `TSDR_CONFIG_DIR` to redirect all config/log/prefs reads and writes to a scratch dir (honored by `config_dir()`). Always set it when running headless so runs don't clobber the real config.
