@@ -10,6 +10,7 @@ from tsdr.core.band_stack import init_band_stack
 from tsdr.core.bandplans import get_bandplan_store, init_bandplan_store
 from tsdr.core.clock_sync import get_clock_sync_monitor, init_clock_sync_monitor
 from tsdr.core.devices import init_device_store
+from tsdr.core.directory.favorites import init_favorites_store
 from tsdr.core.events.events import BandplanChangedEvent, MemoriesChangedEvent
 from tsdr.core.memories import get_memory_store, init_memory_store
 from tsdr.core.preferences import (
@@ -83,6 +84,7 @@ class TSDRApp(
             init_band_stack()
             init_bandplan_store()
             init_device_store()
+            init_favorites_store()
             restore_bandplan(self._saved_prefs)
             tuning_state = init_tuning_state()
             restore_tuning_state(tuning_state, self._saved_prefs)

@@ -16,6 +16,8 @@ src/tsdr/
 ├── core/
 │   ├── events/       - EventBus pub-sub system for decoupled communication
 │   ├── sdr/          - SDR runtime: engine, config, workers, pipeline, audio
+│   ├── directory/    - Public receiver directories (SpyServer + KiwiSDR): pydantic-validated parse, shared PublicDevice model, favorites store, offline geo lookup
+│   ├── http.py       - Shared httpx client + size-capped GET (reuse for any HTTP; raises HttpError)
 │   └── workers.py    - Generic worker thread framework
 ├── devices/          - Hardware abstraction: SDR device drivers and factory
 ├── radio/            - Signal-processing content (no SDR-runtime deps)
@@ -154,6 +156,12 @@ panels' fixed heights.
   from `image_mode`) stay at engine defaults until the user toggles.
 - **`compose()` yields nothing** — a placeholder Container would sit as an
   unkeyed sibling of the reconciler tree and steal layout space.
+- **The app owns the keyboard** — there are no focusable Textual `Input`s. All
+  keys route through `TSDRApp.on_key` (`tui/keyboard.py`). Inline text editing
+  (spectrum memory labels, directory filter + favorite notes) uses `InlineEditor`
+  (`tui/inline_edit.py`): calling `start()` registers it as
+  `app.active_inline_editor`, so `on_key` dispatches every key to it until commit
+  (Enter) / cancel (Esc). Reuse it instead of adding a focusable widget.
 - **The four `_force_refresh_all` timers in `TSDRApp.on_mount`** work around
   a terminal-IO drop bug on startup. Not a mount race — keep them.
 - **Kitty images are out-of-band**: `KittyImageWidget` paints via escape

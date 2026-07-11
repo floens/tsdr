@@ -129,7 +129,7 @@ EdgeStrip > .edge-strip--active { text-style: bold; color: $panel-accent; }
 
 #panel-content--left,
 #panel-content--right {
-    width: 42;
+    width: 44;
     height: 1fr;
     layout: vertical;
 }
@@ -261,6 +261,41 @@ ConstellationWidget {
 ConstellationWidget.panel-wide {
     width: 24;
     height: 12;
+}
+
+/* Public device directory — inline filter/note bar (a click-to-edit Static, not
+   a focusable Input) over a scrollable two-line list. The border/title live on
+   the panel-content wrapper; the panel-tall / panel-wide orientation classes size
+   it for a side dock (fill height) vs the bottom bar. */
+DirectoryWidget {
+    width: 100%;
+    height: auto;
+    min-height: 12;
+    padding: 0 1;
+    layout: vertical;
+}
+
+DirectoryWidget.panel-tall { height: 1fr; }
+DirectoryWidget.panel-wide { height: 12; }
+
+DirectoryWidget #directory-filter {
+    width: 100%;
+    height: 1;
+    margin-bottom: 1;
+}
+
+/* Per-source fetch failures; collapses to zero height when there are none. */
+DirectoryWidget #directory-error {
+    width: 100%;
+    height: auto;
+}
+
+DirectoryWidget #directory-list {
+    width: 100%;
+    height: 1fr;
+    padding: 0;
+    border: none;
+    scrollbar-size: 1 0;
 }
 
 /* === Tuner ================================================================ */

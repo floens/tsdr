@@ -24,6 +24,7 @@ audio_underflow_began
 audio_underflow_resolved
 audio_upstream_stall
 audio_worker_starting
+background_command_failed
 band_stack_entry_invalid
 band_stack_flush_failed
 bandplan_activate_failed
@@ -59,6 +60,9 @@ device_started
 device_starting
 device_stopped
 device_stopping
+directory_entry_skipped
+directory_fetch_failed
+directory_fetched
 dmr_burst
 dmr_voice_call_confirmed
 dmr_voice_call_ended
@@ -81,6 +85,7 @@ engine_sync_constellation
 engine_sync_rate
 event_adapter_stop_failed
 event_handler_failed
+favorite_device_invalid
 flex_sync_found
 fsk_acquire_retry
 fsk_acquired
@@ -95,6 +100,7 @@ hardware_set_frequency
 hardware_set_gain
 hardware_set_sample_rate
 headless_shutdown_failed
+http_fetch_failed
 io_worker_starting
 io_worker_stop_failed
 io_worker_stopping

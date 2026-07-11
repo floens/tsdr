@@ -54,4 +54,5 @@ PANELS: Final[dict[str, PanelDef]] = {
     "decoder-output": PanelDef("decoder-output", "Decoder", "decoder_text"),
     "stats": PanelDef("stats", "Stats", "stats"),
     "performance": PanelDef("performance", "Performance", "performance"),
+    "directory": PanelDef("directory", "Directory", "directory"),
 }

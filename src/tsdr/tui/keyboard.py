@@ -15,6 +15,7 @@ from tsdr.core.tuning import current_spec_or_default
 from tsdr.radio.dsp.rnnoise import rnnoise_available
 from tsdr.tui._mixin_base import MixinBase
 from tsdr.tui.console import ConsoleWidget, TerminalInput
+from tsdr.tui.inline_edit import InlineEditor
 from tsdr.tui.model import Edge, adjusted_db_max, adjusted_db_min, adjusted_zoom
 from tsdr.tui.model.store import get_ui_store
 from tsdr.tui.widgets import SpectrumWidget
@@ -36,11 +37,12 @@ class KeyboardMixin(MixinBase):
     _pending_delete: Memory | None = None
     _pending_delete_timer: Timer | None = None
     _pending_demod_timer: Timer | None = None
+    active_inline_editor: InlineEditor | None = None
 
     def on_key(self, event: events.Key) -> None:
-        spectrum = self.query_one(SpectrumWidget)
-        if spectrum.is_editing:
-            spectrum.handle_edit_key(event)
+        editor = self.active_inline_editor
+        if editor is not None and editor.active:
+            editor.handle_key(event)
             return
 
         cmd_input = self.query_one("#command-input", TerminalInput)

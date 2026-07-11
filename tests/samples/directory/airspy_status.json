@@ -1,0 +1,127 @@
+{
+ "servers": [
+  {
+   "serverVersion": "2.0.1922",
+   "operatingSystem": "Microsoft Windows 11 64-bit version 10.0 build 26200",
+   "maxClients": 1,
+   "currentClientCount": 0,
+   "currentClients": [],
+   "maxSessionDuration": 0,
+   "streamingPort": 5555,
+   "ownerName": "anonymous",
+   "ownerEmail": "",
+   "antennaType": "",
+   "antennaLocation": {
+    "lat": 56.8924,
+    "long": 8.5244
+   },
+   "generalDescription": "no description",
+   "deviceType": "AirspyHF+",
+   "deviceSerial": "39313037",
+   "deviceResolution": 16,
+   "fullControlAllowed": true,
+   "currentCenterFrequency": 13264000,
+   "minimumFrequency": 0,
+   "maximumFrequency": 1700000000,
+   "maximumDisplayedBandwidth": 660000,
+   "displayFPS": 15,
+   "maximumStreamedBandwidth": 660000,
+   "maximumIQSampleRate": 768000,
+   "streamingHost": "37.97.53.92",
+   "online": true,
+   "registered": false,
+   "lastSeen": 4
+  },
+  {
+   "serverVersion": "2.0.1922",
+   "operatingSystem": "Linux 6.12.24-Unraid x86_64",
+   "maxClients": 1,
+   "currentClientCount": 0,
+   "currentClients": [],
+   "maxSessionDuration": 0,
+   "streamingPort": 5555,
+   "ownerName": "anonymous",
+   "ownerEmail": "",
+   "antennaType": "",
+   "antennaLocation": {
+    "lat": 34.0544,
+    "long": -118.244
+   },
+   "generalDescription": "no description",
+   "deviceType": "AirspyHF+",
+   "deviceSerial": "34323039",
+   "deviceResolution": 16,
+   "fullControlAllowed": true,
+   "currentCenterFrequency": 133188600,
+   "minimumFrequency": 118000000,
+   "maximumFrequency": 137000000,
+   "maximumDisplayedBandwidth": 660000,
+   "displayFPS": 25,
+   "maximumStreamedBandwidth": 660000,
+   "maximumIQSampleRate": 768000,
+   "streamingHost": "77.243.86.234",
+   "online": true,
+   "registered": false,
+   "lastSeen": 1
+  },
+  {
+   "deviceType": "AirspyHF+",
+   "online": true,
+   "currentClientCount": 0,
+   "maxClients": 2,
+   "maximumIQSampleRate": 768000,
+   "maximumStreamedBandwidth": 384000,
+   "minimumFrequency": 0,
+   "maximumFrequency": 1700000000,
+   "fullControlAllowed": true,
+   "streamingHost": "9.9.9.9",
+   "streamingPort": 5555,
+   "antennaLocation": {
+    "lat": 52.0,
+    "long": 5.0
+   },
+   "generalDescription": "Test Usable",
+   "lastSeen": 5
+  },
+  {
+   "deviceType": "RTL-SDR",
+   "online": true,
+   "currentClientCount": 1,
+   "maxClients": 1,
+   "maximumIQSampleRate": 2400000,
+   "maximumStreamedBandwidth": 2400000,
+   "minimumFrequency": 24000000,
+   "maximumFrequency": 1766000000,
+   "fullControlAllowed": true,
+   "streamingHost": "1.1.1.1",
+   "streamingPort": 5556,
+   "generalDescription": "Test Full"
+  },
+  {
+   "deviceType": "Airspy",
+   "online": false,
+   "currentClientCount": 0,
+   "maxClients": 4,
+   "streamingHost": "2.2.2.2",
+   "streamingPort": 5557,
+   "generalDescription": "Test Offline"
+  },
+  {
+   "deviceType": "AirspyHF+",
+   "online": true,
+   "currentClientCount": 0,
+   "maxClients": 9,
+   "maximumStreamedBandwidth": 48000,
+   "fullControlAllowed": false,
+   "streamingHost": "3.3.3.3",
+   "streamingPort": 5558,
+   "generalDescription": "Test View Only",
+   "someFutureFieldTheServerAdded": 123
+  },
+  {
+   "deviceType": "Airspy",
+   "online": true,
+   "streamingPort": 5559
+  }
+ ]
+}

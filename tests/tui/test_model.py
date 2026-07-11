@@ -36,7 +36,7 @@ def test_default_layout_has_expected_edges() -> None:
     assert DEFAULT_LAYOUT.left.active is None
     assert DEFAULT_LAYOUT.right.panels == ("stats", "performance")
     assert DEFAULT_LAYOUT.right.active is None
-    assert DEFAULT_LAYOUT.bottom.panels == ("demod",)
+    assert DEFAULT_LAYOUT.bottom.panels == ("demod", "directory")
     assert DEFAULT_LAYOUT.bottom.active is None
 
 
@@ -175,7 +175,11 @@ def test_initial_layout_roundtrips_from_prefs() -> None:
     m = UIModel.initial(prefs)
     assert m.layout.left == EdgePanels(panels=("stats",), active="stats")
     assert m.layout.right == EdgePanels(panels=("performance",), active=None)
-    assert m.layout.bottom == EdgePanels(panels=("demod", "decoder-output"), active="demod")
+    # 'directory' is absent from the saved layout, so it's augmented onto its
+    # default (bottom) edge.
+    assert m.layout.bottom == EdgePanels(
+        panels=("demod", "decoder-output", "directory"), active="demod"
+    )
     # Hotkeys are not persisted — always sourced from the current default.
     assert m.layout.hotkeys == DEFAULT_LAYOUT.hotkeys
 
@@ -229,8 +233,9 @@ def test_initial_layout_augments_missing_panels() -> None:
         }
     }
     m = UIModel.initial(prefs)
-    # rds/dab/adsb filtered → bottom empty post-filter; demod augmented to bottom.
-    assert m.layout.bottom.panels == ("demod",)
+    # rds/dab/adsb filtered → bottom empty post-filter; demod + directory (both
+    # default-bottom) augmented onto it.
+    assert m.layout.bottom.panels == ("demod", "directory")
     # decoder-output absent from saved → appended to its default edge (left).
     assert m.layout.left.panels == ("decoder-output",)
     # performance was missing from saved right → appended.

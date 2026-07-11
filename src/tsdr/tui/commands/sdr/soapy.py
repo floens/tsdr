@@ -17,6 +17,9 @@ class SoapyCommand(Command):
         probe_p.add_argument("--driver", default="", help="Filter by driver (e.g. rtlsdr, remote)")
         probe_p.add_argument("--remote", default="", help="Remote hostname (SoapyRemote)")
 
+    def runs_in_background(self, argv: list[str]) -> bool:
+        return bool(argv) and argv[0] == "probe"
+
     def run(self, args: Namespace) -> str:
         if getattr(args, "action", None) != "probe":
             return self.help_text()

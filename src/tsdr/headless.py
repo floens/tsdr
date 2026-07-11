@@ -9,6 +9,7 @@ from tsdr.core.band_stack import init_band_stack
 from tsdr.core.bandplans import init_bandplan_store
 from tsdr.core.clock_sync import get_clock_sync_monitor, init_clock_sync_monitor
 from tsdr.core.devices import init_device_store
+from tsdr.core.directory.favorites import init_favorites_store
 from tsdr.core.events.events import (
     DecoderOutputEvent,
     DeviceCapabilitiesChangedEvent,
@@ -141,6 +142,7 @@ def run_headless(startup_commands: list[str]) -> int:
     init_band_stack()
     init_bandplan_store()
     init_device_store()
+    init_favorites_store()
     init_tuning_state()
     # PrefsSync (in TSDRApp) uses a Textual timer for debouncing; headless
     # has no message loop, so subscribe a synchronous persister instead.

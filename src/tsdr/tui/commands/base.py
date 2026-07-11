@@ -53,6 +53,13 @@ class Command(ABC):
     @abstractmethod
     def run(self, args: Namespace) -> str: ...
 
+    def runs_in_background(self, argv: list[str]) -> bool:
+        """True when this invocation does blocking I/O (network or hardware probing) and
+        should run off the UI thread. The console runs run() in a worker and writes the
+        returned string when it lands. A backgrounded run() must touch only thread-safe
+        state, engine calls, network, module caches, never the UI store or widgets."""
+        return False
+
     def complete(
         self,
         tokens: list[str],

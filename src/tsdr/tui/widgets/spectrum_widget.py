@@ -5,11 +5,9 @@ from math import ceil, floor
 import numpy as np
 from rich.segment import Segment
 from rich.style import Style
-from textual import events
 from textual.events import Click, MouseScrollDown, MouseScrollUp
 from textual.reactive import reactive
 from textual.strip import Strip
-from textual.timer import Timer
 from textual.widget import Widget
 
 from tsdr.core.bandplans import Bandplan, band_type_color, contrast_fg
@@ -26,7 +24,7 @@ from tsdr.core.tracing import traced
 from tsdr.core.tuning import resolve_auto_step, save_previous_tune_state
 from tsdr.core.tuning_state import get_tuning_state
 from tsdr.core.units import axis_si_prefix
-from tsdr.tui.inline_edit import InlineEditBuffer
+from tsdr.tui.inline_edit import InlineEditor
 from tsdr.tui.model import adjusted_zoom
 from tsdr.tui.model.store import get_ui_store
 from tsdr.tui.widgets.dsp_utils import (
@@ -39,14 +37,6 @@ from tsdr.tui.widgets.dsp_utils import (
 from tsdr.tui.widgets.image_mode_mixin import ImageModeMixin
 
 logger = logging.getLogger(__name__)
-
-
-@dataclass(slots=True)
-class _MemoryEdit:
-    """Active inline edit state for a memory label."""
-
-    memory_id: str
-    buffer: InlineEditBuffer
 
 
 # Braille lookup: each cell holds 2 cols × 4 rows of dots, indexed by the
@@ -116,8 +106,7 @@ class SpectrumWidget(ImageModeMixin, Widget):
         self._bandplan: Bandplan | None = None
         self._strips: list[Strip] = []
         self._image_key = "spectrum"
-        self._edit: _MemoryEdit | None = None
-        self._edit_blink_timer: Timer | None = None
+        self._editor = InlineEditor(self)
 
     def on_mount(self) -> None:
         self._mount_kitty()
@@ -129,9 +118,7 @@ class SpectrumWidget(ImageModeMixin, Widget):
         self.refresh()
 
     def on_unmount(self) -> None:
-        if self._edit_blink_timer is not None:
-            self._edit_blink_timer.stop()
-            self._edit_blink_timer = None
+        self._editor.cancel()
 
     def watch_zoom(self, _zoom: float) -> None:
         self.invalidate_frame_buffer()
@@ -177,8 +164,8 @@ class SpectrumWidget(ImageModeMixin, Widget):
     def update_memories(self, event: MemoriesChangedEvent) -> None:
         """Update memory labels from event snapshot."""
         self._memories = tuple(event.memories)  # type: ignore[arg-type]
-        if self._edit is not None and not any(m.id == self._edit.memory_id for m in self._memories):
-            self.cancel_edit()
+        if self._editor.active and not any(m.id == self._editor.context for m in self._memories):
+            self._editor.cancel()
             return
         self._refresh_display()
 
@@ -215,94 +202,22 @@ class SpectrumWidget(ImageModeMixin, Widget):
 
     # Inline memory editing
 
-    @property
-    def is_editing(self) -> bool:
-        return self._edit is not None
-
     def start_edit(self, memory: Memory) -> None:
-        self._edit = _MemoryEdit(memory.id, InlineEditBuffer(memory.name))
-        self._edit_blink_timer = self.set_interval(0.53, self._toggle_edit_cursor)
+        self._editor.start(
+            memory.name,
+            redraw=self._redraw_edit,
+            on_commit=lambda value: self._commit_rename(memory.id, value),
+            context=memory.id,
+        )
+
+    def _redraw_edit(self) -> None:
         self._rebuild_strips()
         self.refresh()
 
-    def confirm_edit(self) -> None:
-        if self._edit is None:
-            return
+    def _commit_rename(self, memory_id: str, value: str) -> None:
         store = get_memory_store()
-        store.rename(self._edit.memory_id, self._edit.buffer.value)
-        engine = get_engine()
-        engine.event_bus.publish(MemoriesChangedEvent(memories=tuple(store.all())))
-        self._end_edit()
-
-    def cancel_edit(self) -> None:
-        self._end_edit()
-
-    def _end_edit(self) -> None:
-        if self._edit_blink_timer is not None:
-            self._edit_blink_timer.stop()
-            self._edit_blink_timer = None
-        self._edit = None
-        self._rebuild_strips()
-        self.refresh()
-
-    def _toggle_edit_cursor(self) -> None:
-        if self._edit is not None:
-            self._edit.buffer.toggle_cursor()
-            self._rebuild_strips()
-            self.refresh()
-
-    def _reset_edit_cursor(self) -> None:
-        if self._edit is not None:
-            self._edit.buffer.reset_cursor()
-            if self._edit_blink_timer is not None:
-                self._edit_blink_timer.reset()
-
-    def handle_edit_key(self, event: events.Key) -> None:
-        """Handle keyboard input during inline edit mode."""
-        if self._edit is None:
-            return
-        buf = self._edit.buffer
-        if event.key == "enter":
-            self.confirm_edit()
-        elif event.key == "escape":
-            self.cancel_edit()
-        elif event.key == "backspace":
-            buf.backspace()
-            self._reset_edit_cursor()
-            self._rebuild_strips()
-            self.refresh()
-        elif event.key == "delete":
-            buf.delete()
-            self._reset_edit_cursor()
-            self._rebuild_strips()
-            self.refresh()
-        elif event.key == "left":
-            buf.move_left()
-            self._reset_edit_cursor()
-            self._rebuild_strips()
-            self.refresh()
-        elif event.key == "right":
-            buf.move_right()
-            self._reset_edit_cursor()
-            self._rebuild_strips()
-            self.refresh()
-        elif event.key == "home":
-            buf.home()
-            self._reset_edit_cursor()
-            self._rebuild_strips()
-            self.refresh()
-        elif event.key == "end":
-            buf.end()
-            self._reset_edit_cursor()
-            self._rebuild_strips()
-            self.refresh()
-        elif event.character and event.is_printable:
-            buf.insert(event.character)
-            self._reset_edit_cursor()
-            self._rebuild_strips()
-            self.refresh()
-        event.prevent_default()
-        event.stop()
+        store.rename(memory_id, value)
+        get_engine().event_bus.publish(MemoriesChangedEvent(memories=tuple(store.all())))
 
     def render_line(self, y: int) -> Strip:
         if self.image_mode:
@@ -653,7 +568,8 @@ class SpectrumWidget(ImageModeMixin, Widget):
         if span <= 0:
             return ()
 
-        edit = self._edit
+        editing_id = self._editor.context if self._editor.active else None
+        edit_buffer = self._editor.buffer
         rows: list[list[tuple[int, str, str, str]]] = [[], []]
         occupied_ends = [-1, -1]
         for m in sorted(self._memories, key=lambda m: m.frequency):
@@ -661,8 +577,8 @@ class SpectrumWidget(ImageModeMixin, Widget):
                 continue
             col = int((m.frequency - freq_min) / span * width)
             col = max(0, min(width - 1, col))
-            is_editing = edit is not None and m.id == edit.memory_id
-            name = edit.buffer.value if edit is not None and is_editing else m.name
+            is_editing = m.id == editing_id
+            name = edit_buffer.value if is_editing and edit_buffer is not None else m.name
             label = f"▼{name}"
             if col + len(label) > width:
                 label = label[: width - col]
@@ -688,14 +604,15 @@ class SpectrumWidget(ImageModeMixin, Widget):
         base = self.rich_style
         segments: list[Segment] = []
         pos = 0
+        edit_buffer = self._editor.buffer
         for col, label, color, memory_id in labels:
             if col > pos:
                 segments.append(Segment(" " * (col - pos), base))
-            if self._edit is not None and memory_id == self._edit.memory_id:
+            if edit_buffer is not None and memory_id == self._editor.context:
                 # Render ▼ prefix + editable name with cursor
                 mem_style = base + Style(color=color)
                 segments.append(Segment("▼", mem_style))
-                edit_segments = self._edit.buffer.render_segments(mem_style)
+                edit_segments = edit_buffer.render_segments(mem_style)
                 segments.extend(edit_segments)
                 pos = col + 1 + sum(len(s.text) for s in edit_segments)
             else:

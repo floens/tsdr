@@ -53,12 +53,13 @@ class UILayout:
 DEFAULT_LAYOUT = UILayout(
     left=EdgePanels(panels=("decoder-output",)),
     right=EdgePanels(panels=("stats", "performance")),
-    bottom=EdgePanels(panels=("demod",)),
+    bottom=EdgePanels(panels=("demod", "directory")),
     hotkeys=(
         (1, "decoder-output"),
         (2, "demod"),
         (3, "stats"),
         (4, "performance"),
+        (5, "directory"),
     ),
 )
 

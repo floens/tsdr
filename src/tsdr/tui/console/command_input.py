@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import logging
 
-from textual import on
+from rich.markup import escape
+from textual import on, work
 
 from tsdr.tui._mixin_base import MixinBase
 from tsdr.tui.commands import registry
@@ -93,11 +94,36 @@ class CommandInputMixin(MixinBase):
         self.call_after_refresh(self._execute_submitted, value)
 
     def _execute_submitted(self, value: str) -> None:
+        command, argv = registry.resolve(value)
+        if command is not None and command.runs_in_background(argv):
+            self.query_one(ConsoleWidget).write_info("[dim]working…[/]")
+            self._run_command_worker(value)
+            return
         result = registry.execute(value)
         console = self.query_one(ConsoleWidget)
         if result:
             console.write_info(result)
         console.sync_prompt()
+
+    @work(thread=True, group="command")
+    def _run_command_worker(self, value: str) -> None:
+        try:
+            result = registry.execute(value)
+        except Exception as e:  # noqa: BLE001 — commands raise arbitrary types; a silent
+            # worker death is worse. Mirrors _execute_next_startup_command's guard.
+            self.call_from_thread(self._deliver_command_error, value, e)
+            return
+        self.call_from_thread(self._deliver_command_result, result)
+
+    def _deliver_command_result(self, result: str) -> None:
+        console = self.query_one(ConsoleWidget)
+        if result:
+            console.write_info(result)
+        console.sync_prompt()
+
+    def _deliver_command_error(self, value: str, error: BaseException) -> None:
+        logger.error("background_command_failed line=%r error=%r", value, error, exc_info=error)
+        self.query_one(ConsoleWidget).write_info(f"[red]{escape(str(error))}[/]")
 
     def _run_startup_commands(self) -> None:
         self._startup_index = 0

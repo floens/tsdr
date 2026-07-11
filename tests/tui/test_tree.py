@@ -339,11 +339,12 @@ def test_panel_bar_aggregates_all_edges_in_edge_order() -> None:
 
 
 def test_panel_bar_default_layout_reads_left_bottom_right() -> None:
-    """The default bar reads left → bottom → right with ascending hotkeys 1-4."""
+    """The default bar reads left → bottom → right; bottom holds demod + directory."""
     tree = derive_tree(UIModel(layout=DEFAULT_LAYOUT))
     assert _panel_bar(tree).props["glyphs"] == (
         ("1", "Decoder", False),
         ("2", "Demod", False),
+        ("5", "Directory", False),
         ("3", "Stats", False),
         ("4", "Performance", False),
     )

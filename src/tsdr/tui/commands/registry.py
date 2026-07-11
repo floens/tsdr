@@ -53,6 +53,21 @@ def execute(input_line: str) -> str:
     return result
 
 
+def resolve(input_line: str) -> tuple[Command | None, list[str]]:
+    """(command, argv) for a line; command is None on empty / parse-error / unknown.
+    A pre-dispatch lookup that does not execute — used to decide how to run."""
+    input_line = input_line.strip()
+    if not input_line:
+        return None, []
+    try:
+        parts = shlex.split(input_line)
+    except ValueError:
+        return None, []
+    if not parts:
+        return None, []
+    return COMMANDS.get(parts[0]), parts[1:]
+
+
 def get_completions(input_line: str) -> list[Completion]:
     parts = input_line.split()
 
@@ -139,6 +154,7 @@ from tsdr.tui.commands.sdr.config import SDRConfigCommand  # noqa: E402
 from tsdr.tui.commands.sdr.dab import DABCommand  # noqa: E402
 from tsdr.tui.commands.sdr.demod import SDRDemodCommand  # noqa: E402
 from tsdr.tui.commands.sdr.denoise import SDRDenoiseCommand  # noqa: E402
+from tsdr.tui.commands.sdr.directory import DirectoryCommand  # noqa: E402
 from tsdr.tui.commands.sdr.frequency import FrequencyCommand  # noqa: E402
 from tsdr.tui.commands.sdr.list import SDRListCommand  # noqa: E402
 from tsdr.tui.commands.sdr.memory import MemoryCommand  # noqa: E402
@@ -175,6 +191,7 @@ register("soapy", SoapyCommand())
 register("squelch", SDRSquelchCommand())
 register("f", FrequencyCommand())
 register("memory", MemoryCommand())
+register("directory", DirectoryCommand())
 register("bandplan", BandplanCommand())
 register("record", SDRRecordCommand())
 register("dump-model", DumpModelCommand())
