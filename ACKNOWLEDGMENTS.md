@@ -60,3 +60,10 @@ TSDR includes code derived from or inspired by the following projects:
   https://github.com/wb2osz/direwolf
 - **multimon-ng** by Elias Oenal et al.
   https://github.com/EliasOenal/multimon-ng
+
+## ACARS Decoder
+
+- **acarsdec** by Thierry Leconte (TLeconte)
+  https://github.com/TLeconte/acarsdec
+- **acars-message-documentation** by airframes.io (label reference)
+  https://github.com/airframesio/acars-message-documentation
