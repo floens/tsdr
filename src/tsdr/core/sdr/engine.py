@@ -74,6 +74,7 @@ class SDREngine:
             self.config = SDRConfig()
             self.devices: dict[str, SDRDeviceContext] = {}
             self.focused_device: str | None = None
+            self._focus_history: list[str] = []
 
             self.event_bus = EventBus()
             self.worker_runner = WorkerRunner(self.event_bus)
@@ -136,6 +137,7 @@ class SDREngine:
         focus_assigned = self.focused_device is None
         if focus_assigned:
             self.focused_device = device_id
+            self._record_focus(device_id)
 
         self.event_bus.publish(DeviceAddedEvent(device_id=device_id, source_id="engine"))
         if focus_assigned:
@@ -164,9 +166,14 @@ class SDREngine:
         self.stop_audio_output(device_id)
         del self.devices[device_id]
 
+        self._focus_history = [d for d in self._focus_history if d != device_id]
         focus_changed = self.focused_device == device_id
         if focus_changed:
-            self.focused_device = next(iter(self.devices.keys()), None)
+            self.focused_device = (
+                self._focus_history[-1] if self._focus_history else next(iter(self.devices), None)
+            )
+            if self.focused_device is not None:
+                self._record_focus(self.focused_device)
 
         self.event_bus.publish(DeviceRemovedEvent(device_id=device_id, source_id="engine"))
         if focus_changed:
@@ -376,7 +383,15 @@ class SDREngine:
             return
 
         self.focused_device = device_id
+        self._record_focus(device_id)
         self.event_bus.publish(FocusChangedEvent(focused_device_id=device_id, source_id="engine"))
+
+    def _record_focus(self, device_id: str) -> None:
+        """Track focus recency so removing the focused device re-focuses the most
+        recently focused survivor, not an arbitrary one."""
+        if device_id in self._focus_history:
+            self._focus_history.remove(device_id)
+        self._focus_history.append(device_id)
 
     def get_device(self, device_id: str) -> SDRDeviceContext:
         """Get a device context by ID.

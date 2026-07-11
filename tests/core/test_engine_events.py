@@ -106,6 +106,28 @@ def test_remove_unfocused_device_does_not_publish_focus_changed() -> None:
     assert focus == []
 
 
+def test_remove_focused_refocuses_most_recent() -> None:
+    engine = SDREngine()
+    engine.add_device("a", "mock", MockParams(), DeviceConfig())
+    engine.add_device("b", "mock", MockParams(), DeviceConfig())
+    engine.set_focused_device("b")
+    engine.set_focused_device("a")  # focus recency: b then a
+
+    engine.remove_device("a")
+
+    assert engine.focused_device == "b"
+
+
+def test_remove_focused_falls_back_to_never_focused_survivor() -> None:
+    engine = SDREngine()
+    engine.add_device("a", "mock", MockParams(), DeviceConfig())
+    engine.add_device("b", "mock", MockParams(), DeviceConfig())  # b never focused
+
+    engine.remove_device("a")
+
+    assert engine.focused_device == "b"
+
+
 def _caps(
     *,
     gain_supported: bool = True,
