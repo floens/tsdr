@@ -98,7 +98,7 @@ class MemoryCommand(Command):
             tags_str = ", ".join(m.tags) if m.tags else ""
             lines.append(
                 f"[dim]{m.id:<10}[/] [cyan]{m.frequency / 1e6:>12.3f}[/] "
-                f"[bold]{m.name:<20}[/] [green]{m.mode:<5}[/] "
+                f"[bold]{m.name:<20}[/] [green]{m.audio_spec.mode:<5}[/] "
                 f"[yellow]{bw_str:>8}[/] [dim]{tags_str}[/]"
             )
         return "\n".join(lines)
@@ -133,7 +133,7 @@ class MemoryCommand(Command):
         recall_memory(memory, did)
         return success(
             f"Recalled '[bold]{memory.name}[/]': "
-            f"{freq_mhz(memory.frequency)} [green]{memory.mode}[/]"
+            f"{freq_mhz(memory.frequency)} [green]{memory.audio_spec.mode}[/]"
         )
 
     def _tags(self) -> str:
@@ -180,7 +180,7 @@ class MemoryCommand(Command):
             store = get_memory_store()
             matches = store.find_by_prefix(prefix)
             return [
-                Completion(m.id, f"{m.name} ({m.frequency / 1e6:.3f} MHz) {m.mode}")
+                Completion(m.id, f"{m.name} ({m.frequency / 1e6:.3f} MHz) {m.audio_spec.mode}")
                 for m in matches
             ]
 

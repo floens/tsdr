@@ -21,6 +21,7 @@ from tsdr.tui.widgets.decoder_output_widget import DecoderOutputWidget
 from tsdr.tui.widgets.directory_widget import DirectoryWidget
 from tsdr.tui.widgets.dmr_widget import DMRWidget
 from tsdr.tui.widgets.edge_strip import EdgeStrip
+from tsdr.tui.widgets.memory_widget import MemoryWidget
 from tsdr.tui.widgets.panel import PanelContent
 from tsdr.tui.widgets.performance_widget import PerformanceWidget
 from tsdr.tui.widgets.rds_widget import RDSWidget
@@ -49,6 +50,7 @@ FACTORY: Final[dict[str, Callable[[], Widget]]] = {
     "stats": StatsWidget,
     "performance": PerformanceWidget,
     "directory": DirectoryWidget,
+    "memories": MemoryWidget,
     "constellation": ConstellationWidget,
     "decoder_rds": RDSWidget,
     "decoder_dab": DABWidget,

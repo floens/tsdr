@@ -298,6 +298,31 @@ DirectoryWidget #directory-list {
     scrollbar-size: 1 0;
 }
 
+MemoryWidget {
+    width: 100%;
+    height: auto;
+    min-height: 12;
+    padding: 0 1;
+    layout: vertical;
+}
+
+MemoryWidget.panel-tall { height: 1fr; }
+MemoryWidget.panel-wide { height: 12; }
+
+MemoryWidget #memory-filter {
+    width: 100%;
+    height: 1;
+    margin-bottom: 1;
+}
+
+MemoryWidget #memory-list {
+    width: 100%;
+    height: 1fr;
+    padding: 0;
+    border: none;
+    scrollbar-size: 1 0;
+}
+
 /* === Tuner ================================================================ */
 
 TunerWidget {

@@ -55,4 +55,5 @@ PANELS: Final[dict[str, PanelDef]] = {
     "stats": PanelDef("stats", "Stats", "stats"),
     "performance": PanelDef("performance", "Performance", "performance"),
     "directory": PanelDef("directory", "Directory", "directory"),
+    "memories": PanelDef("memories", "Memories", "memories"),
 }

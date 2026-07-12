@@ -171,6 +171,9 @@ class EventRouter(MixinBase):
             console = self._reconciler.get("console")
             if console is not None:
                 console.sync_prompt()  # type: ignore[attr-defined]
+            memories = self._reconciler.get("panel:memories")
+            if memories is not None:
+                memories.update_active()  # type: ignore[attr-defined]
             self._engine_prefs_sync.mark_dirty()
 
     @on(DeviceError)
@@ -215,6 +218,9 @@ class EventRouter(MixinBase):
         spectrum = self._reconciler.get("spectrum")
         if spectrum is not None:
             spectrum.update_memories(message.event)  # type: ignore[attr-defined]
+        memories = self._reconciler.get("panel:memories")
+        if memories is not None:
+            memories.update_memories(message.event)  # type: ignore[attr-defined]
 
     @on(BandplanChanged)
     def handle_bandplan_changed(self, message: BandplanChanged) -> None:
@@ -291,4 +297,7 @@ class EventRouter(MixinBase):
         console = self._reconciler.get("console")
         if console is not None:
             console.sync_prompt()  # type: ignore[attr-defined]
+        memories = self._reconciler.get("panel:memories")
+        if memories is not None:
+            memories.update_active()  # type: ignore[attr-defined]
         self._engine_prefs_sync.mark_dirty()
