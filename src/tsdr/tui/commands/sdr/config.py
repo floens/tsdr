@@ -197,7 +197,7 @@ class SDRConfigCommand(Command):
             changes["target_fps"] = args.fps
         if args.network_buffer_seconds is not None:
             context = manager.get_device(did)
-            if context.device_type not in ("rtltcp", "spyserver"):
+            if not isinstance(context.params, NetworkDeviceParams):
                 return (
                     f"--network-buffer is not applicable to "
                     f"{device_id(did)} ({context.device_type})"

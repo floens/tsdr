@@ -6,7 +6,7 @@ from types import SimpleNamespace
 from tsdr.core.directory import connect
 from tsdr.core.directory.model import PublicDevice
 from tsdr.core.sdr.device_context import DeviceState
-from tsdr.devices import SpyServerParams
+from tsdr.devices import KiwiSDRParams, SpyServerParams
 
 _DEVICE = PublicDevice(source="spyserver", id="x", name="n", host="1.2.3.4", port=5555)
 
@@ -42,13 +42,45 @@ def test_default_device_id_includes_port() -> None:
     assert connect._default_device_id(_DEVICE) == "spy-1-2-3-4-5555"
 
 
-def test_add_directory_device_rejects_kiwisdr() -> None:
-    kiwi = PublicDevice(
-        source="kiwisdr", id="k", name="n", host="h", url="http://h:8073/", usable=True
+def test_device_endpoint_defaults_kiwisdr_port() -> None:
+    device = PublicDevice(source="kiwisdr", id="k", name="n", host="h")
+    assert connect.device_endpoint(device) == ("h", 8073)
+
+
+def test_default_device_id_kiwisdr_prefix() -> None:
+    device = PublicDevice(source="kiwisdr", id="k", name="n", host="1.2.3.4", port=8073)
+    assert connect._default_device_id(device) == "kiwi-1-2-3-4-8073"
+
+
+def test_add_directory_device_adds_kiwisdr(monkeypatch) -> None:
+    device = PublicDevice(
+        source="kiwisdr",
+        id="k",
+        name="Kiwi NL",
+        host="kiwi.example.com",
+        url="http://kiwi.example.com:8073/",
+        freq_min=0.0,
+        freq_max=30e6,
+        usable=True,
     )
-    result = connect.add_directory_device(kiwi)
-    assert result.ok is False
-    assert "browser" in result.message
+    calls: list = []
+    engine = SimpleNamespace(
+        devices={},
+        get_focused_device=lambda: None,
+        add_device=lambda did, dtype, params, cfg: calls.append(("add", did, dtype, params, cfg)),
+        set_focused_device=lambda did: calls.append(("focus", did)),
+        start_device=lambda did: calls.append(("start", did)),
+    )
+    monkeypatch.setattr(connect, "get_engine", lambda: engine)
+
+    result = connect.add_directory_device(device)
+    assert result.ok
+    _, did, dtype, params, cfg = next(c for c in calls if c[0] == "add")
+    assert dtype == "kiwisdr"
+    assert isinstance(params, KiwiSDRParams)
+    assert (params.host, params.port) == ("kiwi.example.com", 8073)
+    assert did == "kiwi-kiwi-example-com-8073"
+    assert 0.0 <= cfg.center_frequency <= 30e6  # band-aware, in-range default
 
 
 def test_add_directory_device_rejects_unusable(monkeypatch) -> None:

@@ -2,6 +2,7 @@ from pathlib import Path
 
 from tsdr.devices.base import DeviceParams, SDRDevice
 from tsdr.devices.iq_file import EXTENSION_FORMAT_MAP, IQFileDevice, IQFileParams
+from tsdr.devices.kiwisdr import KiwiSDRDevice, KiwiSDRParams
 from tsdr.devices.mock import MockParams, MockSDRDevice
 from tsdr.devices.rtlsdr import RTLSDRDevice, RTLSDRParams
 from tsdr.devices.rtltcp import RTLTCPDevice, RTLTCPParams
@@ -63,6 +64,11 @@ def create_device(params: DeviceParams) -> SDRDevice:
             if not (1 <= port <= 65535):
                 raise ValueError(f"Port must be between 1 and 65535, got {port}")
             return SpyServerDevice(host=host, port=port)
+
+        case KiwiSDRParams(host=host, port=port, password=password, user=user):
+            if not (1 <= port <= 65535):
+                raise ValueError(f"Port must be between 1 and 65535, got {port}")
+            return KiwiSDRDevice(host=host, port=port, password=password, user=user)
 
         case _:
             raise ValueError(f"Unknown device params type: {type(params).__name__}")

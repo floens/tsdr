@@ -187,7 +187,8 @@ class IOWorker:
                 with span("device_read"):
                     try:
                         read_bytes = (
-                            config.effective_buffer_samples * self.sample_format.bytes_per_sample
+                            config.buffer_samples_for(device.actual_sample_rate)
+                            * self.sample_format.bytes_per_sample
                         )
                         raw_bytes = device.read_samples(read_bytes)
                     except DeviceError as e:

@@ -108,12 +108,26 @@ class DeviceConfig:
     network_buffer_seconds: float = 0.5
     pipelines: MappingProxyType[str, PipelineConfig] = field(default=DEFAULT_PIPELINES)
 
-    @property
-    def effective_buffer_samples(self) -> int:
-        """Sample count per device read, auto-calculated if not explicitly set."""
+    def buffer_samples_for(self, delivered_rate: float) -> int:
+        """Samples per read to hit `target_fps` at the device's delivered rate.
+
+        Uses `delivered_rate` (the device's `actual_sample_rate`) rather than
+        the configured `sample_rate` so reads stay sized to real throughput
+        even before the engine has snapped `sample_rate` to a device-supported
+        value. Without this a device that delivers far below the configured
+        rate (e.g. a 12 kHz KiwiSDR against the 2.4 MHz default) would size its
+        first read past its jitter-buffer capacity. Falls back to the
+        configured rate when the device has not reported one yet (rate <= 0).
+        """
         if self.buffer_samples is not None:
             return self.buffer_samples
-        return int(self.sample_rate / self.target_fps)
+        rate = delivered_rate if delivered_rate > 0 else self.sample_rate
+        return int(rate / self.target_fps)
+
+    @property
+    def effective_buffer_samples(self) -> int:
+        """Sample count per device read at the configured sample rate."""
+        return self.buffer_samples_for(self.sample_rate)
 
     def with_changes(self, **kwargs: Unpack[DeviceConfigChanges]) -> DeviceConfig:
         return replace(self, **kwargs)

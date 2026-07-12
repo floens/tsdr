@@ -8,14 +8,15 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from tsdr.core.directory.favorites import FavoriteDevice
-from tsdr.core.directory.model import PublicDevice
+from tsdr.core.directory.model import PublicDevice, Source
 from tsdr.core.sdr.config import DeviceConfig
 from tsdr.core.sdr.device_context import DeviceState
 from tsdr.core.sdr.engine import get_engine
-from tsdr.devices import SpyServerParams
+from tsdr.devices import DeviceParams, KiwiSDRParams, SpyServerParams
 from tsdr.devices.base import NetworkDeviceParams
 
-_DEFAULT_SPYSERVER_PORT = 5555
+_DEFAULT_PORT: dict[Source, int] = {"spyserver": 5555, "kiwisdr": 8073}
+_ID_PREFIX: dict[Source, str] = {"spyserver": "spy", "kiwisdr": "kiwi"}
 
 
 @dataclass(frozen=True)
@@ -25,7 +26,13 @@ class ConnectResult:
 
 
 def device_endpoint(device: PublicDevice | FavoriteDevice) -> tuple[str, int]:
-    return device.host, device.port if device.port is not None else _DEFAULT_SPYSERVER_PORT
+    return device.host, device.port if device.port is not None else _DEFAULT_PORT[device.source]
+
+
+def _params_for(source: Source, host: str, port: int) -> DeviceParams:
+    if source == "kiwisdr":
+        return KiwiSDRParams(host=host, port=port)
+    return SpyServerParams(host=host, port=port)
 
 
 def find_added_device(device: PublicDevice | FavoriteDevice) -> str | None:
@@ -46,11 +53,6 @@ def added_endpoints() -> set[tuple[str, int]]:
 
 
 def add_directory_device(device: PublicDevice) -> ConnectResult:
-    if device.source != "spyserver":
-        target = device.url or device.host
-        return ConnectResult(
-            False, f"{device.source} receivers can't stream into tsdr; open in a browser: {target}"
-        )
     existing = find_added_device(device)
     if existing is not None:
         engine = get_engine()
@@ -68,8 +70,8 @@ def add_directory_device(device: PublicDevice) -> ConnectResult:
     engine = get_engine()
     engine.add_device(
         did,
-        "spyserver",
-        SpyServerParams(host=host, port=port),
+        device.source,
+        _params_for(device.source, host, port),
         DeviceConfig(center_frequency=_connect_freq(device)),
     )
     engine.set_focused_device(did)
@@ -106,7 +108,7 @@ def remove_directory_device(device: PublicDevice | FavoriteDevice) -> ConnectRes
 
 def _default_device_id(device: PublicDevice | FavoriteDevice) -> str:
     host, port = device_endpoint(device)
-    return f"spy-{host.replace('.', '-')}-{port}"
+    return f"{_ID_PREFIX[device.source]}-{host.replace('.', '-')}-{port}"
 
 
 def _default_freq(device: PublicDevice | FavoriteDevice) -> float:

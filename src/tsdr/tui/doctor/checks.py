@@ -480,7 +480,7 @@ def check_audio_backend() -> CheckResult:
 
 
 def check_sdr_backends() -> CheckResult:
-    available = ["rtl_tcp", "spyserver"]  # network backends, no native lib
+    available = ["rtl_tcp", "spyserver", "kiwisdr"]
     if importlib.util.find_spec("rtlsdr") is not None:
         available.append("rtlsdr")
     if importlib.util.find_spec("SoapySDR") is not None:

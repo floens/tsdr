@@ -16,6 +16,7 @@ from tsdr.devices.base import (
 )
 from tsdr.devices.factory import create_device
 from tsdr.devices.iq_file import EXTENSION_FORMAT_MAP, IQFileDevice, IQFileParams
+from tsdr.devices.kiwisdr import KiwiSDRDevice, KiwiSDRParams
 from tsdr.devices.mock import MockParams, MockSDRDevice
 from tsdr.devices.rtlsdr import RTLSDRDevice, RTLSDRParams
 from tsdr.devices.rtltcp import RTLTCPDevice, RTLTCPParams
@@ -29,6 +30,8 @@ __all__ = [
     "DeviceParams",
     "IQFileDevice",
     "IQFileParams",
+    "KiwiSDRDevice",
+    "KiwiSDRParams",
     "MockParams",
     "MockSDRDevice",
     "NetworkDeviceParams",

@@ -21,6 +21,8 @@ class PersistedDevice(BaseModel):
 
     host: str | None = None
     port: int | None = None
+    password: str | None = None
+    user: str | None = None
     serial: str | None = None
     device_index: int | None = None
     driver: str | None = None
