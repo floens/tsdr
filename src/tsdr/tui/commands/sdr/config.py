@@ -7,13 +7,15 @@ from typing import Any
 from tsdr.core.sdr.config import DeviceConfig, SDRConfig
 from tsdr.core.sdr.device_context import DeviceState
 from tsdr.core.sdr.engine import SDREngine, get_engine
-from tsdr.core.units import parse_hz
+from tsdr.core.sdr.exceptions import SDRException
+from tsdr.core.units import format_hz, parse_hz
 from tsdr.devices import NetworkDeviceParams
 from tsdr.tui.commands._format import (
     db,
     device_id,
     error,
     fields,
+    format_rate,
     freq_mhz,
     header,
     rate_sps,
@@ -22,6 +24,7 @@ from tsdr.tui.commands._format import (
 )
 from tsdr.tui.commands.base import Command, CommandParser, Completion
 from tsdr.tui.commands.sdr._utils import (
+    completion_device_id,
     device_id_completions,
     get_focused_device_id,
     parse_endpoint,
@@ -304,6 +307,28 @@ class SDRConfigCommand(Command):
     ) -> list[Completion]:
         if flag == "--device":
             return device_id_completions(prefix)
+        if flag == "--sample-rate":
+            return _sample_rate_completions(tokens, prefix)
         if flag is None and "show".startswith(prefix):
             return [Completion("show", "Dump current device and global config")]
         return []
+
+
+def _sample_rate_completions(tokens: list[str], prefix: str) -> list[Completion]:
+    try:
+        did = completion_device_id(tokens)
+        rates = get_engine().get_device(did).device.capabilities.sample_rates
+    except (RuntimeError, SDRException):
+        return []
+    if not rates:
+        return []
+    out = []
+    for rate in sorted(rates):
+        hz = int(rate)
+        hzf = float(hz)
+        # Fall back to raw Hz when SI rounding would drift past run()'s <1 Hz validation.
+        si = format_hz(hzf, decimals=3)
+        value = si if parse_hz(si) == hz else str(hz)
+        if value.startswith(prefix):
+            out.append(Completion(value, " ".join(format_rate(hzf))))
+    return out

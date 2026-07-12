@@ -18,6 +18,14 @@ def device_id_completions(prefix: str) -> list[Completion]:
     return [Completion(did) for did in engine.devices if did.startswith(prefix)]
 
 
+def completion_device_id(tokens: list[str]) -> str:
+    """Device a completion targets: an explicit --device wins, else the focused device."""
+    for i, tok in enumerate(tokens):
+        if tok == "--device" and i + 1 < len(tokens):
+            return tokens[i + 1]
+    return get_focused_device_id()
+
+
 def parse_endpoint(spec: str) -> tuple[str, int | None]:
     """Parse `host`, `host:port`, or `scheme://host[:port]` into (host, port).
 
