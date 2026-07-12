@@ -28,7 +28,6 @@ from tsdr.radio.demodulators import NYQUIST_MARGIN, Demodulator
 from tsdr.radio.dsp import (
     AGC,
     DCBlocker,
-    StreamingDecimFilter,
     StreamingFilter,
     firwin,
 )
@@ -91,18 +90,8 @@ class SSTVDemodulator(Demodulator):
         self._next_looking_emit_sample = 0
 
     def _setup_channel_filter(self) -> None:
-        self.channel_decimation = max(1, int(self.sample_rate // self.audio_rate))
-        self.decimated_rate = self.sample_rate / self.channel_decimation
-        self.channel_bandwidth = min(self.channel_bandwidth, self.decimated_rate * NYQUIST_MARGIN)
-
-        # Clamp to Nyquist of the input rate so a sample_rate close to (or
-        # below) 2*audio_rate doesn't make firwin reject the cutoff.
-        aa_cutoff = min(self.audio_rate * 0.45, self.sample_rate * 0.45)
-        self._decim = StreamingDecimFilter(
-            firwin(64, aa_cutoff, fs=self.sample_rate, window=("kaiser", 6.0)),
-            decimation=self.channel_decimation,
-            dtype=np.complex64,
-            expected_input_size=200_000,
+        self._decim = self._install_channel_frontend(
+            self.sample_rate, self.audio_rate, self.channel_bandwidth
         )
         self._channel = self._build_channel_filter(self.channel_bandwidth)
 

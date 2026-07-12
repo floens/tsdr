@@ -1,14 +1,67 @@
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 from typing import ClassVar, Literal
 
 import numpy as np
 
 from tsdr.core.events.events import DecodedMessage
 from tsdr.core.sdr.datatypes import AudioBatch, DemodProfile, DemodStatus
+from tsdr.radio.dsp import StreamingDecimFilter, firwin
 
 # Fraction of Nyquist below which a post-decimation channel filter's cutoff
 # must sit to keep the FIR transition band inside the passband.
 NYQUIST_MARGIN = 0.95
+
+
+@dataclass(frozen=True)
+class ChannelFrontend:
+    """Sized IQ front-end shared by the audio demodulators.
+
+    See `design_channel_frontend`. `decimator` runs on the raw IQ; the demod
+    then applies its own channel filter at `decimated_rate`.
+    """
+
+    decimator: StreamingDecimFilter
+    decimation: int
+    decimated_rate: float
+    channel_bandwidth: float
+
+
+def design_channel_frontend(
+    sample_rate: float,
+    audio_rate: float,
+    channel_bandwidth: float,
+    *,
+    aa_taps: int = 64,
+    expected_input_size: int = 200_000,
+) -> ChannelFrontend:
+    """Size the front-end every audio demod (AM/NFM/CW/SSB/SSTV) runs before its
+    own channel filter: a broad anti-alias FIR that decimates the wideband IQ
+    down to ~`audio_rate`, plus `channel_bandwidth` clamped to the decimated
+    Nyquist.
+
+    The anti-alias cutoff sits just below the *decimated* Nyquist, so it stays
+    valid when the input is already at or below `audio_rate` (a KiwiSDR delivers
+    a ~12 kHz channel): the decimation clamps to 1 and the cutoff is 0.45*rate,
+    inside (0, Nyquist). Basing it on `audio_rate` breaks whenever
+    `sample_rate < audio_rate` -- which is why four hand-copied versions of this
+    crashed on a 12 kHz KiwiSDR while only SSTV had patched around it.
+    """
+    decimation = max(1, int(sample_rate // audio_rate))
+    decimated_rate = sample_rate / decimation
+    aa_cutoff = decimated_rate * 0.45
+    decimator = StreamingDecimFilter(
+        firwin(aa_taps, aa_cutoff, fs=sample_rate, window=("kaiser", 6.0)),
+        decimation=decimation,
+        dtype=np.complex64,
+        expected_input_size=expected_input_size,
+    )
+    return ChannelFrontend(
+        decimator=decimator,
+        decimation=decimation,
+        decimated_rate=decimated_rate,
+        channel_bandwidth=min(channel_bandwidth, decimated_rate * NYQUIST_MARGIN),
+    )
 
 
 class Demodulator(ABC):
@@ -32,6 +85,20 @@ class Demodulator(ABC):
 
     def __init__(self) -> None:
         self._audio_batches: list[AudioBatch] = []
+
+    def _install_channel_frontend(
+        self, sample_rate: float, audio_rate: float, channel_bandwidth: float
+    ) -> StreamingDecimFilter:
+        """Build the shared IQ front-end, storing `channel_decimation`,
+        `decimated_rate`, and the Nyquist-clamped `channel_bandwidth`; return the
+        raw-IQ decimator. The caller holds it as `_decim` rather than the base
+        setting it because `_decim`'s type varies by demod -- optional in WSJT, an
+        int decimation factor in FSKDecoder -- so it can't be one base attribute."""
+        frontend = design_channel_frontend(sample_rate, audio_rate, channel_bandwidth)
+        self.channel_decimation = frontend.decimation
+        self.decimated_rate = frontend.decimated_rate
+        self.channel_bandwidth = frontend.channel_bandwidth
+        return frontend.decimator
 
     @abstractmethod
     def demodulate(self, iq_samples: np.ndarray, capture_utc_s: float) -> None: ...
@@ -168,7 +235,9 @@ class Demodulator(ABC):
 
 
 __all__ = [
+    "ChannelFrontend",
     "DemodProfile",
     "DemodStatus",
     "Demodulator",
+    "design_channel_frontend",
 ]

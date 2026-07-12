@@ -8,7 +8,6 @@ from tsdr.radio.dsp import (
     AGC,
     DCBlocker,
     SquelchGate,
-    StreamingDecimFilter,
     StreamingFilter,
     firwin,
     iq_power_db,
@@ -57,17 +56,8 @@ class AMDemodulator(Demodulator):
         self._squelch = SquelchGate(audio_rate=self.decimated_rate)
 
     def _build_filters(self) -> None:
-        self.channel_decimation = max(1, int(self.sample_rate // self.audio_rate))
-        self.decimated_rate = self.sample_rate / self.channel_decimation
-        self.channel_bandwidth = min(self.channel_bandwidth, self.decimated_rate * NYQUIST_MARGIN)
-
-        # Anti-alias decimator: input rate -> ~audio_rate. Wide cutoff just
-        # below audio Nyquist; this is not the channel filter.
-        aa_cutoff = self.audio_rate * 0.45
-        self._decim = StreamingDecimFilter(
-            firwin(64, aa_cutoff, fs=self.sample_rate, window=("kaiser", 6.0)),
-            decimation=self.channel_decimation,
-            dtype=np.complex64,
+        self._decim = self._install_channel_frontend(
+            self.sample_rate, self.audio_rate, self.channel_bandwidth
         )
         self._channel = self._build_channel_filter(self.channel_bandwidth)
         self._audio_lpf = self._build_audio_lpf(self.channel_bandwidth)

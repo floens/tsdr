@@ -38,7 +38,6 @@ from tsdr.radio.demodulators import NYQUIST_MARGIN, Demodulator
 from tsdr.radio.dsp import (
     AGC,
     SquelchGate,
-    StreamingDecimFilter,
     StreamingFilter,
     firwin,
     iq_power_db,
@@ -88,16 +87,8 @@ class CWDemodulator(Demodulator):
         self._morse = MorseDecoder(self.decimated_rate)
 
     def _setup_channel_filter(self) -> None:
-        self.channel_decimation = max(1, int(self.sample_rate // self.audio_rate))
-        self.decimated_rate = self.sample_rate / self.channel_decimation
-        self.channel_bandwidth = min(self.channel_bandwidth, self.decimated_rate * NYQUIST_MARGIN)
-
-        aa_cutoff = self.audio_rate * 0.45
-        self._decim = StreamingDecimFilter(
-            firwin(64, aa_cutoff, fs=self.sample_rate, window=("kaiser", 6.0)),
-            decimation=self.channel_decimation,
-            dtype=np.complex64,
-            expected_input_size=200_000,
+        self._decim = self._install_channel_frontend(
+            self.sample_rate, self.audio_rate, self.channel_bandwidth
         )
         self._channel = self._build_channel_filter(self.channel_bandwidth)
 
