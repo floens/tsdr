@@ -11,15 +11,8 @@ from tsdr.core.devices import PersistedDevice, get_device_store
 from tsdr.core.sdr.config import DeviceConfig
 from tsdr.core.sdr.engine import get_engine
 from tsdr.core.sdr.samples_batch import SampleFormat
-from tsdr.devices import (
-    DeviceParams,
-    IQFileParams,
-    MockParams,
-    RTLSDRParams,
-    RTLTCPParams,
-    SoapySDRParams,
-    SpyServerParams,
-)
+from tsdr.devices import DeviceParams, IQFileParams
+from tsdr.devices.registry import BY_NAME
 from tsdr.radio.registry import DEMODULATORS
 
 _DEVICE_CONFIG_FIELDS = (
@@ -154,34 +147,26 @@ def restore_tuning_state(state: TuningState, prefs: dict[str, Any]) -> None:
 
 
 def _build_params(device: PersistedDevice) -> DeviceParams | None:
-    if device.type == "rtltcp":
-        return RTLTCPParams(host=device.host or "localhost", port=device.port or 1234)
-    if device.type == "spyserver":
-        return SpyServerParams(host=device.host or "localhost", port=device.port or 5555)
-    if device.type == "rtlsdr":
-        return RTLSDRParams(serial=device.serial or "", device_index=device.device_index or 0)
-    if device.type == "soapy":
-        return SoapySDRParams(
-            driver=device.driver or "",
-            serial=device.serial or "",
-            antenna=device.antenna or "",
-            device_args=device.device_args or "",
-        )
-    if device.type == "iq-file":
-        if not device.path:
-            logger.warning("preferences_iq_file_missing_path device=%s", device.id)
-            return None
-        fmt = SampleFormat(device.sample_format) if device.sample_format else None
-        return IQFileParams(path=device.path, sample_format=fmt)
-    if device.type == "mock":
-        return MockParams(
-            signal_freq_offset=device.signal_freq_offset
-            if device.signal_freq_offset is not None
-            else 10e3,
-            noise_level=device.noise_level if device.noise_level is not None else 0.1,
-        )
-    logger.info("preferences_restore_skipped device=%s type=%s", device.id, device.type)
-    return None
+    """Reconstruct a device's Params from its persisted row via the registry.
+
+    Every Params field has a default and a matching PersistedDevice field, so the
+    non-None persisted values reproduce the per-type constructors (same idiom as
+    `_build_device_config`). `sample_format` is stored as a string and coerced
+    back to its enum; iq-file additionally requires a path.
+    """
+    dt = BY_NAME.get(device.type)
+    if dt is None:
+        logger.info("preferences_restore_skipped device=%s type=%s", device.id, device.type)
+        return None
+    names = {f.name for f in dataclasses.fields(dt.params_cls)}
+    persisted = device.model_dump(exclude_none=True)
+    kwargs = {n: persisted[n] for n in names if n in persisted}
+    if dt.params_cls is IQFileParams and not kwargs.get("path"):
+        logger.warning("preferences_iq_file_missing_path device=%s", device.id)
+        return None
+    if "sample_format" in kwargs:
+        kwargs["sample_format"] = SampleFormat(kwargs["sample_format"])
+    return dt.params_cls(**kwargs)
 
 
 def _build_device_config(device: PersistedDevice) -> DeviceConfig | None:

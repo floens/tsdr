@@ -9,6 +9,7 @@ from tsdr.core.units import parse_hz
 from tsdr.devices import (
     DeviceParams,
     IQFileParams,
+    KiwiSDRParams,
     MockParams,
     RTLSDRParams,
     RTLTCPParams,
@@ -16,9 +17,18 @@ from tsdr.devices import (
     SpyServerParams,
 )
 from tsdr.devices.iq_file import parse_sample_rate_from_filename
+from tsdr.devices.registry import BY_NAME, DEVICE_TYPE_NAMES, DeviceType
 from tsdr.tui.commands._format import device_id, freq_mhz, success
 from tsdr.tui.commands.base import Command, CommandParser
 from tsdr.tui.commands.sdr._utils import parse_endpoint
+
+_DEFAULT_CENTER_HZ = 100e6
+
+
+def _network_port(args: Namespace, dt: DeviceType) -> int:
+    """Explicit --port, else the registry's default port for this network device."""
+    assert dt.default_port is not None
+    return args.port if args.port is not None else dt.default_port
 
 
 class SDRAddCommand(Command):
@@ -32,18 +42,18 @@ class SDRAddCommand(Command):
             "--type",
             required=True,
             dest="device_type",
-            choices=["rtltcp", "rtlsdr", "mock", "iq-file", "soapy", "spyserver"],
+            choices=list(DEVICE_TYPE_NAMES),
         )
         parser.add_argument(
             "--host",
             default="localhost",
-            help="TCP host, host:port, or sdr://host:port (rtltcp, spyserver)",
+            help="TCP host, host:port, or sdr://host:port (rtltcp, spyserver, kiwisdr)",
         )
         parser.add_argument(
             "--port",
             type=int,
             default=None,
-            help="TCP port (default: 1234 rtltcp, 5555 spyserver)",
+            help="TCP port (default: 1234 rtltcp, 5555 spyserver, 8073 kiwisdr)",
         )
         parser.add_argument("--path", help="File path (for iq-file)")
         parser.add_argument(
@@ -56,10 +66,14 @@ class SDRAddCommand(Command):
         parser.add_argument(
             "--device-index", type=int, default=0, help="USB device index (for rtlsdr)"
         )
+        parser.add_argument("--password", default="", help="Password (for kiwisdr, if required)")
+        parser.add_argument(
+            "--user", default="tsdr", help="Displayed user/ident name (for kiwisdr)"
+        )
         parser.add_argument(
             "--frequency",
-            default="100M",
-            help="Center frequency with SI suffix (e.g. 100.1M, 430k)",
+            default=None,
+            help="Center frequency with SI suffix (e.g. 100.1M, 430k); default 100M, 10M for kiwisdr",
         )
         parser.add_argument("--sample-rate", help="Sample rate with SI suffix (e.g. 2.4M, 250k)")
         parser.add_argument("--buffer-samples", type=int, help="Samples per device read")
@@ -67,7 +81,7 @@ class SDRAddCommand(Command):
             "--network-buffer",
             dest="network_buffer_seconds",
             type=float,
-            help="Jitter buffer pre-fill, seconds (rtltcp/spyserver, default 0.5)",
+            help="Jitter buffer pre-fill, seconds (rtltcp/spyserver/kiwisdr, default 0.5)",
         )
 
     def run(self, args: Namespace) -> str:
@@ -79,8 +93,15 @@ class SDRAddCommand(Command):
         if embedded_port is not None and args.port is None:
             args.port = embedded_port
 
+        dt = BY_NAME[args.device_type]
         config_overrides: dict[str, object] = {}
-        config_overrides["center_frequency"] = float(parse_hz(args.frequency))
+        if args.frequency is not None:
+            center_hz = float(parse_hz(args.frequency))
+        elif dt.default_frequency_hz is not None:
+            center_hz = dt.default_frequency_hz
+        else:
+            center_hz = _DEFAULT_CENTER_HZ
+        config_overrides["center_frequency"] = center_hz
         if args.sample_rate is not None:
             config_overrides["sample_rate"] = float(parse_hz(args.sample_rate))
         if args.buffer_samples is not None:
@@ -90,10 +111,15 @@ class SDRAddCommand(Command):
 
         params: DeviceParams
         if args.device_type == "rtltcp":
-            params = RTLTCPParams(host=args.host, port=args.port if args.port is not None else 1234)
+            params = RTLTCPParams(host=args.host, port=_network_port(args, dt))
         elif args.device_type == "spyserver":
-            params = SpyServerParams(
-                host=args.host, port=args.port if args.port is not None else 5555
+            params = SpyServerParams(host=args.host, port=_network_port(args, dt))
+        elif args.device_type == "kiwisdr":
+            params = KiwiSDRParams(
+                host=args.host,
+                port=_network_port(args, dt),
+                password=args.password,
+                user=args.user,
             )
         elif args.device_type == "rtlsdr":
             params = RTLSDRParams(serial=args.serial, device_index=args.device_index)
