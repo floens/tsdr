@@ -1,3 +1,4 @@
+import logging
 from math import gcd
 
 import numpy as np
@@ -5,6 +6,7 @@ import scipy.signal
 
 from tsdr.radio.dsp import FMDiscriminator, butter, firwin, lfilter, lfilter_zi, resample_poly
 from tsdr.radio.dsp._kernels import (
+    _RESAMPLER_TAPS_WARN,
     StreamingDecimFilter,
     StreamingFilter,
     StreamingPolyphaseResampler,
@@ -17,6 +19,7 @@ from tsdr.radio.dsp._kernels import (
     _sint8_iq_to_complex64,
     _uint8_iq_to_complex64,
     fir_decim_f32_into,
+    make_rational_resampler,
 )
 
 
@@ -364,6 +367,35 @@ class TestPolyphaseResampler:
         assert out_chunked.shape[0] == out_single.shape[0]
         # Values must match
         np.testing.assert_allclose(out_chunked, out_single, atol=1e-5)
+
+
+class TestMakeRationalResampler:
+    def test_fractional_rate_stays_bounded(self):
+        """A GPS-corrected fractional rate must not yield a coprime ratio and a
+        runaway prototype filter (regression: KiwiSDR 12001.116 Hz -> 960k taps)."""
+        r = make_rational_resampler(48000, 12001.116)
+        assert (r.up, r.down) == (4, 1)
+
+    def test_standard_rate_is_exact(self):
+        r = make_rational_resampler(48000, 44100.0)
+        assert (r.up, r.down) == (160, 147)
+
+    def test_near_unity_ratio_is_identity(self):
+        """target ~= source rounds to 1/1; the unity cutoff must not crash firwin."""
+        r = make_rational_resampler(12000, 12001)
+        assert (r.up, r.down) == (1, 1)
+        x = np.zeros((256, 1), dtype=np.float32)
+        assert r.process(x).shape[0] == 256
+
+    def test_large_taps_warn(self, caplog):
+        with caplog.at_level(logging.WARNING):
+            StreamingPolyphaseResampler(2, 1, _RESAMPLER_TAPS_WARN + 1)
+        assert any("resampler_taps_large" in rec.getMessage() for rec in caplog.records)
+
+    def test_normal_taps_do_not_warn(self, caplog):
+        with caplog.at_level(logging.WARNING):
+            StreamingPolyphaseResampler(4, 1, 81)
+        assert not any("resampler_taps_large" in rec.getMessage() for rec in caplog.records)
 
 
 class TestLfilterIIRF32:

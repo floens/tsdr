@@ -146,6 +146,7 @@ rds_timing_nudge
 rds_tmc
 reconcile_diff
 reconciler_apply_prop_failed
+resampler_taps_large
 rnnoise_load_failed
 rnnoise_loaded
 rtlsdr_close_failed

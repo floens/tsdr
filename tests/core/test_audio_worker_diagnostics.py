@@ -313,6 +313,29 @@ def test_coerce_speaker_spec_int_passthrough() -> None:
     assert _coerce_speaker_spec("0") == 0
 
 
+def test_fractional_source_rate_bounds_resampler() -> None:
+    """A GPS-corrected fractional rate (KiwiSDR: 12001.116 Hz) must not build a
+    coprime up/down like 48000/12001 with a ~million-tap prototype filter."""
+    w = _make_worker()
+    audio = (np.random.randn(600, 2) * 0.1).astype(np.float32)
+    out = w._resample_streaming(audio, 12001.116)
+    assert w._resampler is not None
+    assert w._resampler.up == 4
+    assert w._resampler.down == 1
+    # ~4x upsample toward 48 kHz, not the degenerate 48000/12001 ratio.
+    assert out.shape[1] == 2
+    assert 2200 <= out.shape[0] <= 2500
+
+
+def test_standard_source_rate_ratio_preserved() -> None:
+    """44.1 kHz must still resolve to the exact 160/147 ratio, unchanged."""
+    w = _make_worker()
+    audio = (np.random.randn(441, 2) * 0.1).astype(np.float32)
+    w._resample_streaming(audio, 44100.0)
+    assert w._resampler is not None
+    assert (w._resampler.up, w._resampler.down) == (160, 147)
+
+
 def test_teardown_logs_summary(caplog: pytest.LogCaptureFixture) -> None:
     w = _make_worker()
     w._push_count = 100

@@ -2,7 +2,6 @@ import inspect
 import logging
 import queue
 import time
-from math import gcd
 from typing import Any
 
 import numpy as np
@@ -11,7 +10,7 @@ import soundcard
 from tsdr.core.events.events import AudioOutputErrorEvent, AudioOutputStatsEvent
 from tsdr.core.tracing import span
 from tsdr.core.workers import WorkerContext
-from tsdr.radio.dsp._kernels import StreamingPolyphaseResampler
+from tsdr.radio.dsp._kernels import StreamingPolyphaseResampler, make_rational_resampler
 
 logger = logging.getLogger(__name__)
 
@@ -338,12 +337,7 @@ class AudioOutputWorker:
 
     def _resample_streaming(self, audio_samples: np.ndarray, source_rate: float) -> np.ndarray:
         if source_rate != self._resample_source_rate:
-            g = gcd(int(self.TARGET_RATE), int(source_rate))
-            up = int(self.TARGET_RATE) // g
-            down = int(source_rate) // g
-            max_rate = max(up, down)
-            n_taps = 2 * 10 * max_rate + 1
-            self._resampler = StreamingPolyphaseResampler(up, down, n_taps)
+            self._resampler = make_rational_resampler(self.TARGET_RATE, source_rate)
             self._resample_source_rate = source_rate
 
         assert self._resampler is not None

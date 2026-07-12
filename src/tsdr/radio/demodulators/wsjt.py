@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import logging
 from datetime import UTC, datetime
-from math import ceil, gcd
+from math import ceil
 from typing import ClassVar, Literal
 
 import numpy as np
@@ -24,7 +24,7 @@ from tsdr.radio.decoders.wsjt.decode import analyze_slot, decode_candidates
 from tsdr.radio.decoders.wsjt.tables import FT4_SLOT_TIME, FT8_SLOT_TIME
 from tsdr.radio.demodulators import NYQUIST_MARGIN, Demodulator
 from tsdr.radio.dsp import StreamingDecimFilter, firwin
-from tsdr.radio.dsp._kernels import StreamingPolyphaseResampler
+from tsdr.radio.dsp._kernels import StreamingPolyphaseResampler, make_rational_resampler
 
 logger = logging.getLogger(__name__)
 
@@ -103,13 +103,7 @@ class WSJTDemodulator(Demodulator):
             return
 
         self._decim = None
-        g = gcd(sr, TARGET_RATE)
-        up = TARGET_RATE // g
-        down = sr // g
-        # 20 taps per polyphase phase gives a clean transition band at any
-        # rational ratio HF SDRs throw at us.
-        n_taps = 20 * max(up, down) + 1
-        self._resampler = StreamingPolyphaseResampler(up=up, down=down, n_taps=n_taps)
+        self._resampler = make_rational_resampler(TARGET_RATE, sr)
 
     def set_channel_bandwidth(self, bandwidth: float) -> None:
         self.channel_bandwidth = min(float(bandwidth), TARGET_RATE * NYQUIST_MARGIN)

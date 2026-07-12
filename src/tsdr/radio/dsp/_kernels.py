@@ -1,9 +1,18 @@
+import logging
 import math
+from fractions import Fraction
 
 import numba as nb
 import numpy as np
 
 from tsdr.radio.dsp.filters import firwin as _firwin
+
+logger = logging.getLogger(__name__)
+
+# A rational resampler's prototype filter is `2 * taps_per_phase * max(up, down)`.
+# Legitimate audio ratios top out near 12.8k taps (11025->48k); anything past
+# this bound means a caller derived up/down from an unbounded runtime rate.
+_RESAMPLER_TAPS_WARN = 50_000
 
 
 @nb.njit(cache=True, fastmath=True)
@@ -896,9 +905,14 @@ class StreamingPolyphaseResampler:
         self.up = up
         self.down = down
 
-        # Design prototype lowpass filter
+        if n_taps > _RESAMPLER_TAPS_WARN:
+            logger.warning("resampler_taps_large up=%d down=%d n_taps=%d", up, down, n_taps)
+
+        # Clamp the cutoff below Nyquist: a unity ratio (up == down == 1, from a
+        # near-equal target/source) gives max_rate 1, and firwin rejects the
+        # resulting cutoff of exactly 1.0.
         max_rate = max(up, down)
-        h = _firwin(n_taps, 1.0 / max_rate, window=window)
+        h = _firwin(n_taps, min(1.0 / max_rate, 0.999), window=window)
         h_scaled = (h * up).astype(np.float32)
 
         # Pad to multiple of up
@@ -956,6 +970,26 @@ class StreamingPolyphaseResampler:
         for h in self._histories:
             h[:] = 0
         self._time_register = 0
+
+
+def make_rational_resampler(
+    target_rate: float,
+    source_rate: float,
+    *,
+    taps_per_phase: int = 10,
+    max_denominator: int = 1000,
+) -> StreamingPolyphaseResampler:
+    """Build a resampler for ``target_rate / source_rate``, bounding the rational
+    approximation so a fractional source rate (e.g. a KiwiSDR's GPS-corrected
+    12001.116 Hz) can't produce a coprime ratio like 48000/12001 and a
+    million-tap prototype filter. The sub-0.01% rate error the bound introduces
+    is inaudible and absorbed by downstream buffering.
+    """
+    ratio = Fraction(target_rate / source_rate).limit_denominator(max_denominator)
+    up = ratio.numerator
+    down = ratio.denominator
+    n_taps = 2 * taps_per_phase * max(up, down) + 1
+    return StreamingPolyphaseResampler(up, down, n_taps)
 
 
 @nb.njit(cache=True, fastmath=True)

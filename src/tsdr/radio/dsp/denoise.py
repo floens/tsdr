@@ -12,12 +12,10 @@ Denoised audio stays at 48 kHz — the audio worker resamples to its output rate
 anyway, so there's no reason to convert back to the demod's native rate.
 """
 
-from math import gcd
-
 import numpy as np
 
 from tsdr.core.sdr.datatypes import AudioBatch
-from tsdr.radio.dsp._kernels import StreamingPolyphaseResampler
+from tsdr.radio.dsp._kernels import StreamingPolyphaseResampler, make_rational_resampler
 from tsdr.radio.dsp.rnnoise import FRAME_SIZE, RNNoiseState
 
 RNNOISE_RATE = 48000
@@ -35,11 +33,7 @@ class AudioDenoiser:
 
     def _resample_to_48k(self, samples: np.ndarray, src_rate: float) -> np.ndarray:
         if src_rate != self._resample_src_rate:
-            g = gcd(RNNOISE_RATE, int(src_rate))
-            up = RNNOISE_RATE // g
-            down = int(src_rate) // g
-            n_taps = 2 * 10 * max(up, down) + 1
-            self._resampler = StreamingPolyphaseResampler(up, down, n_taps)
+            self._resampler = make_rational_resampler(RNNOISE_RATE, src_rate)
             self._resample_src_rate = src_rate
         assert self._resampler is not None
         return self._resampler.process(samples.reshape(-1, 1))[:, 0]
