@@ -15,6 +15,7 @@ from tsdr.core.events.bus import EventBus
 from tsdr.core.events.events import (
     AGCGainChangeEvent,
     ConfigChangedEvent,
+    DecoderOutputEvent,
     DeviceAddedEvent,
     DeviceCapabilitiesChangedEvent,
     DeviceRemovedEvent,
@@ -88,6 +89,7 @@ class SDREngine:
             self.event_bus.subscribe(
                 DeviceCapabilitiesChangedEvent, self._on_device_capabilities_changed
             )
+            self.event_bus.subscribe(DecoderOutputEvent, self._on_decoder_output)
 
     def add_device(
         self,
@@ -649,6 +651,13 @@ class SDREngine:
         assert isinstance(event, RecordingFinishedEvent)
         if event.device_id in self.devices:
             self.remove_pipeline(event.device_id, event.pipeline_name)
+
+    def _on_decoder_output(self, event: Event) -> None:
+        assert isinstance(event, DecoderOutputEvent)
+        context = self.devices.get(event.device_id)
+        if context is None:
+            return
+        context.append_decoder_history(event.protocol, event.messages)
 
     def _on_device_capabilities_changed(self, event: Event) -> None:
         assert isinstance(event, DeviceCapabilitiesChangedEvent)

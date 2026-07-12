@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+from itertools import groupby
 from typing import TYPE_CHECKING
 
 from rich.markup import escape
@@ -9,6 +10,8 @@ from textual.strip import Strip
 from textual.widgets import RichLog
 
 from tsdr.core.events.events import DecodedMessage, DecoderOutputEvent
+from tsdr.core.sdr.device_context import DECODER_HISTORY_MAX
+from tsdr.core.sdr.engine import get_engine
 from tsdr.tui.widgets.panel import PanelWidget, set_orientation_classes
 
 if TYPE_CHECKING:
@@ -42,7 +45,9 @@ class DecoderOutputWidget(RichLog, PanelWidget):
     can_focus = False
 
     def __init__(self) -> None:
-        super().__init__(max_lines=500, markup=True, wrap=True, min_width=0, auto_scroll=False)
+        super().__init__(
+            max_lines=DECODER_HISTORY_MAX, markup=True, wrap=True, min_width=0, auto_scroll=False
+        )
         self._live_strips = 0
         self._state = "empty"  # "empty" | "streaming" | "sealed"
         self._stream_line = ""
@@ -55,6 +60,16 @@ class DecoderOutputWidget(RichLog, PanelWidget):
 
     def watch_dock_edge(self, edge: Edge | None) -> None:
         set_orientation_classes(self, edge)
+
+    def on_mount(self) -> None:
+        ctx = get_engine().get_focused_device()
+        if ctx is None:
+            return
+        protocol, messages = ctx.snapshot_decoder_history()
+        # Emitter stamps protocol = active_mode; a mismatch means the decoder changed.
+        if not messages or protocol is None or protocol != ctx.active_mode:
+            return
+        self._seed_history(protocol, messages)
 
     def on_unmount(self) -> None:
         if self._timer is not None:
@@ -82,13 +97,22 @@ class DecoderOutputWidget(RichLog, PanelWidget):
             self._dirty = True
         self._request_render()
 
+    def _seed_history(self, protocol: str, messages: tuple[DecodedMessage, ...]) -> None:
+        # Seed via RichLog.write, not the live-line machine: it defers writes until width is known
+        # and replays them in order, surviving a pre-layout remount that the live machine can't.
+        groups: list[tuple[DecodedMessage, int]] = []
+        for _, grp in groupby(messages, key=lambda m: (m.text, m.markup)):
+            run = list(grp)
+            groups.append((run[0], len(run)))
+        last = len(groups) - 1
+        for i, (msg, count) in enumerate(groups):
+            self.write(_folded(_format_line(protocol, msg), count), scroll_end=(i == last))
+
     def _live_text(self) -> str:
         if self._state == "streaming":
             return f"{self._stream_line}[dim]█[/dim]"
         if self._state == "sealed":
-            if self._sealed_count > 1:
-                return f"{self._sealed_line} [dim]×{self._sealed_count}[/dim]"
-            return self._sealed_line
+            return _folded(self._sealed_line, self._sealed_count)
         return ""
 
     def _commit(self) -> None:
@@ -159,6 +183,12 @@ class DecoderOutputWidget(RichLog, PanelWidget):
 
     def selection_updated(self, selection: Selection | None) -> None:
         self.refresh()
+
+
+def _folded(line: str, count: int) -> str:
+    if count > 1:
+        return f"{line} [dim]×{count}[/dim]"
+    return line
 
 
 def _format_line(protocol: str, msg: DecodedMessage) -> str:

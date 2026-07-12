@@ -1,11 +1,13 @@
 import logging
 import queue
 import threading
+from collections import deque
 from collections.abc import Callable
 from enum import Enum
 from queue import Queue
 from typing import TYPE_CHECKING, Unpack
 
+from tsdr.core.events.events import DecodedMessage
 from tsdr.core.sdr.config import DeviceConfig, DeviceConfigChanges, SDRConfig
 from tsdr.core.sdr.pipeline.pipeline import ProcessingPipeline
 from tsdr.core.sdr.pipeline.stage_factory import create_stage, stage_type_of
@@ -16,6 +18,8 @@ from tsdr.core.tracing import traced
 from tsdr.radio.registry import demod_profile as build_profile
 
 logger = logging.getLogger(__name__)
+
+DECODER_HISTORY_MAX = 5000
 
 if TYPE_CHECKING:
     from tsdr.core.sdr.datatypes import DemodProfile, DemodStatus
@@ -94,6 +98,11 @@ class SDRDeviceContext:
         # Stereo status (set by demodulators)
         self.stereo: bool | None = None
 
+        # Retained decoder output (written by pipeline worker, read by UI thread)
+        self.decoder_history: deque[DecodedMessage] = deque(maxlen=DECODER_HISTORY_MAX)
+        self.decoder_history_protocol: str | None = None
+        self._history_lock = threading.Lock()
+
         # Initial materialization
         self._materialize_pipelines()
 
@@ -134,6 +143,28 @@ class SDRDeviceContext:
             if pc.audio_spec is not None:
                 return pc.audio_spec.mode
         return "RAW"
+
+    def append_decoder_history(self, protocol: str, messages: tuple[DecodedMessage, ...]) -> None:
+        """Retain sealed decoder messages; a protocol change resets the buffer.
+
+        Partial (in-progress) messages are dropped — the widget rebuilds its live
+        line from the next real partial, and keeping them would evict real history.
+        Only text fields are kept: the panel never renders `data`, whose payloads
+        (e.g. ADSB aircraft snapshots, DAB image bytes) would otherwise be pinned.
+        """
+        with self._history_lock:
+            if protocol != self.decoder_history_protocol:
+                self.decoder_history.clear()
+                self.decoder_history_protocol = protocol
+            self.decoder_history.extend(
+                DecodedMessage(text=m.text, timestamp=m.timestamp, markup=m.markup)
+                for m in messages
+                if not m.partial
+            )
+
+    def snapshot_decoder_history(self) -> tuple[str | None, tuple[DecodedMessage, ...]]:
+        with self._history_lock:
+            return self.decoder_history_protocol, tuple(self.decoder_history)
 
     def start(self, worker_runner) -> None:
         """Start I/O and processing workers for this device."""
