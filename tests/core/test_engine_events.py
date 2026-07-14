@@ -139,16 +139,19 @@ def _caps(
     freq_range: tuple[float, float] | None = None,
     sample_rates: tuple[float, ...] | None = None,
     bias_tee_supported: bool = True,
+    controllable: bool = True,
+    controller_center: float | None = None,
 ) -> DeviceCapabilities:
     return DeviceCapabilities(
         frequency_range=freq_range,
-        frequency_controllable=True,
+        frequency_controllable=controllable,
         sample_rates=sample_rates,
         gain_supported=gain_supported,
         gain_range=gain_range,
         gain_step=1.0,
         gain_unit="dB",
         bias_tee_supported=bias_tee_supported,
+        controller_center_frequency=controller_center,
     )
 
 
@@ -323,3 +326,39 @@ def test_zero_frequency_raises_sdr_exception() -> None:
     engine.add_device("rtl0", "mock", MockParams(), DeviceConfig())
     with pytest.raises(SDRException):
         engine.update_device_config("rtl0", tuned_frequency=0.0)
+
+
+def test_locked_window_snaps_stale_config_to_controller() -> None:
+    # A locked SpyServer window (172.739-173.234 MHz) with a stale 100 MHz
+    # config: dial and center land on the controller's station, not on the
+    # window edge.
+    engine = SDREngine()
+    engine.add_device("rtl0", "mock", MockParams(), DeviceConfig())
+    _publish_caps(
+        engine,
+        freq_range=(172.739e6, 173.234e6),
+        controller_center=172.9865e6,
+        gain_supported=False,
+    )
+    config = engine.devices["rtl0"].config
+    assert config.center_frequency == 172.9865e6
+    assert config.tuned_frequency == 172.9865e6
+
+
+def test_locked_window_keeps_in_window_dial() -> None:
+    engine = SDREngine()
+    engine.add_device(
+        "rtl0",
+        "mock",
+        MockParams(),
+        DeviceConfig(tuned_frequency=172.8e6, center_frequency=172.8e6),
+    )
+    _publish_caps(
+        engine,
+        freq_range=(172.739e6, 173.234e6),
+        controller_center=172.9865e6,
+        gain_supported=False,
+    )
+    config = engine.devices["rtl0"].config
+    assert config.center_frequency == 172.8e6
+    assert config.tuned_frequency == 172.8e6

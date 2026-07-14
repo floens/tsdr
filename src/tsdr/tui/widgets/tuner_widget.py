@@ -322,11 +322,15 @@ class TunerWidget(Vertical):
         engine = get_engine()
         device = engine.get_focused_device()
         running = device is not None and device.state == DeviceState.RUNNING
-        locked = (
-            running and device is not None and not device.device.capabilities.frequency_controllable
+        # Locked digits: the capture is fixed (IQ file), or another client
+        # controls the hardware (shared SpyServer: tunable within its window,
+        # but band and gain are dictated by the peer).
+        constrained = device is not None and (
+            not device.device.capabilities.frequency_controllable
+            or device.device.capabilities.controller_center_frequency is not None
         )
         self.set_class(not running, "stopped")
-        self.set_class(locked, "locked")
+        self.set_class(running and constrained, "locked")
 
     def update_running_state(self, event: DeviceStateChangedEvent) -> None:
         engine = get_engine()
@@ -408,6 +412,7 @@ class TunerWidget(Vertical):
 
     def update_config(self) -> None:
         self._read_config()
+        self._sync_running_class()
 
     def update_stats(self, event: StatsUpdateEvent) -> None:
         self.query_one("#tuner-meter", SNRWidget).update_snr(event.channel_snr)

@@ -738,6 +738,17 @@ class SDREngine:
             if not (lo <= config.center_frequency <= hi):
                 changes["center_frequency"] = max(lo, min(config.center_frequency, hi))
 
+        # A stale config outside a (possibly narrowed) band lands on the
+        # controlling client's station when one is known, not on the band
+        # edge the clamps above produce.
+        if (
+            caps.controller_center_frequency is not None
+            and freq_range is not None
+            and not (freq_range[0] <= config.tuned_frequency <= freq_range[1])
+        ):
+            changes["tuned_frequency"] = float(caps.controller_center_frequency)
+            changes["center_frequency"] = float(caps.controller_center_frequency)
+
         if caps.sample_rates is not None and not any(
             abs(config.sample_rate - r) < 1.0 for r in caps.sample_rates
         ):

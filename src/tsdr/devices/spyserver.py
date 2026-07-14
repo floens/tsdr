@@ -731,7 +731,10 @@ class SpyServerDevice:
             controller_gain = int(self._last_client_sync.current_gain)
         self._capabilities = DeviceCapabilities(
             frequency_range=self._freq_range,
-            frequency_controllable=self._can_control,
+            # A locked client can still retune its own IQ sub-window inside
+            # the controller's band (that is what min/max_iq_freq delimit);
+            # the lock only narrows frequency_range and takes away gain.
+            frequency_controllable=True,
             sample_rates=tuple(float(r) for r in self._supported_rates)
             if self._supported_rates
             else None,

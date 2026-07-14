@@ -40,10 +40,9 @@ class DeviceIdentity:
 @dataclass(frozen=True)
 class DeviceCapabilities:
     frequency_range: tuple[float, float] | None
-    # True when this client owns the hardware tuning. When False (e.g. shared
-    # SpyServer where another client has CanControl), `frequency_range` is the
-    # narrower IQ window we're locked inside and any tune outside it will be
-    # refused by the server.
+    # True when set_frequency can move the capture within `frequency_range`
+    # (a shared SpyServer still tunes its own IQ sub-window inside the
+    # controller's band). False = the capture is fixed (e.g. IQ file).
     frequency_controllable: bool
     sample_rates: tuple[float, ...] | None
 
@@ -59,7 +58,7 @@ class DeviceCapabilities:
     # from `frequency_range` instead of `center_frequency ± sample_rate/2`.
     provides_spectrum: bool = False
 
-    # Populated only when `frequency_controllable` is False.
+    # Populated when another client controls the hardware (shared SpyServer).
     controller_center_frequency: float | None = None
     controller_gain: int | None = None
 

@@ -112,7 +112,8 @@ def test_client_sync_narrows_to_iq_window_when_locked():
         _make_client_sync(can_control=False, min_iq_freq=88_000_000, max_iq_freq=108_000_000)
     )
     assert dev.capabilities.frequency_range == (88_000_000.0, 108_000_000.0)
-    assert dev.capabilities.frequency_controllable is False
+    # The lock narrows the range; tuning within it stays possible.
+    assert dev.capabilities.frequency_controllable is True
 
 
 def test_freq_range_re_widens_when_control_returns():
