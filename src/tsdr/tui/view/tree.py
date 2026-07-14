@@ -192,28 +192,32 @@ def _build_demod_children(m: UIModel, edge: Edge) -> tuple[WidgetSpec, ...]:
 def _panel_bar_glyphs(m: UIModel) -> tuple[tuple[str, str, bool], ...]:
     """Every docked panel as one row of (digit, label, is_active).
 
-    Walked left → bottom → right so the bar order mirrors the screen (left-edge
-    panels first, then bottom, then right); panels keep their docked order within
-    an edge. `is_active` is true iff the panel is the active one on its own edge.
-    The label is resolved from the panel's `title_of(m)` when it has one (e.g.
-    demod → the active decoder name), else its static title.
+    Ordered by hotkey digit ascending; panels without a hotkey sort last, keeping
+    their left → bottom → right docked order. `is_active` is true iff the panel is
+    the active one on its own edge. The label is resolved from the panel's
+    `title_of(m)` when it has one (e.g. demod → the active decoder name), else its
+    static title.
     """
     layout = m.layout
     digit_by_panel: dict[str, int] = {pid: d for d, pid in layout.hotkeys}
     edges: tuple[Edge, ...] = ("left", "bottom", "right")
-    out: list[tuple[str, str, bool]] = []
+    rows: list[tuple[int, tuple[str, str, bool]]] = []
     for edge in edges:
         edge_panels = _edge(layout, edge)
         for panel_id in edge_panels.panels:
             digit = digit_by_panel.get(panel_id)
-            out.append(
+            rows.append(
                 (
-                    str(digit) if digit is not None else "",
-                    _panel_label(panel_id, m),
-                    panel_id == edge_panels.active,
+                    digit if digit is not None else 1_000_000,
+                    (
+                        str(digit) if digit is not None else "",
+                        _panel_label(panel_id, m),
+                        panel_id == edge_panels.active,
+                    ),
                 )
             )
-    return tuple(out)
+    rows.sort(key=lambda r: r[0])
+    return tuple(row for _, row in rows)
 
 
 def _panel_label(panel_id: str, m: UIModel) -> str:

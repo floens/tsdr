@@ -319,9 +319,9 @@ def test_panel_bar_pairs_digit_and_label() -> None:
     )
 
 
-def test_panel_bar_aggregates_all_edges_in_edge_order() -> None:
-    """The single bar lists panels from every edge, walked left → bottom → right
-    (regardless of hotkey digit)."""
+def test_panel_bar_aggregates_all_edges_ordered_by_digit() -> None:
+    """The single bar lists panels from every edge, sorted by hotkey digit
+    (regardless of which edge they're docked on)."""
     layout = UILayout(
         left=EdgePanels(panels=("decoder-output",), active="decoder-output"),
         right=EdgePanels(panels=("stats",), active=None),
@@ -330,21 +330,22 @@ def test_panel_bar_aggregates_all_edges_in_edge_order() -> None:
     )
     tree = derive_tree(UIModel(layout=layout))
     assert _panel_bar(tree).props["glyphs"] == (
-        ("2", "Decoder", True),
         ("1", "Demod", False),
+        ("2", "Decoder", True),
         ("3", "Stats", False),
     )
 
 
-def test_panel_bar_default_layout_reads_left_bottom_right() -> None:
-    """The default bar reads left → bottom → right; bottom holds demod + directory."""
+def test_panel_bar_default_layout_ordered_by_digit() -> None:
+    """The default bar reads in hotkey-digit order 1..6."""
     tree = derive_tree(UIModel(layout=DEFAULT_LAYOUT))
     assert _panel_bar(tree).props["glyphs"] == (
         ("1", "Decoder", False),
         ("2", "Demod", False),
-        ("5", "Directory", False),
         ("3", "Stats", False),
         ("4", "Performance", False),
+        ("5", "Directory", False),
+        ("6", "Memories", False),
     )
 
 

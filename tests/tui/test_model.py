@@ -28,10 +28,10 @@ def test_defaults() -> None:
 
 
 def test_default_layout_has_expected_edges() -> None:
-    """Default layout: left=decoder-output, right=stats/performance, bottom=demod
-    (the demod panel multiplexes RDS/DAB/ADSB/TETRA/DMR based on the focused
-    device's active decoder kind)."""
-    assert DEFAULT_LAYOUT.left.panels == ("decoder-output",)
+    """Default layout: left=decoder-output/memories, right=stats/performance,
+    bottom=demod (the demod panel multiplexes RDS/DAB/ADSB/TETRA/DMR based on the
+    focused device's active decoder kind)."""
+    assert DEFAULT_LAYOUT.left.panels == ("decoder-output", "memories")
     assert DEFAULT_LAYOUT.left.active is None
     assert DEFAULT_LAYOUT.right.panels == ("stats", "performance")
     assert DEFAULT_LAYOUT.right.active is None
@@ -170,7 +170,9 @@ def test_initial_layout_roundtrips_from_prefs() -> None:
         }
     }
     m = UIModel.initial(prefs)
-    assert m.layout.left == EdgePanels(panels=("stats",), active="stats")
+    # 'memories' is absent from the saved layout, so it's augmented onto its
+    # default (left) edge.
+    assert m.layout.left == EdgePanels(panels=("stats", "memories"), active="stats")
     assert m.layout.right == EdgePanels(panels=("performance",), active=None)
     # 'directory' is absent from the saved layout, so it's augmented onto its
     # default (bottom) edge.
@@ -233,8 +235,8 @@ def test_initial_layout_augments_missing_panels() -> None:
     # rds/dab/adsb filtered → bottom empty post-filter; demod + directory (both
     # default-bottom) augmented onto it.
     assert m.layout.bottom.panels == ("demod", "directory")
-    # decoder-output absent from saved → appended to its default edge (left).
-    assert m.layout.left.panels == ("decoder-output",)
+    # decoder-output + memories absent from saved → appended to default edge (left).
+    assert m.layout.left.panels == ("decoder-output", "memories")
     # performance was missing from saved right → appended.
     assert m.layout.right.panels == ("stats", "performance")
 
