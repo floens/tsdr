@@ -15,7 +15,7 @@ from tsdr.core.sdr.device_context import DeviceState
 from tsdr.core.sdr.engine import get_engine
 from tsdr.core.units import format_hz
 from tsdr.devices import NetworkDeviceParams
-from tsdr.devices.base import HasJitterBuffer
+from tsdr.devices.base import HasJitterBuffer, SpectrumViewStatus
 from tsdr.tui.commands._format import format_rate
 from tsdr.tui.widgets.section_panel import Section, SectionPanel
 
@@ -180,7 +180,44 @@ class StatsWidget(SectionPanel):
         if self._network_address is not None:
             sections.append(Section("\n".join(self._network_lines()), min_width=22))
 
+        if event is not None and event.spectrum_view is not None:
+            sections.append(
+                Section("\n".join(self._spectrum_view_lines(event.spectrum_view)), min_width=24)
+            )
+
         return sections
+
+    def _spectrum_view_lines(self, sv: SpectrumViewStatus) -> list[str]:
+        """SpectrumSource view negotiation: requested vs delivered (debug)."""
+        sent_cf = format_hz(sv.requested_center_hz, decimals=3, long_suffix=True)
+        lines = [
+            "[bold]Device provided FFT:[/bold]",
+            _row("Sent:", f"[white]z{sv.requested_zoom} @ {sent_cf}[/white]"),
+            _row("Zoom cap:", f"[white]z{sv.zoom_cap}[/white]"),
+        ]
+        if sv.frame_zoom is not None and sv.frame_center_hz is not None:
+            color = "white" if sv.frame_zoom == sv.requested_zoom else "yellow"
+            frame_cf = format_hz(sv.frame_center_hz, decimals=3, long_suffix=True)
+            lines.append(_row("Frame:", f"[{color}]z{sv.frame_zoom} @ {frame_cf}[/{color}]"))
+        if sv.frame_span_hz is not None:
+            span = format_hz(sv.frame_span_hz, decimals=3, long_suffix=True)
+            lines.append(_row("Span:", f"[white]{span}[/white]"))
+            if sv.frame_bins:
+                rbw = sv.frame_span_hz / sv.frame_bins
+                res = f"{rbw / 1000:.2f} kHz" if rbw >= 1000 else f"{rbw:.1f} Hz"
+                lines.append(_row("Bins:", f"[white]{sv.frame_bins} ({res})[/white]"))
+        if sv.expected_fps is not None:
+            if sv.measured_fps is None:
+                lines.append(_row("Rate:", f"[dim]— / {sv.expected_fps:.0f} fps[/dim]"))
+            else:
+                color = "white" if sv.measured_fps >= 0.7 * sv.expected_fps else "yellow"
+                lines.append(
+                    _row(
+                        "Rate:",
+                        f"[{color}]{sv.measured_fps:.1f}[/{color}] / {sv.expected_fps:.0f} fps",
+                    )
+                )
+        return lines
 
     def _device_lines(self) -> list[str]:
         lines = [f"[bold]Device:[/bold] {self._device_id}"]

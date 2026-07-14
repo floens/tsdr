@@ -1,6 +1,9 @@
 from dataclasses import dataclass
 from typing import Literal, Protocol, runtime_checkable
 
+import numpy as np
+from numpy.typing import NDArray
+
 from tsdr.core.sdr.samples_batch import SampleFormat
 from tsdr.devices._jitter_buffer import JitterBuffer
 
@@ -131,6 +134,72 @@ class SDRDevice(Protocol):
         No-op for USB/file/mock devices.
         """
         ...
+
+
+@dataclass(frozen=True)
+class SpectrumFrame:
+    """One pre-computed spectrum line from a SpectrumSource device."""
+
+    db_bins: NDArray[np.float32]  # dBm
+    center_hz: float  # absolute (freq_offset included)
+    span_hz: float
+    seq: int
+
+
+@dataclass(frozen=True)
+class SpectrumViewStatus:
+    """Debug snapshot of a SpectrumSource's view negotiation: what was last
+    requested from the device/server vs. what the frames actually deliver."""
+
+    requested_zoom: int
+    requested_center_hz: float
+    zoom_cap: int
+    frame_zoom: int | None = None
+    frame_center_hz: float | None = None
+    frame_span_hz: float | None = None
+    frame_bins: int | None = None
+    # Frame rate: what the server advertises vs. what actually arrives
+    # (shared servers timeslice and deliver well below nominal).
+    expected_fps: float | None = None
+    measured_fps: float | None = None
+
+
+@runtime_checkable
+class SpectrumSource(Protocol):
+    """Optional capability: device supplies pre-computed spectrum frames.
+
+    Pairs with `DeviceCapabilities.provides_spectrum`. The I/O worker drains
+    frames into FFTUpdateEvents and forwards view changes to the device.
+    """
+
+    @property
+    def capabilities(self) -> DeviceCapabilities: ...
+
+    def drain_spectrum_frames(self) -> list[SpectrumFrame]:
+        """All frames received since the last drain (non-blocking)."""
+        ...
+
+    def set_spectrum_view(self, center_hz: float, span_hz: float) -> None:
+        """Request frames covering at least [center - span/2, center + span/2]."""
+        ...
+
+    def spectrum_view_status(self) -> SpectrumViewStatus | None:
+        """Last requested view + last delivered frame geometry, for stats/debug."""
+        ...
+
+
+def as_spectrum_source(device: object) -> SpectrumSource | None:
+    """The device as an *active* SpectrumSource, else None.
+
+    Implementing the protocol is not enough: a device without a spectrum
+    channel in its current build
+    (wf_chans=0) has the methods but never delivers frames, and reports
+    `provides_spectrum=False`. Both predicates must agree before callers
+    drain frames, push views, or show view status.
+    """
+    if isinstance(device, SpectrumSource) and device.capabilities.provides_spectrum:
+        return device
+    return None
 
 
 @runtime_checkable

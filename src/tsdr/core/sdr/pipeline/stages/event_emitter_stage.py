@@ -15,6 +15,7 @@ from tsdr.core.sdr.pipeline.pipeline import PipelineContext
 from tsdr.core.sdr.processing import compute_statistics
 from tsdr.core.sdr.samples_batch import SamplesBatch
 from tsdr.core.tracing import get_smoothed_stats, traced
+from tsdr.devices.base import as_spectrum_source
 from tsdr.radio.dsp._kernels import _iq_metrics_c64
 
 
@@ -70,6 +71,11 @@ class EventEmitterStage:
         return data
 
     def _emit_fft(self, data: SamplesBatch, context: PipelineContext, device_id: str) -> None:
+        # Spectrum-providing devices publish their wideband frames from the I/O
+        # worker; the narrowband IQ FFT would fight them over the display. Stats
+        # below stay IQ-grounded.
+        if context.device_context.device.capabilities.provides_spectrum:
+            return
         if data.spectrum is None or data.frequencies is None:
             return
         if not self.fft_rate_limiter.should_send():
@@ -116,6 +122,9 @@ class EventEmitterStage:
                 np.ascontiguousarray(data.iq_samples, dtype=np.complex64)
             )
 
+        source = as_spectrum_source(dc.device)
+        spectrum_view = source.spectrum_view_status() if source is not None else None
+
         context.event_bus.publish(
             StatsUpdateEvent(
                 source_id=f"stats_{device_id}",
@@ -144,6 +153,7 @@ class EventEmitterStage:
                 iq_clip_pct=iq_clip_pct,
                 update_rate_fps=context.config.update_rate_fps,
                 performance_stats=get_smoothed_stats(window_seconds=5.0),
+                spectrum_view=spectrum_view,
             )
         )
 

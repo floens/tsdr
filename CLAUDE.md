@@ -272,6 +272,15 @@ zoom/pan/retune move the window instantly and data catches up — never the
 reverse. There is no display-side zoom state and no DSP decimation for zoom;
 real resolution comes from per-device `fft_size`.
 
+Devices with `capabilities.provides_spectrum` (KiwiSDR W/F) implement
+`SpectrumSource` (`devices/base.py`): the I/O worker drains their pre-computed
+frames into `FFTUpdateEvent`s (bypassing pipelines), the IQ pipeline's
+`_emit_fft` is suppressed, and view changes are forwarded via
+`set_spectrum_view` (KiwiSDR derives the covering server zoom → `SET zoom=
+cf=`). Stale frames are stretch-cropped until the server catches up. For these
+devices the displayable band is `capabilities.frequency_range`, not
+`cf ± sample_rate/2`.
+
 ## Pipeline Modification (`pipeline`)
 
 Stages can be listed, added, or removed dynamically at runtime via the `pipeline` command.

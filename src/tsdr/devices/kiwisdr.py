@@ -7,7 +7,9 @@ share a session id (``tstamp``):
 - **SND**: a narrowband IQ channel (12 kHz, or 20.25 kHz on rx3.wf3 firmware)
   tuned to a dial frequency. Drives audio/demod and the narrowband FFT.
 - **W/F**: a wideband, server-computed FFT (``wf_fft_size`` dB bins over
-  0..bandwidth). Phase 1 decodes and logs it; it is not yet shown.
+  0..bandwidth) with server-side zoom/pan. Decoded frames queue as
+  ``SpectrumFrame``s for the I/O worker (``SpectrumSource``); view changes
+  map to ``SET zoom= cf=`` on the W/F socket.
 
 The wire protocol is messy: server frames are always WebSocket *binary* even
 when textual, the SND header mixes endianness (seq LE, s-meter BE, samples
@@ -23,11 +25,13 @@ the jitter buffer.
 from __future__ import annotations
 
 import logging
+import math
 import secrets
 import socket
 import struct
 import threading
 import time
+from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass
 from urllib.parse import quote, unquote, urlsplit
@@ -41,7 +45,13 @@ from tsdr.core.http import make_client
 from tsdr.core.sdr.exceptions import DeviceError
 from tsdr.core.sdr.samples_batch import SampleFormat
 from tsdr.devices._jitter_buffer import JitterBuffer
-from tsdr.devices.base import DeviceCapabilities, DeviceIdentity, DeviceParams
+from tsdr.devices.base import (
+    DeviceCapabilities,
+    DeviceIdentity,
+    DeviceParams,
+    SpectrumFrame,
+    SpectrumViewStatus,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +77,18 @@ SND_FLAG_LITTLE_ENDIAN = 0x80
 
 # W/F flags live in the upper 16 bits of flags_x_zoom_server (rx/rx_waterfall.h:166).
 WF_FLAG_COMPRESSION = 0x00010000
+# The virtual start-bin space is wf_fft_size << MAX_ZOOM regardless of the
+# server's zoom_cap (rx/rx_waterfall.h:149-153).
+_WF_MAX_ZOOM = 14
+# Server fold modes (rx/rx_waterfall.h:207-208): how the server folds its
+# internal FFT down to wf_fft_size output bins. MAX=0 MIN=1 LAST=2 DROP=3
+# CMA=4; +10 adds CIC droop compensation. DROP+comp (13) is the KiwiSDR web
+# client's own default (web/openwebrx/openwebrx.js:258); trace smoothing
+# there is done client-side, not by the fold mode.
+_WF_INTERP_DROP = 3
+_WF_INTERP_CIC_COMP = 10
+# ~2.7 s of frames at the 23 fps W/F max; drops oldest under backpressure.
+_WF_QUEUE_FRAMES = 64
 
 # badp auth verdict codes (rx/rx_cmd.h:32).
 _BADP_REASONS = {
@@ -206,19 +228,44 @@ def snd_gating_commands(audio_rate: int, freq_hz: float, user: str) -> list[str]
     ]
 
 
+def format_wf_view(zoom: int, cf_baseband_hz: float) -> str:
+    """W/F view command: ``cf`` is baseband kHz (rx_waterfall_cmd.cpp:153-158);
+    the server derives and clamps the start bin from it."""
+    return f"SET zoom={zoom} cf={cf_baseband_hz / 1000.0:.3f}"
+
+
+def covering_zoom(bandwidth_hz: float, span_hz: float, zoom_cap: int) -> int:
+    """Largest server zoom whose span (bandwidth / 2^z) still covers ``span_hz``."""
+    z = math.floor(math.log2(bandwidth_hz / max(span_hz, 1.0)))
+    return max(0, min(z, zoom_cap))
+
+
+def wf_frame_geometry(
+    x_bin: int, zoom: int, bandwidth_hz: float, wf_fft_size: int, freq_offset_hz: float
+) -> tuple[float, float]:
+    """(center_hz, span_hz) of a W/F frame.
+
+    The start bin lives in a virtual ``wf_fft_size << _WF_MAX_ZOOM`` bin space
+    over 0..bandwidth (rx_waterfall.h:149-153); span halves per zoom level.
+    """
+    span = bandwidth_hz / (1 << zoom)
+    hz_per_start = bandwidth_hz / (wf_fft_size << _WF_MAX_ZOOM)
+    center = freq_offset_hz + x_bin * hz_per_start + span / 2
+    return center, span
+
+
 def wf_gating_commands() -> list[str]:
     """CMD_WF_ALL plus compression-off and interpolation.
 
     Frames never flow until zoom/start, maxdb/mindb, and wf_speed arrive
-    (rx_waterfall.cpp:456). ``wf_comp=0`` skips waterfall ADPCM; ``interp=13``
-    is MAX folding with CIC droop compensation.
+    (rx_waterfall.cpp:456). ``wf_comp=0`` skips waterfall ADPCM.
     """
     return [
         "SET zoom=0 start=0",
         "SET maxdb=0 mindb=-100",
         "SET wf_speed=4",
         "SET wf_comp=0",
-        "SET interp=13",
+        f"SET interp={_WF_INTERP_CIC_COMP + _WF_INTERP_DROP}",
     ]
 
 
@@ -390,7 +437,9 @@ class KiwiSDRDevice:
         self._keepalive_thread: threading.Thread | None = None
 
         self._wf_lock = threading.Lock()
-        self._latest_wf: WfFrame | None = None
+        self._spectrum_frames: deque[SpectrumFrame] = deque(maxlen=_WF_QUEUE_FRAMES)
+        self._wf_view_sent: tuple[int, float] | None = None  # (zoom, absolute center Hz)
+        self._wf_last_frame: tuple[int, float, float, int] | None = None  # zoom, center, span, bins
         self._fatal_reason: str | None = None
         self._inactivity_ack_pending = False
 
@@ -407,6 +456,8 @@ class KiwiSDRDevice:
         self._wf_cal = 0
         self._wf_chans: int | None = None
         self._zoom_cap = 14
+        self._wf_fps_expected = 23.0
+        self._wf_fps_measured = 0.0
 
         self._identity = DeviceIdentity(type_label="KiwiSDR", serial=None)
         self._capabilities = DeviceCapabilities(
@@ -499,7 +550,7 @@ class KiwiSDRDevice:
         self._keepalive_thread = None
         self._snd_buf.clear()
         with self._wf_lock:
-            self._latest_wf = None
+            self._spectrum_frames.clear()
 
     def set_frequency(self, freq: float) -> None:
         ws = self._snd_ws
@@ -544,6 +595,38 @@ class KiwiSDRDevice:
 
     def set_network_buffer_seconds(self, seconds: float) -> None:
         self.jitter.set_prefill_seconds(seconds)
+
+    def drain_spectrum_frames(self) -> list[SpectrumFrame]:
+        with self._wf_lock:
+            frames = list(self._spectrum_frames)
+            self._spectrum_frames.clear()
+        return frames
+
+    def set_spectrum_view(self, center_hz: float, span_hz: float) -> None:
+        ws = self._wf_ws
+        if ws is None:
+            return
+        zoom = covering_zoom(self._bandwidth_hz, span_hz, self._zoom_cap)
+        self._send(ws, self._wf_send_lock, format_wf_view(zoom, center_hz - self._freq_offset_hz))
+        self._wf_view_sent = (zoom, center_hz)
+        logger.info("kiwi_wf_view zoom=%d cf=%.3f span=%.0f", zoom, center_hz, span_hz)
+
+    def spectrum_view_status(self) -> SpectrumViewStatus | None:
+        sent = self._wf_view_sent
+        if sent is None:
+            return None
+        last = self._wf_last_frame
+        return SpectrumViewStatus(
+            requested_zoom=sent[0],
+            requested_center_hz=sent[1],
+            zoom_cap=self._zoom_cap,
+            frame_zoom=last[0] if last else None,
+            frame_center_hz=last[1] if last else None,
+            frame_span_hz=last[2] if last else None,
+            frame_bins=last[3] if last else None,
+            expected_fps=self._wf_fps_expected,
+            measured_fps=self._wf_fps_measured if self._wf_fps_measured > 0 else None,
+        )
 
     def read_samples(self, count: int) -> bytes:
         return self.jitter.read(count)
@@ -596,6 +679,8 @@ class KiwiSDRDevice:
         self._wf_fft_size = int(info.get("wf_fft_size") or 1024)
         self._wf_cal = int(info.get("wf_cal") or 0)
         self._zoom_cap = int(info.get("zoom_cap") or 14)
+        # Advertised rate of the fast wf_speed setting (which we request).
+        self._wf_fps_expected = float(info.get("wf_fps") or 23.0)
         wf_chans = info.get("wf_chans")
         self._wf_chans = int(wf_chans) if wf_chans else None
         if "bandwidth" in info:
@@ -621,6 +706,9 @@ class KiwiSDRDevice:
             gain_step=0.0,
             gain_unit="dB",
             bias_tee_supported=False,
+            # wf_chans=0 (rx14.wf0 builds) never sends a W/F frame; keep the
+            # engine-side IQ FFT as the spectrum source there.
+            provides_spectrum=self._wf_chans != 0,
         )
 
     def _read_snd_raw(self, count: int) -> bytes:
@@ -694,8 +782,14 @@ class KiwiSDRDevice:
         except DeviceError as e:
             logger.debug("kiwi_wf_decode_failed error=%r", e)
             return
+        center_hz, span_hz = wf_frame_geometry(
+            wf.x_bin_server, wf.zoom, self._bandwidth_hz, self._wf_fft_size, self._freq_offset_hz
+        )
+        self._wf_last_frame = (wf.zoom, center_hz, span_hz, wf.db_bins.size)
         with self._wf_lock:
-            self._latest_wf = wf
+            self._spectrum_frames.append(
+                SpectrumFrame(db_bins=wf.db_bins, center_hz=center_hz, span_hz=span_hz, seq=wf.seq)
+            )
         self._wf_frames += 1
         now = time.monotonic()
         if self._last_wf_log_ts == 0.0:
@@ -703,12 +797,13 @@ class KiwiSDRDevice:
             return
         elapsed = now - self._last_wf_log_ts
         if elapsed >= 1.0:
+            self._wf_fps_measured = self._wf_frames / elapsed
             logger.info(
                 "kiwi_wf_frame bins=%d db_min=%.1f db_max=%.1f fps=%.1f",
                 wf.db_bins.size,
                 float(wf.db_bins.min()),
                 float(wf.db_bins.max()),
-                self._wf_frames / elapsed,
+                self._wf_fps_measured,
             )
             self._last_wf_log_ts = now
             self._wf_frames = 0

@@ -337,3 +337,162 @@ def test_factory_rejects_bad_port():
 
 def test_params_describe():
     assert KiwiSDRParams(host="kiwi", port=8073).describe() == "kiwi:8073"
+
+
+def test_format_wf_view():
+    assert k.format_wf_view(9, 7_100_000.0) == "SET zoom=9 cf=7100.000"
+    assert k.format_wf_view(0, 15_000_000.0) == "SET zoom=0 cf=15000.000"
+
+
+def test_covering_zoom_boundaries():
+    bw = 30e6
+    assert k.covering_zoom(bw, 30e6, 14) == 0
+    assert k.covering_zoom(bw, 15e6, 14) == 1
+    # Span between two levels picks the wider (covering) one.
+    assert k.covering_zoom(bw, 10e6, 14) == 1
+    assert k.covering_zoom(bw, 1.0, 14) == 14
+    assert k.covering_zoom(bw, 1.0, 11) == 11  # wf_share cap
+
+
+def test_wf_frame_geometry_zoom0_full_band():
+    center, span = k.wf_frame_geometry(0, 0, 30e6, 1024, 0.0)
+    assert span == 30e6
+    assert center == 15e6
+
+
+def test_wf_frame_geometry_zoomed():
+    # zoom 1 halves the span; start bin walks in bandwidth/(1024<<14) steps.
+    hz_per_start = 30e6 / (1024 << 14)
+    center, span = k.wf_frame_geometry(100, 1, 30e6, 1024, 0.0)
+    assert span == 15e6
+    assert center == 100 * hz_per_start + 7.5e6
+
+
+def test_wf_frame_geometry_applies_freq_offset():
+    center, span = k.wf_frame_geometry(0, 0, 30e6, 1024, 100e6)
+    assert center == 100e6 + 15e6
+
+
+def test_wf_frames_queue_and_drain():
+    dev = _device()
+    dev._bandwidth_hz = 30e6
+    dev._wf_fft_size = 1024
+    dev._handle_wf_frame(_wf_frame(byte_vals=[100] * 1024, seq=1))
+    dev._handle_wf_frame(_wf_frame(byte_vals=[110] * 1024, seq=2, zoom=1))
+
+    frames = dev.drain_spectrum_frames()
+    assert [f.seq for f in frames] == [1, 2]
+    assert frames[0].span_hz == 30e6
+    assert frames[0].center_hz == 15e6
+    assert frames[1].span_hz == 15e6
+    assert dev.drain_spectrum_frames() == []
+
+
+def test_wf_frame_queue_drops_oldest_on_overflow():
+    dev = _device()
+    for seq in range(k._WF_QUEUE_FRAMES + 10):
+        dev._handle_wf_frame(_wf_frame(byte_vals=[100] * 1024, seq=seq))
+    frames = dev.drain_spectrum_frames()
+    assert len(frames) == k._WF_QUEUE_FRAMES
+    assert frames[0].seq == 10
+    assert frames[-1].seq == k._WF_QUEUE_FRAMES + 9
+
+
+class _RecordingWS:
+    def __init__(self) -> None:
+        self.sent: list[str] = []
+
+    def send(self, cmd: str) -> None:
+        self.sent.append(cmd)
+
+
+def test_set_spectrum_view_sends_covering_zoom():
+    dev = _device()
+    dev._wf_ws = _RecordingWS()  # type: ignore[assignment]
+    dev._bandwidth_hz = 30e6
+    dev._zoom_cap = 14
+    dev.set_spectrum_view(7.1e6, 100e3)
+    # 30e6 / 2^8 = 117 kHz covers a 100 kHz view; 2^9 = 58.6 kHz would not.
+    assert dev._wf_ws.sent == ["SET zoom=8 cf=7100.000"]
+
+
+def test_set_spectrum_view_cf_is_baseband():
+    dev = _device()
+    dev._wf_ws = _RecordingWS()  # type: ignore[assignment]
+    dev._bandwidth_hz = 30e6
+    dev._freq_offset_hz = 100e6
+    dev.set_spectrum_view(107.1e6, 30e6)
+    assert dev._wf_ws.sent == ["SET zoom=0 cf=7100.000"]
+
+
+def test_set_spectrum_view_noop_before_open():
+    dev = _device()
+    dev.set_spectrum_view(7.1e6, 100e3)  # must not raise
+
+
+def test_provides_spectrum_capability():
+    dev = _device()
+    dev._apply_wf_setup({"wf_fft_size": "1024", "wf_chans": "2"})
+    dev._rebuild_capabilities()
+    assert dev.capabilities.provides_spectrum is True
+
+    nowf = _device()
+    nowf._apply_wf_setup({"wf_fft_size": "1024", "wf_chans": "0"})
+    nowf._rebuild_capabilities()
+    assert nowf.capabilities.provides_spectrum is False
+
+
+def test_spectrum_view_status_tracks_sent_and_frames():
+    dev = _device()
+    dev._wf_ws = _RecordingWS()  # type: ignore[assignment]
+    dev._bandwidth_hz = 30e6
+
+    assert dev.spectrum_view_status() is None  # nothing sent yet
+
+    dev.set_spectrum_view(7.1e6, 100e3)
+    status = dev.spectrum_view_status()
+    assert status is not None
+    assert (status.requested_zoom, status.requested_center_hz) == (8, 7.1e6)
+    assert status.zoom_cap == 14
+    assert status.frame_zoom is None  # no frame yet
+
+    dev._handle_wf_frame(_wf_frame(byte_vals=[100] * 1024, zoom=8, x_bin=0))
+    status = dev.spectrum_view_status()
+    assert status is not None
+    assert status.frame_zoom == 8
+    assert status.frame_span_hz == 30e6 / 256
+    assert status.frame_bins == 1024
+
+
+def test_wf_interp_matches_kiwi_web_default():
+    """Fold mode must stay DROP + CIC comp (13), the KiwiSDR web client's own
+    default (openwebrx.js:258). The enum is MAX=0 MIN=1 LAST=2 DROP=3 CMA=4,
+    +10 for CIC comp (rx_waterfall.h:207-208) — 13 is NOT "MAX + comp"; a
+    past comment mislabeled it. Trace smoothing belongs client-side."""
+    interp = next(c for c in k.wf_gating_commands() if c.startswith("SET interp="))
+    value = int(interp.removeprefix("SET interp="))
+    assert value == 13
+    assert value - k._WF_INTERP_CIC_COMP == k._WF_INTERP_DROP
+
+
+def test_wf_setup_parses_expected_fps():
+    dev = _device()
+    dev._apply_wf_setup({"wf_fft_size": "1024", "wf_fps": "23", "wf_chans": "2"})
+    assert dev._wf_fps_expected == 23.0
+
+
+def test_spectrum_view_status_carries_frame_rate():
+    dev = _device()
+    dev._wf_ws = _RecordingWS()  # type: ignore[assignment]
+    dev._bandwidth_hz = 30e6
+    dev.set_spectrum_view(7.1e6, 100e3)
+
+    status = dev.spectrum_view_status()
+    assert status is not None
+    assert status.expected_fps == 23.0
+    assert status.measured_fps is None  # no full measurement interval yet
+
+    dev._wf_fps_measured = 9.7
+    status = dev.spectrum_view_status()
+    assert status is not None
+    assert status.measured_fps == 9.7

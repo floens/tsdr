@@ -7,14 +7,16 @@ from tsdr.core import clock_sync
 from tsdr.core.events.events import (
     DeviceCapabilitiesChangedEvent,
     DeviceErrorEvent,
+    FFTUpdateEvent,
     JitterBufferUpdateEvent,
     SamplesDroppedEvent,
 )
 from tsdr.core.sdr.exceptions import DeviceError
 from tsdr.core.sdr.samples_batch import SampleFormat, SamplesBatch
+from tsdr.core.sdr.spectrum_view import resolve_view
 from tsdr.core.tracing import span
 from tsdr.core.workers import WorkerContext
-from tsdr.devices.base import DeviceCapabilities, HasJitterBuffer
+from tsdr.devices.base import DeviceCapabilities, HasJitterBuffer, as_spectrum_source
 
 if TYPE_CHECKING:
     from tsdr.core.sdr.config import DeviceConfig
@@ -52,6 +54,8 @@ class IOWorker:
 
         self._last_capabilities: DeviceCapabilities | None = None
 
+        self._last_view: tuple[float, float] | None = None
+
     def setup(self, context: WorkerContext) -> None:
         device = self.device_context.device
         config = self.device_context.config
@@ -88,6 +92,8 @@ class IOWorker:
 
             # Apply network jitter buffer pre-fill (no-op on non-network devices).
             device.set_network_buffer_seconds(config.network_buffer_seconds)
+
+            self._maybe_apply_spectrum_view(config)
 
             self.sample_format = device.get_sample_format()
             logger.debug(
@@ -164,6 +170,10 @@ class IOWorker:
 
                         if new_config.network_buffer_seconds != config.network_buffer_seconds:
                             device.set_network_buffer_seconds(new_config.network_buffer_seconds)
+
+                        # Re-derived every apply: a dial retune moves the view
+                        # too when spectrum_center is None (track-dial).
+                        self._maybe_apply_spectrum_view(new_config)
 
                         config = new_config
 
@@ -266,8 +276,41 @@ class IOWorker:
 
                 self.device_context.total_samples_read += batch.sample_count
 
+                self._drain_spectrum_frames(context)
                 self._maybe_publish_jitter_state(context)
                 self._maybe_publish_capabilities(context)
+
+    def _maybe_apply_spectrum_view(self, config: DeviceConfig) -> None:
+        source = as_spectrum_source(self.device_context.device)
+        if source is None:
+            return
+        view = resolve_view(config, source.capabilities)
+        if view == self._last_view:
+            return
+        source.set_spectrum_view(*view)
+        self._last_view = view
+
+    def _drain_spectrum_frames(self, context: WorkerContext) -> None:
+        """Publish device-computed spectrum frames as FFT events.
+
+        Every drained frame becomes one event so the waterfall gets every row;
+        the device-side queue absorbs the beat between the ~20 Hz read loop and
+        the frame rate.
+        """
+        source = as_spectrum_source(self.device_context.device)
+        if source is None:
+            return
+        for frame in source.drain_spectrum_frames():
+            context.emit_event(
+                FFTUpdateEvent(
+                    source_id=context.worker_id,
+                    device_id=self.device_context.device_id,
+                    spectrum=frame.db_bins,
+                    frequencies=None,
+                    center_frequency=frame.center_hz,
+                    sample_rate=frame.span_hz,
+                )
+            )
 
     def _maybe_publish_capabilities(self, context: WorkerContext) -> None:
         current = self.device_context.device.capabilities

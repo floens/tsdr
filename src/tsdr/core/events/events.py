@@ -9,7 +9,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 from tsdr.core.sdr.datatypes import DemodStatus
-from tsdr.devices.base import DeviceCapabilities
+from tsdr.devices.base import DeviceCapabilities, SpectrumViewStatus
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -57,7 +57,9 @@ class JitterBufferUpdateEvent(Event):
 class FFTUpdateEvent(Event):
     device_id: str
     spectrum: NDArray[np.float32]
-    frequencies: NDArray[np.float32]
+    # None for device-provided frames; no consumer reads it (widgets derive
+    # the axis from center/sample_rate). Don't start populating it.
+    frequencies: NDArray[np.float32] | None
     center_frequency: float
     sample_rate: float
 
@@ -89,6 +91,8 @@ class StatsUpdateEvent(Event):
     iq_clip_pct: float | None = None
     update_rate_fps: int = 0
     performance_stats: dict[str, float] | None = None
+    # Debug: SpectrumSource view negotiation; None otherwise.
+    spectrum_view: SpectrumViewStatus | None = None
 
 
 # Pipeline Events

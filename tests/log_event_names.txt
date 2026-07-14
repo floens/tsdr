@@ -135,6 +135,7 @@ kiwi_wf_frame
 kiwi_wf_recv_stopped
 kiwi_wf_setup
 kiwi_wf_unavailable
+kiwi_wf_view
 kiwi_ws_close_failed
 memory_entry_invalid
 panel_set_active_invalid
