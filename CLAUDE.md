@@ -40,8 +40,8 @@ src/tsdr/
 ## Core Architecture
 
 - **SDREngine**: Coordinator managing devices, pipelines, and audio output
-- **SDRConfig**: Engine-global immutable config (FFT, display, audio). Lives on `SDREngine.config`.
-- **DeviceConfig**: Per-device immutable config (frequency, gain, sample rate). Lives on `SDRDeviceContext.config`.
+- **SDRConfig**: Engine-global immutable config (display, audio). Lives on `SDREngine.config`.
+- **DeviceConfig**: Per-device immutable config (tuned/center frequency, tuning mode, gain, sample rate, spectrum view). Lives on `SDRDeviceContext.config`.
 - **SDRDeviceContext**: Per-device state including config, pipelines, workers, and queues. Config access is thread-safe via a lock-protected property.
 
 All inter-thread data is immutable (frozen dataclasses) for performance—no locks on the hot path.
@@ -199,11 +199,11 @@ Adding a new command:
 
 The engine exposes two entrypoints, one per config layer:
 
-- `SDREngine.update_global_config(**changes)` — `SDRConfig` (engine-wide: FFT, display, audio).
+- `SDREngine.update_global_config(**changes)` — `SDRConfig` (engine-wide: display, audio).
 - `SDREngine.update_device_config(device_id, **changes)` — `DeviceConfig` (per-device: frequency, gain, sample rate, pipelines).
 
 Device config flow (`update_device_config`):
-1. Engine delegates to `SDRDeviceContext.update_config(**changes)`.
+1. Engine validates frequencies against capabilities and derives `center_frequency` from the dial (see Tuning (VFO)), then delegates to `SDRDeviceContext.update_config(**changes)`.
 2. Context builds `new_config = old.with_changes(**changes)`, calls `validate()`, swaps the reference under a lock.
 3. If `pipelines` changed, context re-materializes pipeline stages (reusing instances at matching positions to preserve state).
 4. Context puts `new_config` on `control_queue` (I/O worker, hardware reconfig) and `pipeline_control_queue` (pipeline worker, stages get `on_config_change()`).
@@ -220,6 +220,7 @@ Adding a configurable parameter:
 3. Implement `on_config_change()` in relevant stage(s) — check the config type with `isinstance()` since pipeline stages receive both `SDRConfig` and `DeviceConfig`.
 4. Add CLI argument parsing in the relevant command.
 5. Call `engine.update_global_config()` or `engine.update_device_config(device_id, ...)` from the command.
+6. If the field should persist: add it to `PersistedDevice` (`core/devices.py`), `_DEVICE_CONFIG_FIELDS`, and the fields dict in `_build_persisted_device` (`core/preferences.py`).
 
 ## Pipeline Architecture
 
@@ -228,14 +229,48 @@ Each device owns multiple peer pipelines via `SDRDeviceContext.pipelines: dict[s
 ```
 SDRDeviceContext.pipelines
     "visualization" → AGC → FFT → EventEmitter
-    "audio"         → [FrequencyShift] → Demodulator → EventEmitter   (added on demod)
+    "audio"         → FrequencyShift → Demodulator → Denoiser → EventEmitter   (added on demod)
 ```
 
-The audio pipeline is created on demand when an audio demodulator is selected; `FrequencyShift` is included only when an offset is set. Channel filtering and decimation happen *inside* the demodulator class (e.g. `WidebandFMDemodulator._setup_channel_filter`), not as separate stages.
+The audio pipeline is created on demand when an audio demodulator is selected; its stage tuple is constant. `FrequencyShift` steers the tuned channel to baseband: its offset is derived per batch as `batch.center_frequency - config.tuned_frequency` (0 = passthrough), so a hardware retune that lags the dial is compensated automatically. Channel filtering and decimation happen *inside* the demodulator class (e.g. `WidebandFMDemodulator._setup_channel_filter`), not as separate stages.
 
 All pipelines receive the same input data and execute independently. No parent/child nesting.
 
 Use `SDREngine.add_pipeline()` / `remove_pipeline()` to manage pipelines dynamically.
+
+## Tuning (VFO)
+
+The dial is `DeviceConfig.tuned_frequency`; `center_frequency` is the derived
+hardware capture center. All tuning paths (keys, commands, click/scroll,
+memories, band stack) set only `tuned_frequency`.
+`SDREngine.update_device_config` derives the center via
+`core/sdr/tune_policy.derive_center_frequency`, governed by
+`DeviceConfig.tuning_mode`: `"center"` (default) retunes hardware on every
+dial move so the cursor stays at the visible center; `"free"` uses a DSP
+offset and recenters only when the channel leaves the captured band. Always
+follow the dial for `provides_spectrum` devices (KiwiSDR — server-side
+channel tune); never move it for non-controllable devices (iq-file, locked
+spyserver — free tuning within the fixed window). The derivation re-runs on
+capability changes (a dial tune can race a device handshake). `c` toggles
+center ↔ free (entering center recenters immediately); `C` re-centers a
+panned view on the dial (clears `spectrum_center`); `config --tuning`
+sets it. During the hardware catch-up, the projection window is anchored to
+the stale capture (`transient_view_shift` in `tui/widgets/dsp_utils.py`), so
+bars hold their old positions under the already-moved axis — zoomed and
+full-band alike — and the always-on `FrequencyShiftStage` keeps audio on
+station.
+
+## Spectrum View (zoom/pan)
+
+The view is client state: `spectrum_center` / `spectrum_span` on `DeviceConfig`
+(None = track dial / full band). `spectrum_center` (panning) applies only in
+free tuning mode — in center mode the view always centers on the dial. `core/sdr/spectrum_view.py` (`resolve_view`,
+`full_view_range`, `view_range`, `adjusted_span`) is the single clamp point used by widgets,
+gestures, and the I/O worker. Widgets render the view by cropping the latest
+FFT event into it (`project_spectrum` in `tui/widgets/dsp_utils.py`), so
+zoom/pan/retune move the window instantly and data catches up — never the
+reverse. There is no display-side zoom state and no DSP decimation for zoom;
+real resolution comes from per-device `fft_size`.
 
 ## Pipeline Modification (`pipeline`)
 

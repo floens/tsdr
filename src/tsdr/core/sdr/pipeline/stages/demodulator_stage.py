@@ -44,7 +44,7 @@ class DemodulatorStage:
         # compare it against network-announced frequencies (e.g. TETRA MCCH).
         if context.device_context is not None:
             self._demodulator.set_tuned_frequency(
-                int(context.device_context.config.center_frequency)
+                int(context.device_context.config.tuned_frequency)
             )
 
         with span("demodulate"):
@@ -93,7 +93,7 @@ class DemodulatorStage:
                 self._demodulator = new_demod
                 self.mode_name = new_mode
                 self._last_sample_rate = config.sample_rate
-                self._last_freq = config.center_frequency
+                self._last_freq = config.tuned_frequency
                 self._last_sstv_mode = spec.sstv_mode
                 self._demodulator.set_squelch(
                     enabled=pipeline_config.squelch_enabled,
@@ -111,9 +111,11 @@ class DemodulatorStage:
             self._demodulator.reset()
         if config.channel_bandwidth is not None:
             self._demodulator.set_channel_bandwidth(config.channel_bandwidth)
-        if config.center_frequency is not None and config.center_frequency != self._last_freq:
+        # Keyed on the dial, not center: a recenter keeps the baseband input
+        # identical and resetting would only cause an audio dropout.
+        if config.tuned_frequency != self._last_freq:
             logger.debug("demodulator_reset reason=frequency_changed")
-            self._last_freq = config.center_frequency
+            self._last_freq = config.tuned_frequency
             self._demodulator.reset()
         if pipeline_config is None or spec is None:
             return

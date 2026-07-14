@@ -1,4 +1,3 @@
-import logging
 from dataclasses import dataclass
 
 import numpy as np
@@ -10,16 +9,17 @@ from textual.strip import Strip
 from textual.widget import Widget
 
 from tsdr.core.events.events import FFTUpdateEvent
+from tsdr.core.sdr.engine import get_engine
+from tsdr.core.sdr.spectrum_view import view_range
 from tsdr.core.tracing import traced
 from tsdr.tui.widgets.dsp_utils import (
-    decimate_spectrum,
     normalize_spectrum,
+    project_spectrum,
+    span_rbw,
     status_strip,
-    zoom_spectrum,
+    transient_view_shift,
 )
 from tsdr.tui.widgets.image_mode_mixin import ImageModeMixin
-
-logger = logging.getLogger(__name__)
 
 # SDR# Classic colormap: dark navy -> blue -> white -> yellow -> orange -> red -> dark red
 _GRADIENT_STOPS = (
@@ -127,14 +127,13 @@ class WaterfallWidget(ImageModeMixin, Widget):
       top and freezes when full, creating a linked list of immutable strips that
       are cropped/removed as they scroll off-screen.
 
-    Both modes share zoom, dB range controls, and the SDR# Classic colormap LUT.
+    Both modes share dB range controls and the SDR# Classic colormap LUT.
 
     Reactive props:
-      zoom, db_min, db_max: float — invalidates text-mode buffer when any change.
+      db_min, db_max: float — invalidates text-mode buffer when any change.
       image_mode: bool — toggles between text and kitty image rendering.
     """
 
-    zoom = reactive(1.0)
     db_min = reactive(-100.0)
     db_max = reactive(-30.0)
     image_mode = reactive(False)
@@ -149,14 +148,10 @@ class WaterfallWidget(ImageModeMixin, Widget):
         # Image mode strip state
         self._pixel_scale: int = 2
         self._image_strips: list[_ImageStrip] = []
-        self._image_scroll: int = 0
         self._strip_counter: int = 0
 
     def on_mount(self) -> None:
         self._mount_kitty()
-
-    def watch_zoom(self, _zoom: float) -> None:
-        self.invalidate_text_buffer()
 
     def watch_db_min(self, _db_min: float) -> None:
         self.invalidate_text_buffer()
@@ -177,7 +172,7 @@ class WaterfallWidget(ImageModeMixin, Widget):
         if self.image_mode:
             self._render_waterfall_image(event)
         else:
-            self._add_line(event.spectrum)
+            self._add_line(event)
             self._rebuild_strips()
             self.refresh()
 
@@ -206,28 +201,48 @@ class WaterfallWidget(ImageModeMixin, Widget):
         return Strip.blank(self.size.width, self.rich_style)
 
     def invalidate_text_buffer(self) -> None:
-        """Invalidate text-mode buffer after zoom/dB change. Image strips are kept."""
+        """Invalidate text-mode buffer after a dB-window change. Image strips are kept."""
         self._buffer = None
         self._write_pos = 0
         self._strip_cache = {}
         self.refresh()
 
+    def _view_range(self) -> tuple[float, float] | None:
+        """The requested view range from device config (status readout; row
+        projection derives its own capture-anchored window in _project_line).
+        History rows keep the mapping they were drawn with."""
+        device = get_engine().get_focused_device()
+        if device is None:
+            return None
+        return view_range(device.config, device.device.capabilities)
+
+    def _project_line(self, event: FFTUpdateEvent, target: int) -> NDArray[np.float32]:
+        half = event.sample_rate / 2
+        e_fmin, e_fmax = event.center_frequency - half, event.center_frequency + half
+        device = get_engine().get_focused_device()
+        if device is None:
+            v_fmin, v_fmax = e_fmin, e_fmax
+        else:
+            cfg = device.config
+            caps = device.device.capabilities
+            view = view_range(cfg, caps)
+            if caps.provides_spectrum:
+                v_fmin, v_fmax = view
+            else:
+                v_fmin, v_fmax = transient_view_shift(
+                    view, event.center_frequency, cfg.center_frequency
+                )
+        return project_spectrum(event.spectrum, e_fmin, e_fmax, v_fmin, v_fmax, target)
+
     def _status_strip(self) -> Strip:
-        return status_strip(self.size.width, self.zoom, self.db_min, self.db_max, self.rich_style)
+        span, rbw = span_rbw(self._view_range(), self.current_event)
+        return status_strip(self.size.width, span, rbw, self.db_min, self.db_max, self.rich_style)
 
     def _render_waterfall_image(self, event: FFTUpdateEvent) -> None:
         full_w, full_h = self._kitty.full_pixel_size
         occ = self._kitty.occlusion_insets
         w = full_w - occ.left - occ.right
         visible_h = full_h - occ.top - occ.bottom
-        # logger.debug(
-        #     "waterfall_image: full=(%d,%d) occ=%s visible=(%d,%d)",
-        #     full_w,
-        #     full_h,
-        #     occ,
-        #     w,
-        #     visible_h,
-        # )
         if w <= 0 or visible_h <= 0:
             return
 
@@ -241,14 +256,19 @@ class WaterfallWidget(ImageModeMixin, Widget):
         # Phase 3: Emit kitty commands from layout (no state mutations)
         self._emit_strip_commands(layout)
 
+    def _new_active_strip(self, w: int) -> None:
+        buf = np.zeros((_STRIP_HEIGHT, w, 4), dtype=np.uint8)
+        key = f"strip_{self._strip_counter}"
+        self._strip_counter += 1
+        self._image_strips.insert(0, _ImageStrip(key=key, buffer=buf))
+
     @traced("image_fill_strip")
     def _fill_active_strip(self, event: FFTUpdateEvent, w: int) -> None:
         """Fill active strip buffer with new spectrum row. Freeze and rotate if full."""
         scale = self._pixel_scale
         w = w - (w % scale)
 
-        zoomed = zoom_spectrum(event.spectrum, self.zoom)
-        line = decimate_spectrum(zoomed, w // scale)
+        line = self._project_line(event, w // scale)
         normalized = normalize_spectrum(line, self.db_min, self.db_max)
         indices = (normalized * 255).astype(np.intp)
         row = np.repeat(_RGBA_LUT[indices], scale, axis=0)
@@ -256,33 +276,26 @@ class WaterfallWidget(ImageModeMixin, Widget):
         # Ensure active strip exists with correct width
         if not self._image_strips or self._image_strips[0].buffer.shape[1] != w:
             self._clear_image_strips()
-            buf = np.zeros((_STRIP_HEIGHT, w, 4), dtype=np.uint8)
-            key = f"strip_{self._strip_counter}"
-            self._strip_counter += 1
-            self._image_strips.insert(0, _ImageStrip(key=key, buffer=buf))
-            self._image_scroll = 0
+            self._new_active_strip(w)
 
-        active = self._image_strips[0]
+        # Rows insert at the top of the active strip; when it fills mid-line,
+        # rotate to a fresh strip and carry the remaining rows over (dropping
+        # them left one-row gaps at every strip boundary).
+        rows_left = scale
+        while rows_left > 0:
+            active = self._image_strips[0]
+            n_rows = min(rows_left, _STRIP_HEIGHT - active.fill)
+            if active.fill > 0 and n_rows > 0:
+                limit = min(active.fill, _STRIP_HEIGHT - n_rows)
+                active.buffer[n_rows : n_rows + limit] = active.buffer[:limit]
+            for r in range(n_rows):
+                active.buffer[r] = row
+            active.fill += n_rows
+            rows_left -= n_rows
 
-        # Insert scaled rows at top, shift existing rows down
-        space = _STRIP_HEIGHT - active.fill
-        n_rows = min(scale, space)
-        if active.fill > 0 and n_rows > 0:
-            limit = min(active.fill, _STRIP_HEIGHT - n_rows)
-            active.buffer[n_rows : n_rows + limit] = active.buffer[:limit]
-        for r in range(n_rows):
-            active.buffer[r] = row
-        active.fill = min(active.fill + n_rows, _STRIP_HEIGHT)
-        self._image_scroll += n_rows
-
-        # Freeze and create new strip when full
-        if active.fill >= _STRIP_HEIGHT:
-            active.frozen = True
-            buf = np.zeros((_STRIP_HEIGHT, w, 4), dtype=np.uint8)
-            key = f"strip_{self._strip_counter}"
-            self._strip_counter += 1
-            self._image_strips.insert(0, _ImageStrip(key=key, buffer=buf))
-            self._image_scroll = 0
+            if active.fill >= _STRIP_HEIGHT:
+                active.frozen = True
+                self._new_active_strip(w)
 
     @traced("image_compute_layout")
     def _compute_strip_layout(
@@ -408,11 +421,10 @@ class WaterfallWidget(ImageModeMixin, Widget):
         for strip in self._image_strips:
             self._kitty.remove_image(strip.key)
         self._image_strips.clear()
-        self._image_scroll = 0
         self._strip_counter = 0
 
     @traced("text_add_line")
-    def _add_line(self, spectrum: NDArray[np.float32]) -> None:
+    def _add_line(self, event: FFTUpdateEvent) -> None:
         """Add a new spectrum line to the rolling buffer."""
         width = self.size.width
         height = (self.size.height - 2) * 2  # 2 rows per terminal line (half-blocks)
@@ -426,8 +438,7 @@ class WaterfallWidget(ImageModeMixin, Widget):
             self._write_pos = 0
             self._strip_cache = {}
 
-        zoomed = zoom_spectrum(spectrum, self.zoom)
-        line = decimate_spectrum(zoomed, width)
+        line = self._project_line(event, width)
         normalized = normalize_spectrum(line, self.db_min, self.db_max)
         color_indices = (normalized * 255).astype(np.uint8)
 

@@ -201,7 +201,7 @@ class MemoryWidget(Vertical, PanelWidget):
 
     def _focused_freq(self) -> float | None:
         device = get_engine().get_focused_device()
-        return device.config.center_frequency if device is not None else None
+        return device.config.tuned_frequency if device is not None else None
 
     def _active_in(self, memories: list[Memory]) -> str | None:
         freq = self._focused_freq()

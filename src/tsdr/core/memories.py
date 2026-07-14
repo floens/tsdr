@@ -179,6 +179,6 @@ def recall_memory(memory: Memory, device_id: str) -> None:
 
     engine.update_device_config(
         device_id,
-        center_frequency=float(memory.frequency),
+        tuned_frequency=float(memory.frequency),
         channel_bandwidth=int(memory.bandwidth),
     )

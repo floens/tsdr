@@ -5,6 +5,7 @@ This is the main entry point for all SDR operations from the UI layer.
 """
 
 import logging
+from collections.abc import Mapping
 from dataclasses import replace
 from queue import Empty, Queue
 from types import MappingProxyType
@@ -35,11 +36,13 @@ from tsdr.core.sdr.config import (
 )
 from tsdr.core.sdr.device_context import DeviceState, SDRDeviceContext
 from tsdr.core.sdr.exceptions import ConfigurationError, SDRException
+from tsdr.core.sdr.tune_policy import derive_center_frequency
 from tsdr.core.sdr.workers.audio_worker import AudioOutputWorker, list_audio_devices
 from tsdr.core.tracing import span, traced
 from tsdr.core.units import find_nearest
 from tsdr.core.workers import WorkerRunner
 from tsdr.devices import DeviceParams, create_device
+from tsdr.devices.base import DeviceCapabilities
 from tsdr.radio.registry import DEMODULATOR_CLASSES
 
 logger = logging.getLogger(__name__)
@@ -284,16 +287,40 @@ class SDREngine:
 
         caps = context.device.capabilities
 
-        if "center_frequency" in changes:
-            freq_range = caps.frequency_range
-            new_freq = changes["center_frequency"]
-            if freq_range is not None:
-                lo, hi = freq_range
-                if not (lo <= new_freq <= hi):
-                    raise SDRException(
-                        f"Frequency {new_freq / 1e6:.3f} MHz out of range "
-                        f"(device supports {lo / 1e6:.3f}–{hi / 1e6:.3f} MHz)"
-                    )
+        for key in ("tuned_frequency", "center_frequency"):
+            if key in changes:
+                new_freq = changes[key]
+                if new_freq <= 0:
+                    # Not redundant with the range check: device bands can
+                    # start at 0 Hz, and validate() deeper down raises a
+                    # ValueError no caller catches.
+                    raise SDRException("Frequency must be positive")
+                if caps.frequency_range is not None:
+                    lo, hi = caps.frequency_range
+                    if not (lo <= new_freq <= hi):
+                        raise SDRException(
+                            f"Frequency {new_freq / 1e6:.3f} MHz out of range "
+                            f"(device supports {lo / 1e6:.3f}–{hi / 1e6:.3f} MHz)"
+                        )
+
+        # Enforced here, not in the toggle, so `config --tuning` agrees:
+        # a pan kept through center mode resurfaces on the switch back to free.
+        if changes.get("tuning_mode") == "center" and "spectrum_center" not in changes:
+            changes["spectrum_center"] = None
+
+        # sample_rate/channel_bandwidth are fit-test inputs: the channel can
+        # leave the captured band without any dial move.
+        if (
+            any(
+                key in changes
+                for key in ("tuned_frequency", "tuning_mode", "sample_rate", "channel_bandwidth")
+            )
+            and "center_frequency" not in changes
+        ):
+            derived = self._derive_center(context, changes, caps)
+            if derived != context.config.center_frequency:
+                changes["center_frequency"] = derived
+                logger.info("tune_recentered device=%s center_hz=%.0f", device_id, derived)
 
         if "sample_rate" in changes and caps.sample_rates is not None:
             new_rate = changes["sample_rate"]
@@ -319,6 +346,35 @@ class SDREngine:
             for name in set(old_pipelines) | set(new_pipelines):
                 if old_pipelines.get(name) != new_pipelines.get(name):
                     self._publish_pipeline_changed(device_id, name, active=name in new_pipelines)
+
+    def _derive_center(
+        self,
+        context: SDRDeviceContext,
+        changes: Mapping[str, Any],
+        caps: DeviceCapabilities,
+    ) -> float:
+        """Hardware center for the (possibly changing) tuned frequency."""
+        config = context.config
+        if changes.get("channel_bandwidth") is not None:
+            # The pending bandwidth, not the current profile's: recalls set
+            # bandwidth and tune in one update.
+            bw = float(changes["channel_bandwidth"])
+        else:
+            profile = context.demod_profile
+            bw = (
+                profile.channel_bandwidth
+                if profile is not None
+                else (config.channel_bandwidth or 0.0)
+            )
+        return derive_center_frequency(
+            tuned=changes.get("tuned_frequency", config.tuned_frequency),
+            center=changes.get("center_frequency", config.center_frequency),
+            sample_rate=changes.get("sample_rate", config.sample_rate),
+            channel_bandwidth=bw,
+            caps=caps,
+            running=context.state == DeviceState.RUNNING,
+            mode=changes.get("tuning_mode", config.tuning_mode),
+        )
 
     def update_global_config(self, **changes: Unpack[GlobalConfigChanges]) -> None:
         """Update engine-global configuration (processing/display parameters).
@@ -359,7 +415,7 @@ class SDREngine:
                     "id": device_id,
                     "type": context.device_type,
                     "state": context.state.name,
-                    "frequency": context.config.center_frequency,
+                    "frequency": context.config.tuned_frequency,
                     "sample_rate": context.config.sample_rate,
                     "mode": context.active_mode,
                     "focused": device_id == self.focused_device,
@@ -576,9 +632,8 @@ class SDREngine:
         Fast path: when the audio worker is already running and the stage
         tuple is unchanged, swap the demodulator in place — the
         ``AudioOutputWorker``'s sounddevice stream stays open and ``PortAudio``
-        is not torn down. Falls back to stop/remove/add/start when the pipeline
-        shape changes (FREQUENCY_SHIFT add/remove) or the new mode has no
-        audio output (audio→decoder).
+        is not torn down. Falls back to stop/remove/add/start when the new
+        mode has no audio output (audio→decoder).
         """
         if device_id not in self.devices:
             raise SDRException(f"Device {device_id} not found")
@@ -592,13 +647,12 @@ class SDREngine:
         )
         logger.info("demod_change device=%s old=%s new=%s", device_id, old_mode, spec.mode)
 
-        new_stages: list[StageType] = []
-        if spec.frequency_offset != 0.0:
-            new_stages.append(StageType.FREQUENCY_SHIFT)
-        new_stages.append(StageType.DEMODULATOR)
-        new_stages.append(StageType.DENOISER)
-        new_stages.append(StageType.EVENT_EMITTER)
-        new_stages_tuple = tuple(new_stages)
+        new_stages_tuple = (
+            StageType.FREQUENCY_SHIFT,
+            StageType.DEMODULATOR,
+            StageType.DENOISER,
+            StageType.EVENT_EMITTER,
+        )
 
         new_cls = DEMODULATOR_CLASSES.get(spec.mode.upper())
         new_has_audio = new_cls is not None and new_cls.HAS_AUDIO
@@ -679,6 +733,8 @@ class SDREngine:
         freq_range = caps.frequency_range
         if freq_range is not None:
             lo, hi = freq_range
+            if not (lo <= config.tuned_frequency <= hi):
+                changes["tuned_frequency"] = max(lo, min(config.tuned_frequency, hi))
             if not (lo <= config.center_frequency <= hi):
                 changes["center_frequency"] = max(lo, min(config.center_frequency, hi))
 
@@ -689,6 +745,14 @@ class SDREngine:
 
         if not caps.bias_tee_supported and config.bias_tee:
             changes["bias_tee"] = False
+
+        # Re-derive with the fresh caps: a dial tune can race a network
+        # device's handshake (provides_spectrum and the real sample rate arrive
+        # late), leaving a center the new policy would not produce.
+        derived = self._derive_center(context, changes, caps)
+        if derived != changes.get("center_frequency", config.center_frequency):
+            changes["center_frequency"] = derived
+            logger.info("tune_recentered device=%s center_hz=%.0f", event.device_id, derived)
 
         if changes:
             logger.info("device_config_clamped device=%s changes=%r", event.device_id, changes)

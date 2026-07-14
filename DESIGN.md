@@ -102,19 +102,36 @@ The entrypoint to get all current active configuration in a thread-safe manner i
 These are the layers of configuration:
 
 - The engine's SDRConfig. SDRConfig contains core global configuration.
-- DeviceConfig that is part of a device context. It has configuration for hardware (gain control, frequency, sample
-  rate, etc), processing (fft size, etc), etc.
+- DeviceConfig that is part of a device context. It has configuration for hardware (gain control, capture center
+  frequency, sample rate, etc), user intent (tuned frequency, tuning mode), the spectrum view, and processing
+  (fft size, etc).
 - The stages of the pipelines of the devices.
 - TUI-specific configuration related to the user interface.
 
 Some configuration is pre-computed from other configuration, and therefore read-only. An example is the active
-demodulator, that is derived from which stages are active in the pipeline.
+demodulator, that is derived from which stages are active in the pipeline. Another is the hardware capture center,
+derived from the tuned frequency by the tuning policy.
 
 Propagation of configuration works in a chain-of-responsibility. The engine tells the device context, which tells its
 workers, pipelines and other subsystems.
 
 Changes in configuration are notified to the TUI and other parts of the program by means of events. The receivers use
 the thread-safe access method of the engine to get the active configuration, as described in "Thread Safety".
+
+### Tuning model
+
+Tuning distinguishes three concepts: the tuned frequency (the dial, what the user wants), the capture center (what the
+hardware delivers), and the spectrum view (what is on screen).
+
+All tuning input sets the tuned frequency. The hardware capture center is derived from it by a tuning policy. In center
+mode (the default) the hardware follows every dial move. In free mode the channel is steered in DSP by the frequency
+shift stage, and the hardware retunes only when the channel no longer fits the captured band. Devices that cannot
+retune allow free tuning within their fixed window; devices that provide their own spectrum tune a server-side channel
+and always follow the dial.
+
+The display renders user intent: the view and overlays follow configuration immediately, and data catches up. Consumers
+compensate for hardware lag with the data at hand instead of waiting for it: the frequency shift stage derives its
+offset per batch, and the display anchors stale frames to the capture they came from.
 
 ### Event-Driven Communication
 
@@ -187,8 +204,9 @@ for audio.
 Some common pipeline stages are:
 
 - The FFT stage, that calculates the fast fourier transform.
-- The frequency shift stage, if configuration demands a frequency shift.
-- The stats stage, calculating statistics such as signal-to-noise ratio.
+- The frequency shift stage, steering the tuned channel to baseband when the dial is offset from the capture
+  center.
+- The event emitter stage, computing statistics such as signal-to-noise ratio and publishing UI-bound events.
 - The demodulator stage, that calls one of the demodulators.
 
 ### Demodulators

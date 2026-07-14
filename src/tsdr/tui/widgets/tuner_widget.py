@@ -342,7 +342,7 @@ class TunerWidget(Vertical):
             return
         config = device.config
 
-        freq_hz = int(config.center_frequency)
+        freq_hz = int(config.tuned_frequency)
         formatted = f"{freq_hz:,} Hz".replace(",", ".").rjust(12, " ")
         self.query_one("#tuner-frequency", HoverableDigits).update(formatted)
 
@@ -379,7 +379,7 @@ class TunerWidget(Vertical):
             meter.update_quality(None, None)
             meter.update_squelch(None, None)
 
-        self._render_state_column(device.active_mode, float(config.center_frequency))
+        self._render_state_column(device.active_mode, float(config.tuned_frequency))
 
     def _render_state_column(self, mode: str, freq_hz: float) -> None:
         ts = get_tuning_state()
@@ -408,7 +408,6 @@ class TunerWidget(Vertical):
 
     def update_config(self) -> None:
         self._read_config()
-        self._sync_running_class()
 
     def update_stats(self, event: StatsUpdateEvent) -> None:
         self.query_one("#tuner-meter", SNRWidget).update_snr(event.channel_snr)
@@ -441,11 +440,12 @@ class TunerWidget(Vertical):
             device = engine.get_focused_device()
             if device is None:
                 return
-            new_freq = device.config.center_frequency + event.direction * place_value
+            new_freq = device.config.tuned_frequency + event.direction * place_value
             freq_range = device.device.capabilities.frequency_range
             if freq_range is not None:
                 lo, hi = freq_range
                 new_freq = max(lo, min(new_freq, hi))
-                if new_freq == device.config.center_frequency:
-                    return  # already at the bound, no-op
-            engine.update_device_config(device.device_id, center_frequency=new_freq)
+            new_freq = max(new_freq, 1.0)  # bands can start at 0 Hz; 0 is invalid
+            if new_freq == device.config.tuned_frequency:
+                return
+            engine.update_device_config(device.device_id, tuned_frequency=new_freq)

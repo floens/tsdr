@@ -1,4 +1,5 @@
 import logging
+import time
 from dataclasses import dataclass
 from math import ceil, floor
 
@@ -17,22 +18,23 @@ from tsdr.core.events.events import (
     MemoriesChangedEvent,
 )
 from tsdr.core.memories import Memory, get_memory_store, memory_color, recall_memory
-from tsdr.core.sdr.device_context import DeviceState
 from tsdr.core.sdr.engine import get_engine
 from tsdr.core.sdr.exceptions import SDRException
+from tsdr.core.sdr.spectrum_view import full_view_range, resolve_view, view_range
 from tsdr.core.tracing import traced
 from tsdr.core.tuning import resolve_auto_step, save_previous_tune_state
 from tsdr.core.tuning_state import get_tuning_state
 from tsdr.core.units import axis_si_prefix
 from tsdr.tui.inline_edit import InlineEditor
-from tsdr.tui.model import adjusted_zoom
-from tsdr.tui.model.store import get_ui_store
 from tsdr.tui.widgets.dsp_utils import (
-    decimate_spectrum,
+    iir_trace_filter,
     normalize_spectrum,
+    project_spectrum,
     render_spectrum_to_buf,
+    span_rbw,
     status_strip,
-    zoom_spectrum,
+    status_text,
+    transient_view_shift,
 )
 from tsdr.tui.widgets.image_mode_mixin import ImageModeMixin
 
@@ -88,11 +90,10 @@ class SpectrumWidget(ImageModeMixin, Widget):
     Supports Kitty image mode for line plot rendering.
 
     Reactive props:
-      zoom, db_min, db_max: float — invalidates frame buffer on change.
+      db_min, db_max: float — invalidates frame buffer on change.
       image_mode: bool — switches to kitty image rendering.
     """
 
-    zoom = reactive(1.0)
     db_min = reactive(-100.0)
     db_max = reactive(-30.0)
     image_mode = reactive(False)
@@ -101,12 +102,19 @@ class SpectrumWidget(ImageModeMixin, Widget):
         super().__init__()
         self.current_event: FFTUpdateEvent | None = None
         self._channel_bandwidth: float | None = None
+        self._tuned_frequency: float = 0.0
+        self._capture_center: float = 0.0
+        self._provides_spectrum: bool = False
         self._sideband: str | None = None
         self._memories: tuple[Memory, ...] = ()
         self._bandplan: Bandplan | None = None
         self._strips: list[Strip] = []
         self._image_key = "spectrum"
         self._editor = InlineEditor(self)
+        self._trace_avg: np.ndarray | None = None
+        self._trace_key: tuple[str, float, float] | None = None
+        self._trace_event: FFTUpdateEvent | None = None
+        self._trace_ts: float = 0.0
 
     def on_mount(self) -> None:
         self._mount_kitty()
@@ -119,9 +127,6 @@ class SpectrumWidget(ImageModeMixin, Widget):
 
     def on_unmount(self) -> None:
         self._editor.cancel()
-
-    def watch_zoom(self, _zoom: float) -> None:
-        self.invalidate_frame_buffer()
 
     def watch_db_min(self, _db_min: float) -> None:
         self.invalidate_frame_buffer()
@@ -151,6 +156,9 @@ class SpectrumWidget(ImageModeMixin, Widget):
             return
         profile = device.demod_profile
         self._sideband = profile.sideband if profile else None
+        self._tuned_frequency = device.config.tuned_frequency
+        self._capture_center = device.config.center_frequency
+        self._provides_spectrum = device.device.capabilities.provides_spectrum
         if device.config.channel_bandwidth is not None:
             self._channel_bandwidth = device.config.channel_bandwidth
         else:
@@ -194,7 +202,7 @@ class SpectrumWidget(ImageModeMixin, Widget):
             self._rebuild_strips()
 
     def invalidate_frame_buffer(self) -> None:
-        """Invalidate after zoom/dB change."""
+        """Invalidate after a dB-window change."""
         self._strips = []
         if self.image_mode and self.current_event is not None:
             self._render_spectrum_image(self.current_event)
@@ -246,13 +254,45 @@ class SpectrumWidget(ImageModeMixin, Widget):
             return self._strips[y]
         return Strip.blank(self.size.width, self.rich_style)
 
+    def _filter_trace(self, normalized: np.ndarray, freq_min: float, freq_max: float) -> np.ndarray:
+        """Calm device-provided spectrum traces with the Rocky IIR.
+
+        Device-provided frames are single un-averaged FFT snapshots;
+        local IQ devices already smooth in the pipeline (FFT window +
+        spectrum_averaging EMA), so the filter stays off for them. State
+        resets on device/view/shape change and advances once per event, not
+        per re-render.
+        """
+        device = get_engine().get_focused_device()
+        if device is None or not device.device.capabilities.provides_spectrum:
+            self._trace_avg = None
+            self._trace_event = None
+            return normalized
+        key = (device.device_id, freq_min, freq_max)
+        if key != self._trace_key or (
+            self._trace_avg is not None and self._trace_avg.shape != normalized.shape
+        ):
+            self._trace_avg = None
+            self._trace_key = key
+        if self._trace_avg is None or self.current_event is not self._trace_event:
+            now = time.monotonic()
+            dt = min(max(now - self._trace_ts, 1.0 / 60.0), 0.5)
+            self._trace_avg = iir_trace_filter(self._trace_avg, normalized, dt)
+            self._trace_event = self.current_event
+            self._trace_ts = now
+        return self._trace_avg
+
     def _status_strip(self) -> Strip:
-        return status_strip(self.size.width, self.zoom, self.db_min, self.db_max, self.rich_style)
+        span, rbw = span_rbw(self._display_range(), self.current_event)
+        return status_strip(self.size.width, span, rbw, self.db_min, self.db_max, self.rich_style)
 
     # Image mode rendering
 
     @traced("spectrum_image")
     def _render_spectrum_image(self, event: FFTUpdateEvent) -> None:
+        # Same as _rebuild_strips: cursor and view range must come from one
+        # config snapshot.
+        self._read_config()
         full_w, full_h = self._kitty.full_pixel_size
         occ = self._kitty.occlusion_insets
         w = full_w - occ.left - occ.right
@@ -272,18 +312,20 @@ class SpectrumWidget(ImageModeMixin, Widget):
             return
         freq_min, freq_max = live
 
-        zoomed = zoom_spectrum(event.spectrum, self.zoom)
         e_fmin, e_fmax = self._actual_freq_range(event)
-        line = self._shift_spectrum_to_live(zoomed, e_fmin, e_fmax, freq_min, freq_max, w)
+        p_fmin, p_fmax = self._projection_window(live, event)
+        line = project_spectrum(event.spectrum, e_fmin, e_fmax, p_fmin, p_fmax, w)
         normalized = normalize_spectrum(line, self.db_min, self.db_max)
+        normalized = self._filter_trace(normalized, freq_min, freq_max)
 
         buf = np.zeros((plot_h, w, 4), dtype=np.uint8)
 
         y_vals = (plot_h - 1) - (normalized * (plot_h - 1)).astype(np.intp)
         bw_range = self._compute_bandwidth_range(w, freq_min, freq_max)
         bw_low, bw_high = bw_range if bw_range else (-1, -1)
-        # Config center always sits at the middle of the visible range.
-        center_x = w // 2
+        # Dial cursor; deliberately unclamped, an out-of-view x draws no line.
+        span_hz = freq_max - freq_min
+        center_x = int((self._tuned_frequency - freq_min) / span_hz * w) if span_hz > 0 else w // 2
 
         render_spectrum_to_buf(
             buf,
@@ -331,6 +373,10 @@ class SpectrumWidget(ImageModeMixin, Widget):
     @traced("spectrum_strips")
     def _rebuild_strips(self) -> None:
         """Pre-compute all Strip objects from current data."""
+        # Refresh the dial/bandwidth fields here, not only on ConfigChanged:
+        # an FFT-triggered render can land between a config swap and its event,
+        # and a stale dial against the fresh view flickers the cursor off-center.
+        self._read_config()
         base = self.rich_style
         width = self.size.width
         height = self.size.height
@@ -367,12 +413,11 @@ class SpectrumWidget(ImageModeMixin, Widget):
         if event is None:
             normalized = np.zeros(target, dtype=np.float32)
         else:
-            zoomed = zoom_spectrum(event.spectrum, self.zoom)
             e_fmin, e_fmax = self._actual_freq_range(event)
-            spectrum = self._shift_spectrum_to_live(
-                zoomed, e_fmin, e_fmax, freq_min, freq_max, target
-            )
+            p_fmin, p_fmax = self._projection_window(live_range, event)
+            spectrum = project_spectrum(event.spectrum, e_fmin, e_fmax, p_fmin, p_fmax, target)
             normalized = normalize_spectrum(spectrum, self.db_min, self.db_max)
+            normalized = self._filter_trace(normalized, freq_min, freq_max)
 
         # Build braille cell grid as a line trace: each dot column lights one
         # row at the normalized value, and consecutive columns are joined by a
@@ -410,7 +455,8 @@ class SpectrumWidget(ImageModeMixin, Widget):
 
         freq_axis_labels = self._compute_freq_labels(width, freq_min, freq_max)
         bandwidth_range = self._compute_bandwidth_range(width, freq_min, freq_max)
-        header = f"Zoom: {self.zoom:.1f}x | Min: {self.db_min:.0f} dB | Max: {self.db_max:.0f} dB"  # noqa: E501
+        span_hz, rbw_hz = span_rbw(live_range, self.current_event)
+        header = status_text(span_hz, rbw_hz, self.db_min, self.db_max)
         memory_labels = self._compute_memory_labels(width, freq_min, freq_max)
         bandplan_segments = self._compute_bandplan_segments(width, freq_min, freq_max)
 
@@ -625,9 +671,10 @@ class SpectrumWidget(ImageModeMixin, Widget):
     # Shared helpers
 
     def on_click(self, event: Click) -> None:
-        if self.current_event is None:
+        live = self._display_range()
+        if live is None:
             return
-        freq_min, freq_max = self._actual_freq_range(self.current_event)
+        freq_min, freq_max = live
         if self.image_mode:
             occ = self._kitty.occlusion_insets
             w = self._kitty.full_pixel_size[0] - occ.left - occ.right
@@ -663,12 +710,12 @@ class SpectrumWidget(ImageModeMixin, Widget):
         step = (
             ts.step
             if ts.step is not None
-            else resolve_auto_step(device.active_mode, device.config.center_frequency)
+            else resolve_auto_step(device.active_mode, device.config.tuned_frequency)
         )
         freq = round(freq / step) * step
         save_previous_tune_state(device)
         try:
-            engine.update_device_config(device.device_id, center_frequency=freq)
+            engine.update_device_config(device.device_id, tuned_frequency=freq)
         except SDRException as e:
             self.app._show_error(str(e))
         event.stop()
@@ -688,88 +735,62 @@ class SpectrumWidget(ImageModeMixin, Widget):
         event.stop()
 
     def _scroll_zoom(self, direction: int) -> None:
-        store = get_ui_store()
-        store.update(zoom=adjusted_zoom(store.model.zoom, direction))
+        self.app._adjust_spectrum_span(direction)
 
     def _scroll_tune(self, direction: int) -> None:
+        """Plain scroll tunes the dial; in free mode with a span set it pans
+        the view instead (in center mode the view follows the dial anyway).
+        Pixel-relative step (2 px per notch, min 1 Hz)."""
         engine = get_engine()
         device = engine.get_focused_device()
         if device is None:
             return
-        # Pixel-relative step: visible span / display width × 2 (2 pixels per notch).
-        # Falls back to 1 Hz minimum so we never lose visible motion.
-        sample_rate = device.config.sample_rate
-        visible_span = sample_rate / self.zoom
+        cfg = device.config
+        caps = device.device.capabilities
+        center, span = resolve_view(cfg, caps)
         w = self.size.width
-        pixel_hz = visible_span / w if w > 0 else 1.0
-        step = max(pixel_hz * 2, 1.0)
-        freq = device.config.center_frequency
-        new_freq = freq + direction * step
-        new_freq = round(new_freq / step) * step
-        try:
-            engine.update_device_config(device.device_id, center_frequency=new_freq)
-        except SDRException as e:
-            self.app._show_error(str(e))
+        step = max(span / w * 2, 1.0) if w > 0 else 1.0
+        if cfg.tuning_mode == "free" and cfg.spectrum_span is not None:
+            lo, hi = full_view_range(cfg, caps)
+            new_center = min(max(center + direction * step, lo + span / 2), hi - span / 2)
+            try:
+                engine.update_device_config(device.device_id, spectrum_center=new_center)
+            except SDRException as e:
+                self.app._show_error(str(e))
+        else:
+            new_freq = cfg.tuned_frequency + direction * step
+            new_freq = round(new_freq / step) * step
+            try:
+                engine.update_device_config(device.device_id, tuned_frequency=new_freq)
+            except SDRException as e:
+                self.app._show_error(str(e))
 
     def _actual_freq_range(self, event: FFTUpdateEvent) -> tuple[float, float]:
-        """Return (freq_min, freq_max) for the captured FFT event, accounting for zoom."""
-        visible_bw = event.sample_rate / self.zoom
-        freq_min = event.center_frequency - visible_bw / 2
-        freq_max = event.center_frequency + visible_bw / 2
-        return freq_min, freq_max
+        """Return (freq_min, freq_max) covered by the FFT event."""
+        half = event.sample_rate / 2
+        return event.center_frequency - half, event.center_frequency + half
+
+    def _projection_window(
+        self, view: tuple[float, float], event: FFTUpdateEvent
+    ) -> tuple[float, float]:
+        """View window for projecting bars; overlays keep the unshifted view."""
+        if self._provides_spectrum:
+            return view
+        return transient_view_shift(view, event.center_frequency, self._capture_center)
 
     def _display_range(self) -> tuple[float, float] | None:
-        """Return the freq range used for rendering both bars and overlays.
+        """The requested view range, straight from device config.
 
-        When RUNNING and we have an FFT event: use the event's range. Overlays
-        only update when a new FFT lands, matching what the spectrum shows; no
-        transient shift during SDR retune.
-
-        Otherwise (stopped, pre-first-FFT, or no focused device with a
-        `current_event`): use the live config range so retunes update overlays
-        immediately. Stale bars get shifted/clipped by `_shift_spectrum_to_live`
-        into this window, disappearing where there's no overlap.
+        Overlays, the axis, and the dial cursor render this directly, so
+        zoom/pan/retune move the window instantly. Bars are projected through
+        `_projection_window`, which anchors the crop to the stale capture
+        during a retune transient so content holds still until data catches
+        up.
         """
-        engine = get_engine()
-        device = engine.get_focused_device()
+        device = get_engine().get_focused_device()
         if device is None:
             return None
-        if device.state == DeviceState.RUNNING and self.current_event is not None:
-            return self._actual_freq_range(self.current_event)
-        cf = device.config.center_frequency
-        sr = device.config.sample_rate
-        visible_bw = sr / self.zoom
-        return cf - visible_bw / 2, cf + visible_bw / 2
-
-    def _shift_spectrum_to_live(
-        self,
-        zoomed: np.ndarray,
-        e_fmin: float,
-        e_fmax: float,
-        l_fmin: float,
-        l_fmax: float,
-        target: int,
-    ) -> np.ndarray:
-        """Map `zoomed` (covering [e_fmin, e_fmax]) into `target` bins over [l_fmin, l_fmax].
-
-        Bins outside the event's freq range are filled with -inf so they clip to 0
-        after normalization: bars disappear where we have no captured data.
-        """
-        if e_fmin == l_fmin and e_fmax == l_fmax:
-            return decimate_spectrum(zoomed, target)
-
-        out = np.full(target, -np.inf, dtype=np.float32)
-        e_span = e_fmax - e_fmin
-        l_span = l_fmax - l_fmin
-        n = len(zoomed)
-        if e_span <= 0 or l_span <= 0 or n == 0:
-            return out
-
-        l_freqs = l_fmin + (np.arange(target) + 0.5) / target * l_span
-        src = ((l_freqs - e_fmin) / e_span * n).astype(np.intp)
-        mask = (src >= 0) & (src < n)
-        out[mask] = zoomed[src[mask]]
-        return out
+        return view_range(device.config, device.device.capabilities)
 
     def _compute_freq_labels(
         self, width: int, freq_min: float, freq_max: float
@@ -850,7 +871,7 @@ class SpectrumWidget(ImageModeMixin, Widget):
         if channel_bw is None:
             return None
 
-        center = (freq_min + freq_max) / 2
+        center = self._tuned_frequency
         span = freq_max - freq_min
         if self._sideband == "upper":
             f_low, f_high = center, center + channel_bw
@@ -860,7 +881,10 @@ class SpectrumWidget(ImageModeMixin, Widget):
             f_low, f_high = center - channel_bw / 2, center + channel_bw / 2
         col_low = int((f_low - freq_min) / span * width)
         col_high = int((f_high - freq_min) / span * width)
-        col_low = max(0, col_low)
-        col_high = min(width, col_high)
-
+        # Clamp both ends: the view can pan away from the dial entirely
+        # (free mode), putting either column far outside [0, width].
+        col_low = max(0, min(col_low, width))
+        col_high = max(0, min(col_high, width))
+        if col_high <= col_low:
+            return None
         return (col_low, col_high)

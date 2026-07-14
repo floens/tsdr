@@ -117,7 +117,7 @@ def test_start_directory_device_retunes_focuses_and_starts(monkeypatch) -> None:
     )
     engine = SimpleNamespace(
         devices={"rx": ctx},
-        get_focused_device=lambda: SimpleNamespace(config=SimpleNamespace(center_frequency=100e6)),
+        get_focused_device=lambda: SimpleNamespace(config=SimpleNamespace(tuned_frequency=100e6)),
         update_device_config=lambda did, **kw: calls.append(("cfg", did, kw)),
         set_focused_device=lambda did: calls.append(("focus", did)),
         start_device=lambda did: calls.append(("start", did)),
@@ -127,6 +127,6 @@ def test_start_directory_device_retunes_focuses_and_starts(monkeypatch) -> None:
 
     result = connect.start_directory_device(device)
     assert result.ok
-    assert ("cfg", "rx", {"center_frequency": 100e6}) in calls  # retuned to the active freq
+    assert ("cfg", "rx", {"tuned_frequency": 100e6}) in calls  # retuned to the active freq
     assert ("focus", "rx") in calls
     assert ("start", "rx") in calls

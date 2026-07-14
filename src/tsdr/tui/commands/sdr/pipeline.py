@@ -57,7 +57,7 @@ class SDRPipelineCommand(Command):
             "",
             f"  [bold white]IQ Samples[/] "
             f"[dim]@[/] {rate_sps(context.config.sample_rate)} "
-            f"[dim]·[/] {freq_mhz(context.config.center_frequency)}",
+            f"[dim]·[/] {freq_mhz(context.config.tuned_frequency)}",
         ]
 
         if running:

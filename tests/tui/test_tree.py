@@ -99,27 +99,25 @@ def test_tuner_has_no_reactive_props() -> None:
     assert tuner.props == {}
 
 
-def test_spectrum_props_carry_zoom_db_image_mode() -> None:
-    m = UIModel(zoom=4.0, db_min=-80.0, db_max=-30.0, image_mode=True)
+def test_spectrum_props_carry_db_image_mode() -> None:
+    m = UIModel(db_min=-80.0, db_max=-30.0, image_mode=True)
     tree = derive_tree(m)
     viz = _center(tree).children[0]
     spectrum = viz.children[0]
     assert spectrum.key == "spectrum"
     assert spectrum.props == {
-        "zoom": 4.0,
         "db_min": -80.0,
         "db_max": -30.0,
         "image_mode": True,
     }
 
 
-def test_waterfall_props_carry_zoom_db_image_mode() -> None:
-    m = UIModel(zoom=4.0, db_min=-80.0, db_max=-30.0, image_mode=False)
+def test_waterfall_props_carry_db_image_mode() -> None:
+    m = UIModel(db_min=-80.0, db_max=-30.0, image_mode=False)
     tree = derive_tree(m)
     waterfall = _center(tree).children[0].children[1]
     assert waterfall.key == "waterfall"
     assert waterfall.props == {
-        "zoom": 4.0,
         "db_min": -80.0,
         "db_max": -30.0,
         "image_mode": False,
@@ -406,7 +404,6 @@ def test_same_model_yields_equal_trees() -> None:
         hotkeys=((1, "demod"), (2, "stats")),
     )
     m = UIModel(
-        zoom=2.5,
         layout=layout,
         image_mode=True,
         devices=(

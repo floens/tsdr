@@ -53,6 +53,7 @@ def compute_statistics(
     center_frequency: float,
     sample_rate: float,
     channel_bandwidth: float | None = None,
+    channel_offset_hz: float = 0.0,
 ) -> SignalStatistics:
     """Compute statistics from power spectrum.
 
@@ -61,6 +62,8 @@ def compute_statistics(
         center_frequency: Center frequency in Hz
         sample_rate: Sample rate in Hz
         channel_bandwidth: Channel bandwidth in Hz for SNR calculation.
+        channel_offset_hz: Channel center relative to the spectrum center
+            (tuned frequency minus capture center) for SNR calculation.
     """
     n_bins = len(spectrum)
     center_bin = n_bins // 2
@@ -86,9 +89,10 @@ def compute_statistics(
     channel_snr = None
     if channel_bandwidth is not None and channel_bandwidth > 0:
         half_bw_bins = int(channel_bandwidth / 2 / freq_resolution)
-        if 0 < half_bw_bins < n_bins // 2:
-            sig_lo = center_bin - half_bw_bins
-            sig_hi = center_bin + half_bw_bins
+        chan_bin = center_bin + int(round(channel_offset_hz / freq_resolution))
+        if 0 < half_bw_bins < n_bins // 2 and half_bw_bins <= chan_bin <= n_bins - half_bw_bins:
+            sig_lo = chan_bin - half_bw_bins
+            sig_hi = chan_bin + half_bw_bins
             # Adjacent noise sidebands: 2x channel width on each side
             noise_lo = max(0, sig_lo - half_bw_bins * 2)
             noise_hi = min(n_bins, sig_hi + half_bw_bins * 2)

@@ -72,7 +72,10 @@ def add_directory_device(device: PublicDevice) -> ConnectResult:
         did,
         device.source,
         _params_for(device.source, host, port),
-        DeviceConfig(center_frequency=_connect_freq(device)),
+        DeviceConfig(
+            tuned_frequency=_connect_freq(device),
+            center_frequency=_connect_freq(device),
+        ),
     )
     engine.set_focused_device(did)
     engine.start_device(did)
@@ -88,7 +91,7 @@ def start_directory_device(device: PublicDevice | FavoriteDevice) -> ConnectResu
         return ConnectResult(False, f"{device.name} not added")
     freq = _connect_freq(device)  # read before refocus, while it reflects the active device
     _stop_running_devices()
-    engine.update_device_config(did, center_frequency=freq)
+    engine.update_device_config(did, tuned_frequency=freq)
     engine.set_focused_device(did)
     engine.start_device(did)
     return ConnectResult(True, f"Started {device.name}")
@@ -131,7 +134,7 @@ def _connect_freq(device: PublicDevice | FavoriteDevice) -> float:
     focused = get_engine().get_focused_device()
     if focused is None:
         return _default_freq(device)
-    return _clip_to_band(focused.config.center_frequency, device.freq_min, device.freq_max)
+    return _clip_to_band(focused.config.tuned_frequency, device.freq_min, device.freq_max)
 
 
 def _stop_running_devices() -> None:

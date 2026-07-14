@@ -44,7 +44,7 @@ def _format_field(name: str, value: Any) -> str:
         return state("on" if value else "off")
     if isinstance(value, MappingProxyType):
         return f"[dim]{{{len(value)} entries}}[/]"
-    if name == "center_frequency" and isinstance(value, (int, float)):
+    if name in ("tuned_frequency", "center_frequency") and isinstance(value, (int, float)):
         return freq_mhz(float(value), precision=3)
     if name == "sample_rate" and isinstance(value, (int, float)):
         return rate_sps(float(value))
@@ -109,6 +109,19 @@ class SDRConfigCommand(Command):
         )
         parser.add_argument("--fft-size", type=int, help="FFT size")
         parser.add_argument(
+            "--span", help="Spectrum view span with SI suffix (e.g. 200k), or 'full'"
+        )
+        parser.add_argument(
+            "--view",
+            help="Spectrum view center with SI suffix (e.g. 7.1M), or 'dial'; free tuning mode only",
+        )
+        parser.add_argument(
+            "--tuning",
+            choices=["center", "free"],
+            help="Tuning mode: center retunes hardware on every dial move, "
+            "free offsets in DSP until the band edge",
+        )
+        parser.add_argument(
             "--bandwidth", help="Channel bandwidth with SI suffix (e.g. 200k, 1.5M)"
         )
         parser.add_argument("--fps", type=float, help="Target UI update rate")
@@ -155,9 +168,9 @@ class SDRConfigCommand(Command):
         changes: dict[str, Any] = {}
 
         if args.frequency is not None:
-            changes["center_frequency"] = float(parse_hz(args.frequency))
+            changes["tuned_frequency"] = float(parse_hz(args.frequency))
         if args.frequency_flag is not None:
-            changes["center_frequency"] = float(parse_hz(args.frequency_flag))
+            changes["tuned_frequency"] = float(parse_hz(args.frequency_flag))
         if args.sample_rate is not None:
             new_rate = float(parse_hz(args.sample_rate))
             sample_rates = manager.get_device(did).device.capabilities.sample_rates
@@ -194,6 +207,12 @@ class SDRConfigCommand(Command):
             changes["bias_tee"] = args.bias_t == "on"
         if args.fft_size is not None:
             changes["fft_size"] = args.fft_size
+        if args.span is not None:
+            changes["spectrum_span"] = None if args.span == "full" else float(parse_hz(args.span))
+        if args.view is not None:
+            changes["spectrum_center"] = None if args.view == "dial" else float(parse_hz(args.view))
+        if args.tuning is not None:
+            changes["tuning_mode"] = args.tuning
         if args.bandwidth is not None:
             changes["channel_bandwidth"] = float(parse_hz(args.bandwidth))
         if args.fps is not None:
@@ -221,7 +240,7 @@ class SDRConfigCommand(Command):
 
         summary: dict[str, str] = {}
         for key, value in changes.items():
-            if key == "center_frequency":
+            if key == "tuned_frequency":
                 summary["frequency"] = freq_mhz(value, precision=2)
             elif key == "sample_rate":
                 summary["sample_rate"] = rate_sps(value)
@@ -237,6 +256,8 @@ class SDRConfigCommand(Command):
                 summary["bandwidth"] = f"[yellow]{value / 1000:.1f} kHz[/]"
             elif key == "network_buffer_seconds":
                 summary["network-buffer"] = f"[yellow]{value:.2f} s[/]"
+            elif key == "tuning_mode":
+                summary["tuning"] = f"[yellow]{value}[/]"
             else:
                 summary[key] = str(value)
 

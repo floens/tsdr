@@ -81,7 +81,6 @@ def _viz_children(m: UIModel) -> tuple[WidgetSpec, ...]:
             "spectrum",
             "spectrum",
             {
-                "zoom": m.zoom,
                 "db_min": m.db_min,
                 "db_max": m.db_max,
                 "image_mode": m.image_mode,
@@ -91,7 +90,6 @@ def _viz_children(m: UIModel) -> tuple[WidgetSpec, ...]:
             "waterfall",
             "waterfall",
             {
-                "zoom": m.zoom,
                 "db_min": m.db_min,
                 "db_max": m.db_max,
                 "image_mode": m.image_mode,

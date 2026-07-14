@@ -16,13 +16,19 @@ from tsdr.devices.registry import BY_NAME
 from tsdr.radio.registry import DEMODULATORS
 
 _DEVICE_CONFIG_FIELDS = (
+    "tuned_frequency",
     "center_frequency",
+    "tuning_mode",
     "sample_rate",
     "rf_gain",
     "buffer_samples",
     "target_fps",
     "network_buffer_seconds",
     "channel_bandwidth",
+    "fft_size",
+    "fft_window",
+    "spectrum_center",
+    "spectrum_span",
 )
 
 if TYPE_CHECKING:
@@ -73,6 +79,8 @@ def _build_persisted_device(context: SDRDeviceContext) -> PersistedDevice:
         "id": context.device_id,
         "type": context.device_type,
         **_persist_params(context.params),
+        "tuned_frequency": context.config.tuned_frequency,
+        "tuning_mode": context.config.tuning_mode,
         "center_frequency": context.config.center_frequency,
         "sample_rate": context.config.sample_rate,
         "rf_gain": context.config.rf_gain,
@@ -80,6 +88,10 @@ def _build_persisted_device(context: SDRDeviceContext) -> PersistedDevice:
         "buffer_samples": context.config.buffer_samples,
         "network_buffer_seconds": context.config.network_buffer_seconds,
         "channel_bandwidth": context.config.channel_bandwidth,
+        "fft_size": context.config.fft_size,
+        "fft_window": context.config.fft_window,
+        "spectrum_center": context.config.spectrum_center,
+        "spectrum_span": context.config.spectrum_span,
     }
 
     audio_config = context.config.pipelines.get("audio")
@@ -172,6 +184,8 @@ def _build_params(device: PersistedDevice) -> DeviceParams | None:
 def _build_device_config(device: PersistedDevice) -> DeviceConfig | None:
     persisted = device.model_dump(exclude_none=True)
     kwargs = {k: persisted[k] for k in _DEVICE_CONFIG_FIELDS if k in persisted}
+    if "tuned_frequency" not in kwargs and "center_frequency" in kwargs:
+        kwargs["tuned_frequency"] = kwargs["center_frequency"]
     return DeviceConfig(**kwargs) if kwargs else None
 
 

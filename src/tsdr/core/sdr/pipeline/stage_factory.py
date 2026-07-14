@@ -47,16 +47,11 @@ def create_stage(
         case StageType.AGC:
             return AGCStage()
         case StageType.FFT:
-            return FFTStage(config=sdr_config)
+            return FFTStage(config=device_config)
         case StageType.EVENT_EMITTER:
             return EventEmitterStage(config=sdr_config)
         case StageType.FREQUENCY_SHIFT:
-            offset = (
-                pipeline_config.audio_spec.frequency_offset
-                if pipeline_config.audio_spec is not None
-                else 0.0
-            )
-            return FrequencyShiftStage(frequency_offset=offset)
+            return FrequencyShiftStage()
         case StageType.DEMODULATOR:
             spec = pipeline_config.audio_spec
             if spec is None:

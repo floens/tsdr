@@ -101,6 +101,7 @@ class SDRAddCommand(Command):
             center_hz = dt.default_frequency_hz
         else:
             center_hz = _DEFAULT_CENTER_HZ
+        config_overrides["tuned_frequency"] = center_hz
         config_overrides["center_frequency"] = center_hz
         if args.sample_rate is not None:
             config_overrides["sample_rate"] = float(parse_hz(args.sample_rate))

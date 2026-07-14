@@ -1,8 +1,8 @@
 """Value objects for the active demodulator or protocol decoder.
 
 `DemodSpec` bundles the user-facing knobs that select and configure a demod
-(mode name, frequency offset, and mode-specific settings: FM deviation, SSTV
-submode, FSK baud/shift/polarity/alphabet/framing). It is the single argument to
+(mode name and mode-specific settings: FM deviation, SSTV submode, FSK
+baud/shift/polarity/alphabet/framing). It is the single argument to
 ``SDREngine.set_audio_demod`` and the unit of persistence in memories, band
 registers, device prefs, and the A/B swap.
 
@@ -19,7 +19,6 @@ class DemodSpec(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     mode: str
-    frequency_offset: float = 0.0
     fm_deviation_hz: float | None = None
     sstv_mode: str | None = None
     # FSK-family (rtty/fsk) overrides; None on any axis = auto-acquire it.

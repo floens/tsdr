@@ -19,9 +19,11 @@ from tsdr.core.events.events import (
 from tsdr.core.landmarks import next_target
 from tsdr.core.memories import get_memory_store
 from tsdr.core.preferences import save_tuning_state
+from tsdr.core.sdr.config import TuningMode
 from tsdr.core.sdr.device_context import SDRDeviceContext
 from tsdr.core.sdr.engine import get_engine
 from tsdr.core.sdr.exceptions import SDRException
+from tsdr.core.sdr.spectrum_view import adjusted_span
 from tsdr.core.tuning import (
     STEP_LADDER,
     bandwidth_step,
@@ -60,14 +62,14 @@ class TuningMixin(MixinBase):
         ts = get_tuning_state()
         if ts.step is not None:
             return ts.step
-        return resolve_auto_step(device.active_mode, device.config.center_frequency)
+        return resolve_auto_step(device.active_mode, device.config.tuned_frequency)
 
     def _clamp_to_range(self, device: SDRDeviceContext, freq: float) -> float:
         rng = device.device.capabilities.frequency_range
-        if rng is None:
-            return freq
-        lo, hi = rng
-        return max(lo, min(freq, hi))
+        if rng is not None:
+            lo, hi = rng
+            freq = max(lo, min(freq, hi))
+        return max(freq, 1.0)  # bands can start at 0 Hz; 0 is invalid
 
     def _publish_tuning_state_changed(self) -> None:
         ts = get_tuning_state()
@@ -76,9 +78,9 @@ class TuningMixin(MixinBase):
 
     def _apply_freq(self, device: SDRDeviceContext, new_freq: float) -> None:
         new_freq = self._clamp_to_range(device, new_freq)
-        if new_freq == device.config.center_frequency:
+        if new_freq == device.config.tuned_frequency:
             return
-        get_engine().update_device_config(device.device_id, center_frequency=new_freq)
+        get_engine().update_device_config(device.device_id, tuned_frequency=new_freq)
 
     def _tune(self, direction: int, *, coarse: bool = False, fine: bool = False) -> None:
         device = self._focused()
@@ -89,7 +91,7 @@ class TuningMixin(MixinBase):
             step *= 10
         if fine:
             step /= 10
-        current = float(device.config.center_frequency)
+        current = float(device.config.tuned_frequency)
         if fine:
             new_freq = current + direction * step
         else:
@@ -118,6 +120,39 @@ class TuningMixin(MixinBase):
         get_engine().update_device_config(device.device_id, channel_bandwidth=new_bw)
         self.show_status(f"Bandwidth: {format_hz(new_bw, decimals=6, long_suffix=True)}")
 
+    def _adjust_spectrum_span(self, direction: int) -> None:
+        device = self._focused()
+        if device is None:
+            return
+        new_span = adjusted_span(device.config, device.device.capabilities, direction)
+        if new_span == device.config.spectrum_span:
+            return
+        try:
+            get_engine().update_device_config(device.device_id, spectrum_span=new_span)
+        except SDRException as e:
+            self._show_error(str(e))
+
+    def _toggle_center_tuning(self) -> None:
+        device = self._focused()
+        if device is None:
+            return
+        new_mode: TuningMode = "free" if device.config.tuning_mode == "center" else "center"
+        if new_mode == "center" and not device.device.capabilities.frequency_controllable:
+            self._show_error("Center locked by device")
+            return
+        get_engine().update_device_config(device.device_id, tuning_mode=new_mode)
+        self.show_status(f"Tuning: {new_mode}")
+
+    def _center_view_on_dial(self) -> None:
+        device = self._focused()
+        if device is None:
+            return
+        if device.config.spectrum_center is None:
+            self.show_status("View already on dial")
+            return
+        get_engine().update_device_config(device.device_id, spectrum_center=None)
+        self.show_status("View: dial")
+
     def _cycle_step(self, forward: bool) -> None:
         ts = get_tuning_state()
         try:
@@ -130,7 +165,7 @@ class TuningMixin(MixinBase):
 
         device = self._focused()
         if ts.step is None and device is not None:
-            resolved = resolve_auto_step(device.active_mode, device.config.center_frequency)
+            resolved = resolve_auto_step(device.active_mode, device.config.tuned_frequency)
             self.show_status(f"Step: auto ({format_hz(resolved, decimals=1, long_suffix=True)})")
         elif ts.step is not None:
             self.show_status(f"Step: {format_hz(ts.step, decimals=1, long_suffix=True)}")
@@ -150,7 +185,7 @@ class TuningMixin(MixinBase):
         fft = self._latest_fft_by_device.get(device.device_id)
         target = next_target(
             direction,
-            float(device.config.center_frequency),
+            float(device.config.tuned_frequency),
             fft,
             memories,
             bandplan,
@@ -173,7 +208,7 @@ class TuningMixin(MixinBase):
             return
         cur_spec = current_spec_or_default(device)
         captured = PreviousTuneState(
-            frequency_hz=float(device.config.center_frequency),
+            frequency_hz=float(device.config.tuned_frequency),
             bandwidth_hz=current_channel_bandwidth(device),
             spec=cur_spec,
         )
@@ -191,7 +226,7 @@ class TuningMixin(MixinBase):
                 return
         engine.update_device_config(
             device.device_id,
-            center_frequency=prev.frequency_hz,
+            tuned_frequency=prev.frequency_hz,
             channel_bandwidth=int(prev.bandwidth_hz),
         )
         self._reset_step_to_auto()
@@ -210,7 +245,7 @@ class TuningMixin(MixinBase):
             self._show_error(f"No band on key {key}")
             return
 
-        cur_freq = float(device.config.center_frequency)
+        cur_freq = float(device.config.tuned_frequency)
         ts = get_tuning_state()
         on_this_band = stack.band.start <= cur_freq <= stack.band.end and ts.current_band_key == key
         new_idx = (
@@ -252,7 +287,7 @@ class TuningMixin(MixinBase):
             try:
                 engine.update_device_config(
                     device.device_id,
-                    center_frequency=float(reg.frequency),
+                    tuned_frequency=float(reg.frequency),
                     channel_bandwidth=int(reg.bandwidth),
                 )
             except SDRException as e:

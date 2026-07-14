@@ -151,7 +151,7 @@ def save_previous_tune_state(context: SDRDeviceContext) -> None:
     ts = get_tuning_state()
     spec = current_spec_or_default(context)
     ts.previous = PreviousTuneState(
-        frequency_hz=float(context.config.center_frequency),
+        frequency_hz=float(context.config.tuned_frequency),
         bandwidth_hz=current_channel_bandwidth(context),
         spec=spec,
     )
@@ -205,7 +205,7 @@ def _on_writeback_trigger(event: Event) -> None:
         save_tuning_state(ts)
         engine.event_bus.publish(TuningStateChangedEvent(state=ts))
         return
-    freq = float(device.config.center_frequency)
+    freq = float(device.config.tuned_frequency)
     if not (stack.band.start <= freq <= stack.band.end):
         ts.current_band_key = None
         save_tuning_state(ts)

@@ -100,6 +100,7 @@ class EventEmitterStage:
             data.center_frequency,
             data.sample_rate,
             channel_bandwidth=channel_bw,
+            channel_offset_hz=dc.config.tuned_frequency - data.center_frequency if dc else 0.0,
         )
 
         sample_queue = dc.sample_queue
@@ -132,8 +133,8 @@ class EventEmitterStage:
                 peak_bin=signal_stats.peak_bin,
                 noise_floor=signal_stats.noise_floor,
                 dynamic_range=signal_stats.dynamic_range,
-                fft_size=context.config.fft_size,
-                fft_window=context.config.fft_window,
+                fft_size=dc.config.fft_size,
+                fft_window=dc.config.fft_window,
                 spectrum_bins=len(data.spectrum),
                 demod_mode=dc.active_mode,
                 channel_snr=signal_stats.channel_snr,

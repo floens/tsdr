@@ -15,7 +15,6 @@ from tsdr.tui.model import (
 
 def test_defaults() -> None:
     m = UIModel()
-    assert m.zoom == 1.0
     assert m.db_min == -100.0
     assert m.db_max == -30.0
     assert m.image_mode is False
@@ -87,20 +86,20 @@ def test_initial_panel_bar_hidden_when_false() -> None:
 def test_frozen() -> None:
     m = UIModel()
     with pytest.raises(dataclasses.FrozenInstanceError):
-        m.zoom = 2.0  # type: ignore[misc]
+        m.db_min = 2.0  # type: ignore[misc]
 
 
 def test_replace_returns_new_instance() -> None:
-    m = UIModel(zoom=1.0)
-    n = dataclasses.replace(m, zoom=2.0)
-    assert m.zoom == 1.0
-    assert n.zoom == 2.0
+    m = UIModel(db_min=-90.0)
+    n = dataclasses.replace(m, db_min=-80.0)
+    assert m.db_min == -90.0
+    assert n.db_min == -80.0
     assert m is not n
 
 
 def test_equality_value_based() -> None:
-    a = UIModel(zoom=2.0, db_min=-80.0)
-    b = UIModel(zoom=2.0, db_min=-80.0)
+    a = UIModel(db_min=-80.0, db_max=-20.0)
+    b = UIModel(db_min=-80.0, db_max=-20.0)
     assert a == b
     assert a is not b
 
@@ -126,8 +125,7 @@ def test_initial_with_empty_prefs() -> None:
 def test_initial_reads_ui_prefs() -> None:
     prefs = {
         "ui": {
-            "zoom": 4.5,
-            "db_min": -100.0,
+            "db_min": -90.0,
             "db_max": -30.0,
             "image_mode": True,
             "clock_visible": False,
@@ -136,8 +134,7 @@ def test_initial_reads_ui_prefs() -> None:
         }
     }
     m = UIModel.initial(prefs)
-    assert m.zoom == 4.5
-    assert m.db_min == -100.0
+    assert m.db_min == -90.0
     assert m.db_max == -30.0
     assert m.image_mode is True
     assert m.clock_visible is False
@@ -248,8 +245,8 @@ def test_initial_layout_falls_back_on_garbage() -> None:
 
 
 def test_initial_ignores_unknown_top_level_keys() -> None:
-    m = UIModel.initial({"ui": {"zoom": 2.0}, "engine": {"audio_volume": 0.5}})
-    assert m.zoom == 2.0
+    m = UIModel.initial({"ui": {"unknown_key": 2.0}, "engine": {"audio_volume": 0.5}})
+    assert m == UIModel()
 
 
 def test_ui_layout_and_edge_panels_frozen() -> None:

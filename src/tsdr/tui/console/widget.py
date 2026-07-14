@@ -140,7 +140,7 @@ class ConsoleWidget(Vertical):
         if device is None:
             segments = [("$ ", dim)]
         else:
-            freq = _format_frequency(device.config.center_frequency)
+            freq = _format_frequency(device.config.tuned_frequency)
             segments = [
                 (device.active_mode.lower(), Style(color="cyan")),
                 (f"@{device.device_id}", dim),

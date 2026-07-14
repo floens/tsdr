@@ -1,9 +1,10 @@
 """PrefsSync — persists UI-prefs fields on change, debounced.
 
 Subscribes to UIStore and persists when any prefs-relevant field changes;
-coalesces rapid changes (e.g. holding `k` to zoom) into one write ~250ms after
-the burst settles. `flush_prefs(model)` is exported so headless mode can
-subscribe synchronously (no Textual timer available there).
+rapid changes (e.g. holding `l` to shift the dB window) are throttled to one
+write per 250ms window, capturing the state current at flush time.
+`flush_prefs(model)` is exported so headless mode can subscribe synchronously
+(no Textual timer available there).
 """
 
 from __future__ import annotations
@@ -22,7 +23,6 @@ logger = logging.getLogger(__name__)
 
 PREFS_FIELDS = frozenset(
     {
-        "zoom",
         "db_min",
         "db_max",
         "image_mode",
@@ -40,7 +40,6 @@ def flush_prefs(model: UIModel) -> None:
     """Write the prefs-relevant fields of `model` to the prefs file."""
     prefs = storage.load_toml(PREFERENCES_FILE)
     prefs["ui"] = {
-        "zoom": model.zoom,
         "db_min": model.db_min,
         "db_max": model.db_max,
         "image_mode": model.image_mode,

@@ -51,6 +51,11 @@ class DeviceCapabilities:
 
     bias_tee_supported: bool
 
+    # Device supplies pre-computed spectrum frames (SpectrumSource); the
+    # engine-side IQ FFT is suppressed and widgets take the displayable band
+    # from `frequency_range` instead of `center_frequency ± sample_rate/2`.
+    provides_spectrum: bool = False
+
     # Populated only when `frequency_controllable` is False.
     controller_center_frequency: float | None = None
     controller_gain: int | None = None

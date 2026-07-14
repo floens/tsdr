@@ -9,7 +9,7 @@ from tsdr.radio.decoders.fsk.profile import PROFILES as FSK_PRESETS
 from tsdr.radio.decoders.fsk.tables import ALPHABETS as _FSK_ALPHABET_TABLES
 from tsdr.radio.decoders.sstv import MODES_BY_NAME as SSTV_MODES_BY_NAME
 from tsdr.radio.registry import DEMODULATORS
-from tsdr.tui.commands._format import device_id, fields, rate_sps, success
+from tsdr.tui.commands._format import device_id, fields, success
 from tsdr.tui.commands.base import Command, CommandParser, Completion
 from tsdr.tui.commands.sdr._utils import device_id_completions, get_focused_device_id
 
@@ -25,11 +25,6 @@ class SDRDemodCommand(Command):
     def configure(self, parser: CommandParser) -> None:
         parser.add_argument("mode", choices=[*sorted(DEMODULATORS), "off"])
         parser.add_argument("--device", dest="device_id")
-        parser.add_argument(
-            "--offset",
-            default=None,
-            help="Frequency offset with SI suffix (e.g. -25k, 100k)",
-        )
         parser.add_argument(
             "--deviation",
             default=None,
@@ -64,7 +59,6 @@ class SDRDemodCommand(Command):
         manager = get_engine()
         did = args.device_id or get_focused_device_id()
         mode = args.mode.upper()
-        frequency_offset = float(parse_hz(args.offset)) if args.offset is not None else 0.0
         deviation = float(parse_hz(args.deviation)) if args.deviation is not None else None
         sstv_mode: str | None = args.sstv_mode
         if sstv_mode is not None and mode != "SSTV":
@@ -84,20 +78,8 @@ class SDRDemodCommand(Command):
             available = ", ".join(sorted(DEMODULATORS))
             raise ConfigurationError(f"Unknown mode '{mode}'. Available: {available}")
 
-        context = manager.get_device(did)
-
-        if frequency_offset != 0.0:
-            max_offset = context.config.sample_rate / 2.0
-            if abs(frequency_offset) > max_offset:
-                raise ConfigurationError(
-                    f"Frequency offset {frequency_offset / 1000:.1f} kHz exceeds Nyquist limit "
-                    f"(±{max_offset / 1000:.1f} kHz for sample rate "
-                    f"{rate_sps(context.config.sample_rate)})"
-                )
-
         spec = DemodSpec(
             mode=mode,
-            frequency_offset=frequency_offset,
             fm_deviation_hz=deviation,
             sstv_mode=sstv_mode,
             **fsk,
@@ -106,8 +88,6 @@ class SDRDemodCommand(Command):
 
         head = success(f"Enabled [bold green]{mode}[/] demodulation for {device_id(did)}")
         extras: dict[str, str] = {}
-        if frequency_offset != 0.0:
-            extras["offset"] = f"[cyan]{frequency_offset / 1000:.1f} kHz[/]"
         if deviation is not None:
             extras["deviation"] = f"[yellow]±{deviation / 1000:.1f} kHz[/]"
         if sstv_mode is not None:

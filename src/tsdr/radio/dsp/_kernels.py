@@ -980,8 +980,8 @@ def make_rational_resampler(
     max_denominator: int = 1000,
 ) -> StreamingPolyphaseResampler:
     """Build a resampler for ``target_rate / source_rate``, bounding the rational
-    approximation so a fractional source rate (e.g. a KiwiSDR's GPS-corrected
-    12001.116 Hz) can't produce a coprime ratio like 48000/12001 and a
+    approximation so a fractional source rate (e.g. a GPS-corrected network
+    stream's 12001.116 Hz) can't produce a coprime ratio like 48000/12001 and a
     million-tap prototype filter. The sub-0.01% rate error the bound introduces
     is inaudible and absorbed by downstream buffering.
     """

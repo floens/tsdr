@@ -44,11 +44,11 @@ class DenoiserStage:
             self._set_denoise(config.denoise)
         elif isinstance(config, DeviceConfig) and (
             config.sample_rate != self._last_sample_rate
-            or config.center_frequency != self._last_freq
+            or config.tuned_frequency != self._last_freq
         ):
             # A retune or sample-rate change makes the carried tail stale.
             self._last_sample_rate = config.sample_rate
-            self._last_freq = config.center_frequency
+            self._last_freq = config.tuned_frequency
             if self._denoiser is not None:
                 self._denoiser.reset()
 

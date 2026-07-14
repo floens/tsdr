@@ -2,9 +2,11 @@
 
 EventRouter calls `mark_dirty()` from its @on handlers for the events that
 change persisted state (ConfigChanged, PipelineChanged, DeviceAdded,
-DeviceRemoved, FocusChanged); this class coalesces rapid bursts into a single
-write ~250 ms after the last event, then runs `save_device(engine)` and
-`save_engine_config(engine)`.
+DeviceRemoved, FocusChanged); this class throttles them to one
+`save_device(engine)` + `save_engine_config(engine)` write per 250 ms window
+(the timer starts at the first event and is not reset by later ones, so a
+long burst like continuous dial scrolling writes ~4x/s, each flush capturing
+the then-current state).
 """
 
 from __future__ import annotations
@@ -29,8 +31,7 @@ class EnginePrefsSync:
         self._timer: Timer | None = None
 
     def mark_dirty(self) -> None:
-        """Schedule a debounced write. Coalesces bursts (e.g. a frequency dial
-        that fires ConfigChanged 10× in a row writes the prefs file once)."""
+        """Schedule a throttled write: at most one per 250 ms window."""
         if self._timer is not None:
             return
         self._timer = self._app.set_timer(_DEBOUNCE_SECONDS, self._flush)

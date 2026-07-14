@@ -33,6 +33,8 @@ class PersistedDevice(BaseModel):
     signal_freq_offset: float | None = None
     noise_level: float | None = None
 
+    tuned_frequency: float | None = None
+    tuning_mode: str | None = None
     center_frequency: float | None = None
     sample_rate: float | None = None
     rf_gain: float | None = None
@@ -40,6 +42,10 @@ class PersistedDevice(BaseModel):
     target_fps: float | None = None
     network_buffer_seconds: float | None = None
     channel_bandwidth: float | None = None
+    fft_size: int | None = None
+    fft_window: str | None = None
+    spectrum_center: float | None = None
+    spectrum_span: float | None = None
 
     audio_spec: DemodSpec | None = None
     squelch_enabled: bool | None = None

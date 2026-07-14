@@ -167,6 +167,8 @@ Tuning:
 - `Alt+←` / `Ctrl+←`, `Alt+→` / `Ctrl+→`: tune one fine step.
 - `[` / `]`: jump to the previous / next tuning target (memory or band).
 - `s` / `S`: cycle the tuning step size forward / backward.
+- `c`: toggle center / free tuning (center: hardware follows every dial move;
+  free: DSP offset until the band edge; entering center recenters).
 
 Reception:
 
@@ -185,7 +187,9 @@ Reception:
 Display:
 
 - `i`: toggle image mode.
-- `k` / `j`: zoom the spectrum in / out.
+- `k` / `j`: zoom the spectrum in / out (mouse: `Shift+scroll`; plain scroll
+  tunes, or pans the view in free mode when zoomed).
+- `C`: re-center a panned view on the dial.
 - `h` / `l`: raise / lower the noise floor (spectrum dB minimum).
 - `H` / `L`: raise / lower the ceiling (spectrum dB maximum).
 

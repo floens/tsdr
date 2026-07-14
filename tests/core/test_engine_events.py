@@ -1,13 +1,17 @@
 from __future__ import annotations
 
+import pytest
+
+from tsdr.core.demod_spec import DemodSpec
 from tsdr.core.events.events import (
     DeviceAddedEvent,
     DeviceCapabilitiesChangedEvent,
     DeviceRemovedEvent,
     FocusChangedEvent,
 )
-from tsdr.core.sdr.config import DeviceConfig
+from tsdr.core.sdr.config import DeviceConfig, StageType
 from tsdr.core.sdr.engine import SDREngine
+from tsdr.core.sdr.exceptions import SDRException
 from tsdr.devices import MockParams
 from tsdr.devices.base import DeviceCapabilities
 
@@ -181,8 +185,14 @@ def test_capabilities_change_leaves_in_range_gain_alone() -> None:
 
 def test_capabilities_change_clamps_out_of_range_frequency() -> None:
     engine = SDREngine()
-    engine.add_device("rtl0", "mock", MockParams(), DeviceConfig(center_frequency=2.0e9))
+    engine.add_device(
+        "rtl0",
+        "mock",
+        MockParams(),
+        DeviceConfig(tuned_frequency=2.0e9, center_frequency=2.0e9),
+    )
     _publish_caps(engine, freq_range=(24e6, 1766e6))
+    assert engine.devices["rtl0"].config.tuned_frequency == 1766e6
     assert engine.devices["rtl0"].config.center_frequency == 1766e6
 
 
@@ -205,3 +215,111 @@ def test_capabilities_change_picks_nearest_sample_rate() -> None:
     engine.add_device("rtl0", "mock", MockParams(), DeviceConfig(sample_rate=2.5e6))
     _publish_caps(engine, sample_rates=(2.4e6, 1.2e6, 600e3))
     assert engine.devices["rtl0"].config.sample_rate == 2.4e6
+
+
+def test_tuned_frequency_update_recenters_stopped_device() -> None:
+    engine = SDREngine()
+    engine.add_device("rtl0", "mock", MockParams(), DeviceConfig())
+    engine.update_device_config("rtl0", tuned_frequency=105e6)
+    config = engine.devices["rtl0"].config
+    assert config.tuned_frequency == 105e6
+    assert config.center_frequency == 105e6
+
+
+def test_explicit_center_update_leaves_tuned_alone() -> None:
+    engine = SDREngine()
+    engine.add_device("rtl0", "mock", MockParams(), DeviceConfig())
+    engine.update_device_config("rtl0", center_frequency=105e6)
+    config = engine.devices["rtl0"].config
+    assert config.tuned_frequency == 100e6
+    assert config.center_frequency == 105e6
+
+
+def test_set_audio_demod_always_prepends_frequency_shift() -> None:
+    engine = SDREngine()
+    engine.add_device("rtl0", "mock", MockParams(), DeviceConfig())
+    engine.set_audio_demod("rtl0", DemodSpec(mode="AM"))
+    stages = engine.devices["rtl0"].config.pipelines["audio"].stages
+    assert stages == (
+        StageType.FREQUENCY_SHIFT,
+        StageType.DEMODULATOR,
+        StageType.DENOISER,
+        StageType.EVENT_EMITTER,
+    )
+
+
+def test_legacy_demod_spec_with_frequency_offset_still_parses() -> None:
+    spec = DemodSpec.model_validate({"mode": "AM", "frequency_offset": 25e3})
+    assert spec.mode == "AM"
+    assert not hasattr(spec, "frequency_offset")
+
+
+def test_capabilities_change_rederives_center_from_tuned() -> None:
+    # A dial tune can race the device handshake (KiwiSDR): center stays put
+    # under stale caps, then the real capabilities must pull it to the dial.
+    engine = SDREngine()
+    engine.add_device("rtl0", "mock", MockParams(), DeviceConfig())
+    engine.update_device_config("rtl0", center_frequency=105e6)
+    assert engine.devices["rtl0"].config.center_frequency == 105e6
+
+    _publish_caps(engine)
+
+    config = engine.devices["rtl0"].config
+    assert config.center_frequency == config.tuned_frequency == 100e6
+
+
+def test_default_tuning_mode_is_center() -> None:
+    assert DeviceConfig().tuning_mode == "center"
+
+
+def test_enabling_center_mode_recenters() -> None:
+    engine = SDREngine()
+    engine.add_device("rtl0", "mock", MockParams(), DeviceConfig(tuning_mode="free"))
+    engine.update_device_config("rtl0", center_frequency=105e6)
+    assert engine.devices["rtl0"].config.center_frequency == 105e6
+
+    engine.update_device_config("rtl0", tuning_mode="center")
+
+    config = engine.devices["rtl0"].config
+    assert config.tuning_mode == "center"
+    assert config.center_frequency == config.tuned_frequency == 100e6
+
+
+def test_config_tuning_center_clears_view_pan() -> None:
+    engine = SDREngine()
+    engine.add_device(
+        "rtl0",
+        "mock",
+        MockParams(),
+        DeviceConfig(tuning_mode="free", spectrum_center=101e6, spectrum_span=200e3),
+    )
+    engine.update_device_config("rtl0", tuning_mode="center")
+    assert engine.devices["rtl0"].config.spectrum_center is None
+
+
+def test_sample_rate_change_rederives_center() -> None:
+    # Shrinking the capture is a fit-test input; the derivation must re-run.
+    engine = SDREngine()
+    engine.add_device("rtl0", "mock", MockParams(), DeviceConfig(tuning_mode="free"))
+    engine.update_device_config("rtl0", center_frequency=105e6)
+    engine.update_device_config("rtl0", sample_rate=1.024e6)
+    config = engine.devices["rtl0"].config
+    assert config.center_frequency == config.tuned_frequency
+
+
+def test_channel_bandwidth_change_rederives_center() -> None:
+    engine = SDREngine()
+    engine.add_device("rtl0", "mock", MockParams(), DeviceConfig(tuning_mode="free"))
+    engine.update_device_config("rtl0", center_frequency=105e6)
+    engine.update_device_config("rtl0", channel_bandwidth=200e3)
+    config = engine.devices["rtl0"].config
+    assert config.center_frequency == config.tuned_frequency
+
+
+def test_zero_frequency_raises_sdr_exception() -> None:
+    # Bands can start at 0 Hz (KiwiSDR); 0 must be a catchable SDRException,
+    # not DeviceConfig.validate's ValueError.
+    engine = SDREngine()
+    engine.add_device("rtl0", "mock", MockParams(), DeviceConfig())
+    with pytest.raises(SDRException):
+        engine.update_device_config("rtl0", tuned_frequency=0.0)

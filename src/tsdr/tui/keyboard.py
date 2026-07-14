@@ -16,7 +16,7 @@ from tsdr.radio.dsp.rnnoise import rnnoise_available
 from tsdr.tui._mixin_base import MixinBase
 from tsdr.tui.console import ConsoleWidget, TerminalInput
 from tsdr.tui.inline_edit import InlineEditor
-from tsdr.tui.model import Edge, adjusted_db_max, adjusted_db_min, adjusted_zoom
+from tsdr.tui.model import Edge, adjusted_db_max, adjusted_db_min
 from tsdr.tui.model.store import get_ui_store
 from tsdr.tui.widgets import SpectrumWidget
 
@@ -241,13 +241,11 @@ class KeyboardMixin(MixinBase):
                 event.prevent_default()
                 event.stop()
             elif event.key == "k":
-                store = get_ui_store()
-                store.update(zoom=adjusted_zoom(store.model.zoom, 1))
+                self._adjust_spectrum_span(1)
                 event.prevent_default()
                 event.stop()
             elif event.key == "j":
-                store = get_ui_store()
-                store.update(zoom=adjusted_zoom(store.model.zoom, -1))
+                self._adjust_spectrum_span(-1)
                 event.prevent_default()
                 event.stop()
             elif event.key == "h":
@@ -299,6 +297,14 @@ class KeyboardMixin(MixinBase):
                 event.stop()
             elif event.key == "n":
                 self._toggle_denoise()
+                event.prevent_default()
+                event.stop()
+            elif event.key == "c":
+                self._toggle_center_tuning()
+                event.prevent_default()
+                event.stop()
+            elif event.key == "C":
+                self._center_view_on_dial()
                 event.prevent_default()
                 event.stop()
 
@@ -435,7 +441,7 @@ class KeyboardMixin(MixinBase):
         if device is None:
             return
 
-        freq = int(device.config.center_frequency)
+        freq = int(device.config.tuned_frequency)
         mode = device.active_mode
         profile = device.demod_profile
         status = device.demod_status
@@ -465,7 +471,7 @@ class KeyboardMixin(MixinBase):
         if device is None:
             return
 
-        freq = int(device.config.center_frequency)
+        freq = int(device.config.tuned_frequency)
         profile = device.demod_profile
         max_dist = int(profile.channel_bandwidth) if profile else 12500
 
@@ -484,7 +490,7 @@ class KeyboardMixin(MixinBase):
         if device is None:
             return
 
-        freq = int(device.config.center_frequency)
+        freq = int(device.config.tuned_frequency)
         profile = device.demod_profile
         max_dist = int(profile.channel_bandwidth) if profile else 12500
 

@@ -41,11 +41,11 @@ def design_channel_frontend(
     Nyquist.
 
     The anti-alias cutoff sits just below the *decimated* Nyquist, so it stays
-    valid when the input is already at or below `audio_rate` (a KiwiSDR delivers
-    a ~12 kHz channel): the decimation clamps to 1 and the cutoff is 0.45*rate,
+    valid when the input is already at or below `audio_rate` (narrowband network
+    channels deliver ~12 kHz): the decimation clamps to 1 and the cutoff is 0.45*rate,
     inside (0, Nyquist). Basing it on `audio_rate` breaks whenever
     `sample_rate < audio_rate` -- which is why four hand-copied versions of this
-    crashed on a 12 kHz KiwiSDR while only SSTV had patched around it.
+    crashed on 12 kHz narrowband inputs while only SSTV had patched around it.
     """
     decimation = max(1, int(sample_rate // audio_rate))
     decimated_rate = sample_rate / decimation

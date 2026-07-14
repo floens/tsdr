@@ -9,22 +9,22 @@ from tsdr.tui.model.store import Mutation, UIStore
 
 
 def test_initial_model() -> None:
-    m = UIModel(zoom=2.0)
+    m = UIModel(db_min=2.0)
     store = UIStore(m)
     assert store.model is m
 
 
 def test_update_returns_new_model() -> None:
     store = UIStore(UIModel())
-    store.update(zoom=2.0)
-    assert store.model.zoom == 2.0
+    store.update(db_min=2.0)
+    assert store.model.db_min == 2.0
 
 
 def test_update_short_circuits_when_unchanged() -> None:
-    store = UIStore(UIModel(zoom=2.0))
+    store = UIStore(UIModel(db_min=2.0))
     events: list[tuple[UIModel, UIModel]] = []
     store.subscribe(lambda old, new: events.append((old, new)))
-    store.update(zoom=2.0)
+    store.update(db_min=2.0)
     assert events == []
 
 
@@ -32,11 +32,11 @@ def test_update_notifies_subscribers() -> None:
     store = UIStore(UIModel())
     events: list[tuple[UIModel, UIModel]] = []
     store.subscribe(lambda old, new: events.append((old, new)))
-    store.update(zoom=4.0)
+    store.update(db_min=4.0)
     assert len(events) == 1
     old, new = events[0]
-    assert old.zoom == 1.0
-    assert new.zoom == 4.0
+    assert old.db_min == -100.0
+    assert new.db_min == 4.0
 
 
 def test_multiple_subscribers_fire_in_registration_order() -> None:
@@ -45,7 +45,7 @@ def test_multiple_subscribers_fire_in_registration_order() -> None:
     store.subscribe(lambda *_: order.append(1))
     store.subscribe(lambda *_: order.append(2))
     store.subscribe(lambda *_: order.append(3))
-    store.update(zoom=2.0)
+    store.update(db_min=2.0)
     assert order == [1, 2, 3]
 
 
@@ -53,9 +53,9 @@ def test_unsubscribe() -> None:
     store = UIStore(UIModel())
     events: list[object] = []
     unsub = store.subscribe(lambda *_: events.append(None))
-    store.update(zoom=2.0)
+    store.update(db_min=2.0)
     unsub()
-    store.update(zoom=3.0)
+    store.update(db_min=3.0)
     assert len(events) == 1
 
 
@@ -144,27 +144,27 @@ def test_remove_device_noop_for_unknown_id() -> None:
 
 def test_mutation_log_records_changes() -> None:
     store = UIStore(UIModel())
-    store.update(zoom=2.0)
+    store.update(db_min=2.0)
     store.update_console(autocomplete_visible=True)
     log = store.recent_mutations()
     assert [m.op for m in log] == ["update", "update_console"]
-    assert log[0].args == {"zoom": 2.0}
+    assert log[0].args == {"db_min": 2.0}
     assert log[1].args == {"autocomplete_visible": True}
 
 
 def test_mutation_log_capped() -> None:
     store = UIStore(UIModel())
     for i in range(250):
-        store.update(zoom=float(i + 2))  # 2..251 (avoid initial 1.0)
+        store.update(db_min=float(i + 2))  # 2..251 (avoid initial 1.0)
     log = store.recent_mutations()
     assert len(log) == 200
     # Most-recent at the end of the deque
-    assert log[-1].args == {"zoom": 251.0}
+    assert log[-1].args == {"db_min": 251.0}
 
 
 def test_mutation_log_skips_unchanged() -> None:
-    store = UIStore(UIModel(zoom=1.0))
-    store.update(zoom=1.0)
+    store = UIStore(UIModel(db_min=1.0))
+    store.update(db_min=1.0)
     assert store.recent_mutations() == ()
 
 
@@ -188,7 +188,7 @@ def test_subscriber_exception_does_not_stop_others(caplog) -> None:
 
     store.subscribe(bad)
     store.subscribe(good)
-    store.update(zoom=2.0)
+    store.update(db_min=2.0)
     assert fired == [1]
     assert any("ui_store_subscriber_error" in r.message for r in caplog.records)
 

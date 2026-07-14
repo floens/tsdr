@@ -69,7 +69,6 @@ DEFAULT_LAYOUT = UILayout(
 class UIModel:
     """Frozen UI model. Build new models via dataclasses.replace; use UIStore for mutations."""
 
-    zoom: float = 1.0
     db_min: float = -100.0
     db_max: float = -30.0
     image_mode: bool = False
@@ -89,7 +88,6 @@ class UIModel:
         ui = prefs.get("ui", {})
         defaults = cls()
         return cls(
-            zoom=float(ui["zoom"]) if "zoom" in ui else defaults.zoom,
             db_min=float(ui["db_min"]) if "db_min" in ui else defaults.db_min,
             db_max=float(ui["db_max"]) if "db_max" in ui else defaults.db_max,
             image_mode=bool(ui["image_mode"]) if "image_mode" in ui else defaults.image_mode,
@@ -171,18 +169,6 @@ def _coerce_str(value: object) -> str | None:
     if isinstance(value, str) and value:
         return value
     return None
-
-
-# Helpers for adjusting prefs-style fields. Used by keyboard handlers and the
-# spectrum widget's mouse-scroll zoom — they mutate UIStore via these functions
-# rather than computing in line.
-
-
-def adjusted_zoom(current: float, direction: int) -> float:
-    """Zoom by ±1.5×, clamped to [1.0, 512.0]."""
-    if direction > 0:
-        return round(min(512.0, current * 1.5), 1)
-    return round(max(1.0, current / 1.5), 1)
 
 
 # dB-window (dBFS) step and bounds. Floor reaches below -90 dBFS for

@@ -253,6 +253,7 @@ tracing_stats_begin
 tracing_stats_empty
 tsdr_exited
 tsdr_starting
+tune_recentered
 ui_pipeline_error
 ui_store_mutation
 ui_store_subscriber_error

@@ -18,5 +18,5 @@ class FrequencyCommand(Command):
     def run(self, args: Namespace) -> str:
         freq_hz = float(parse_hz(args.frequency))
         did = get_focused_device_id()
-        get_engine().update_device_config(did, center_frequency=freq_hz)
+        get_engine().update_device_config(did, tuned_frequency=freq_hz)
         return success(f"Frequency: {freq_mhz(freq_hz)}")

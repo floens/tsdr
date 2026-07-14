@@ -5,22 +5,32 @@ from tsdr.radio.dsp._kernels import apply_freq_shift_c64
 
 
 class FrequencyShiftStage:
-    """Stage that shifts IQ samples in frequency domain.
+    """Shifts the tuned channel to baseband for the demodulator.
 
-    Multiplies the input by `exp(j * 2pi * f_shift * t)` so a signal at the
-    captured center plus `frequency_offset` ends up at baseband. Phase
-    continuity is preserved across batches.
+    The offset is derived per batch from the gap between the batch's capture
+    center and the device's tuned frequency, so a hardware retune that lags
+    the dial is compensated automatically. Phase continuity is preserved
+    across batches; an offset change resets the phase accumulator.
     """
 
-    def __init__(self, frequency_offset: float = 0.0):
-        self.frequency_offset = frequency_offset
+    def __init__(self) -> None:
+        self.frequency_offset = 0.0
         self.phase_accumulator = 0.0  # radians
 
     def process(self, data: SamplesBatch, context: PipelineContext) -> SamplesBatch | None:
-        if data.iq_samples is None:
+        if data.iq_samples is None or context.device_context is None:
             return data
 
-        if self.frequency_offset == 0.0:
+        tuned = context.device_context.config.tuned_frequency
+        offset = data.center_frequency - tuned
+        # Tuned signal not in this capture (retune transient, unvalidated
+        # tune on a range-less device): pass unshifted rather than alias.
+        if abs(offset) >= data.sample_rate / 2:
+            return data
+
+        if offset != self.frequency_offset:
+            self.set_offset(offset)
+        if offset == 0.0:
             return data
 
         with span("freq_shift"):
@@ -33,16 +43,14 @@ class FrequencyShiftStage:
                 self.phase_accumulator,
             )
 
-        new_center_freq = data.center_frequency - self.frequency_offset
-
         return data.with_changes(
             iq_samples=iq_shifted,
-            center_frequency=new_center_freq,
+            center_frequency=tuned,
             stage_name="frequency_shift",
         )
 
     def on_config_change(self, config) -> None:
-        # Frequency offset is set directly via set_offset(); SDRConfig is not used here.
+        # Offset is derived per batch in process(); config carries nothing extra.
         pass
 
     def set_offset(self, frequency_offset: float) -> None:

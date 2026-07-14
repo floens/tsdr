@@ -1,7 +1,7 @@
 import numpy as np
 
 from tsdr.core.sdr.buffers import CircularBuffer
-from tsdr.core.sdr.config import SDRConfig
+from tsdr.core.sdr.config import DeviceConfig
 from tsdr.core.sdr.pipeline.pipeline import PipelineContext
 from tsdr.core.sdr.processing import (
     apply_dc_offset_correction,
@@ -20,7 +20,7 @@ class FFTStage:
     enough samples are available.
     """
 
-    def __init__(self, config: SDRConfig):
+    def __init__(self, config: DeviceConfig):
         self.fft_size = config.fft_size
         self.window_type = config.fft_window
 
@@ -149,7 +149,7 @@ class FFTStage:
         return data.with_changes(spectrum=spectrum, frequencies=frequencies, stage_name="fft")
 
     def on_config_change(self, config) -> None:
-        if not isinstance(config, SDRConfig):
+        if not isinstance(config, DeviceConfig):
             return
         if config.fft_size != self.fft_size:
             self.fft_size = config.fft_size
