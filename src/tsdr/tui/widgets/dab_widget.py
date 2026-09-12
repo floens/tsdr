@@ -37,10 +37,11 @@ def _service_prompt(svc: DABServiceInfo, selected: bool) -> str:
 def _decode_slide_to_rgba(slide: DABSlide) -> np.ndarray | None:
     """Decode JPEG/PNG slide to RGBA uint8 numpy array."""
     try:
-        img = Image.open(io.BytesIO(slide.data))
+        # Don't widen: pad.py checks the declared sub-type, Image.open sniffs the bytes.
+        img = Image.open(io.BytesIO(slide.data), formats=["JPEG", "PNG"])
         img = img.convert("RGBA")
         return np.array(img, dtype=np.uint8)
-    except OSError, ValueError:
+    except OSError, ValueError, Image.DecompressionBombError:
         logger.debug("dab_slide_decode_failed", exc_info=True)
         return None
 
