@@ -75,7 +75,7 @@ def import_soapysdr() -> Any:
 
         SoapySDR.registerLogHandler(_log_handler)
         return SoapySDR
-    except (ImportError, SystemError):
+    except ImportError, SystemError:
         pass
 
     added: list[str] = []
@@ -92,7 +92,7 @@ def import_soapysdr() -> Any:
         logger.debug("soapy_found_system_path file=%s", SoapySDR.__file__)
         SoapySDR.registerLogHandler(_log_handler)
         return SoapySDR
-    except (ImportError, SystemError):
+    except ImportError, SystemError:
         for path in added:
             sys.path.remove(path)
         return None

@@ -77,7 +77,7 @@ def query_sntp(host: str, timeout: float = 3.0) -> float | None:
         sock.sendto(packet, sockaddr)
         data, _ = sock.recvfrom(1024)
         t4 = time.time()
-    except (OSError, IndexError):
+    except OSError, IndexError:
         return None
     finally:
         if sock is not None:

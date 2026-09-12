@@ -40,7 +40,7 @@ def tcp_probe(host: str, port: int, timeout: float) -> float | None:
         t0 = time.monotonic()
         with socket.create_connection((host, port), timeout=timeout):
             return (time.monotonic() - t0) * 1000
-    except (TimeoutError, OSError):
+    except TimeoutError, OSError:
         return None
 
 

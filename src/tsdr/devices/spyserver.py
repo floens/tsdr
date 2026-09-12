@@ -274,12 +274,12 @@ class _SpyServerCodec:
             n_components = (len(u8) // 3) & ~1
             if n_components == 0:
                 return b""
-            u8 = u8[: n_components * 3].reshape(-1, 3)
+            triples = u8[: n_components * 3].reshape(-1, 3)
             # (u8^0x80)-0x80 sign-extends the top byte; .view(np.int8) would need contiguous memory.
             i32 = (
-                u8[:, 0].astype(np.int32)
-                | (u8[:, 1].astype(np.int32) << 8)
-                | (((u8[:, 2].astype(np.int32) ^ 0x80) - 0x80) << 16)
+                triples[:, 0].astype(np.int32)
+                | (triples[:, 1].astype(np.int32) << 8)
+                | (((triples[:, 2].astype(np.int32) ^ 0x80) - 0x80) << 16)
             )
             return (i32.astype(np.float32) * scale).view(np.complex64).tobytes()
         if msg_type == MsgType.FLOAT_IQ:

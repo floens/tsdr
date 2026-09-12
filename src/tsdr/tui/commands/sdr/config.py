@@ -339,7 +339,7 @@ def _sample_rate_completions(tokens: list[str], prefix: str) -> list[Completion]
     try:
         did = completion_device_id(tokens)
         rates = get_engine().get_device(did).device.capabilities.sample_rates
-    except (RuntimeError, SDRException):
+    except RuntimeError, SDRException:
         return []
     if not rates:
         return []

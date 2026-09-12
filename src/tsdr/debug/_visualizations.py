@@ -75,7 +75,7 @@ class FFTWindow(DebugWindow):
         freqs = np.fft.fftshift(np.fft.fftfreq(n, 1 / sample_rate)) + center_freq
         self.curve.setData(freqs, data)
 
-        self._update_range(freqs.min(), freqs.max(), data.min(), data.max())
+        self._update_range(freqs.min(), freqs.max(), float(data.min()), float(data.max()))
 
         self.stats.record_update(n)
         self.update_title()
@@ -216,7 +216,7 @@ class TimeSeriesWindow(DebugWindow):
         """Update the plot with new data."""
         self.curve.setData(data)
 
-        self._update_range(len(data), data.min(), data.max())
+        self._update_range(len(data), float(data.min()), float(data.max()))
 
         self.stats.record_update(len(data))
         self.update_title()

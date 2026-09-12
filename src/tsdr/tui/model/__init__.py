@@ -120,7 +120,7 @@ def _coerce_layout(value: object) -> UILayout:
             hotkeys=DEFAULT_LAYOUT.hotkeys,
             strips_visible=bool(strips_raw),
         )
-    except (TypeError, ValueError, KeyError):
+    except TypeError, ValueError, KeyError:
         return DEFAULT_LAYOUT
     return _augment_with_missing_panels(layout)
 

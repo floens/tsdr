@@ -836,7 +836,7 @@ class KiwiSDRDevice:
                 self._inactivity_ack_pending = False
                 try:
                     self._send(self._snd_ws, self._snd_send_lock, "SET inactivity_ack")
-                except (OSError, WebSocketException, DeviceError):
+                except OSError, WebSocketException, DeviceError:
                     pass
 
     def _fatal(self, reason: str) -> None:

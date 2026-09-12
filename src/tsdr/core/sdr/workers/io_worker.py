@@ -262,7 +262,7 @@ class IOWorker:
                         try:
                             _ = sample_queue.get(block=False)
                             sample_queue.put(batch, block=False)
-                        except (queue.Empty, queue.Full):
+                        except queue.Empty, queue.Full:
                             pass
 
                         self.device_context.dropped_samples += batch.sample_count
