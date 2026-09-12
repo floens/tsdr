@@ -16,12 +16,16 @@ interactive radio and as a general SDR toolkit.
 ## Features
 
 - Real-time spectrum and waterfall display, with optional Kitty graphics for
-  high-frame-rate image rendering.
-- Audio demodulators: WFM (with stereo and RDS), NFM, AM, USB, LSB (SSB), CW (Morse).
-- Protocol decoders: RDS, FLEX paging (2-FSK), ADS-B (1090 MHz Mode S), DAB+
-  (AAC), DMR (AMBE+2), TETRA (ACELP), FT8/FT4 (WSJT-X), APRS (AFSK1200/AX.25),
-  and SSTV (Martin/Scottie/Robot).
-- Multiple devices and multiple independent processing pipelines per device.
+  high-frame-rate image rendering if your terminal supports it (recommended!
+  see also the recommended terminals in the requirements section)
+- Audio demodulators: all you can expect. WFM (with stereo and RDS), NFM, AM,
+- SSB (USB/LSB), CW (Morse).
+- Protocol decoders: this list is always expanding. FLEX paging (2-FSK),
+  ADS-B (1090 MHz Mode S), DAB+ (AAC), DMR (with AMBE+2), TETRA (with ACELP),
+  FT8/FT4 (WSJT-X), APRS (AFSK1200/AX.25), SSTV (Martin/Scottie/Robot),
+  NAVTEX, ACARS.
+- Multiple devices and multiple independent processing pipelines per device. It
+  also connects to remote devices, such as KiwiSDR and spyserver.
 - A command console with history, tab-completion, and argparse-style help.
 - Frequency memories, bandplan overlays, IQ recording, and squelch.
 - Runs on Linux, macOS, and Windows.
@@ -29,7 +33,7 @@ interactive radio and as a general SDR toolkit.
 ## Requirements
 
 - Python 3.14 or newer.
-- A supported SDR device, or a recorded IQ file to play back.
+- A supported SDR device, or a device to connect to over the internet.
 - A modern, full-featured terminal emulator. [Ghostty](https://ghostty.org) is
   recommended on Linux and macOS for its broad protocol support. Image mode uses
   the Kitty graphics protocol; Ghostty and [Rio](https://rioterm.com/) render it
@@ -42,14 +46,14 @@ SoapySDR-compatible device), `iq-file`.
 
 ## Installation
 
-TSDR is not published on PyPI (yet). Install it directly from GitHub with
-[uv](https://docs.astral.sh/uv/):
+TSDR is not published on PyPI (yet). Commended to install it directly from
+GitHub with [uv](https://docs.astral.sh/uv/):
 
 ```
 uv tool install --from git+https://github.com/floens/tsdr tsdr
 ```
 
-Direct RTL-SDR USB support (the `rtlsdr` device type) requires the optional
+The RTL-SDR USB support (the `rtlsdr` device type) requires the optional
 `rtlsdr` extra:
 
 ```
@@ -83,7 +87,7 @@ sudo apt install soapysdr-module-rtlsdr   # or -hackrf, -airspy, -remote, ...
 
 Run `soapy probe` in the console to enumerate the devices SoapySDR can see.
 
-### Checking your terminal
+### Checking your terminal and configuration
 
 After installing, run the built-in diagnostic to verify that your terminal and
 environment support everything TSDR needs (notably the graphics protocol used by
@@ -234,7 +238,10 @@ and Numba.
 
 ## Development
 
-Parts of TSDR were written with the help of LLMs.
+Parts of TSDR were written with the help of LLMs. The development and porting of
+complicated, digital decoders is aided with LLMs, building on top of the work of
+many authors and programs in this space. This program is therefore licensed
+under the GPL (as is most of my software).
 
 ## Acknowledgments
 
