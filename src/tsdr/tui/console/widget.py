@@ -10,6 +10,7 @@ from tsdr.core.units import format_hz
 from tsdr.tui.commands.registry import MenuItem
 from tsdr.tui.console.highlight import highlight_command
 from tsdr.tui.console.terminal_input import TerminalInput
+from tsdr.tui.keybindings import PLACEHOLDER
 from tsdr.tui.model import ConsoleUIState
 
 _MATCH_STYLE = Style(bold=True, color="yellow")
@@ -41,10 +42,7 @@ class ConsoleWidget(Vertical):
     def compose(self) -> ComposeResult:
         yield _HistoryLog(id="console-history", wrap=True, markup=True)
         yield Static("", id="autocomplete-overlay")
-        yield TerminalInput(
-            placeholder=" ` console  space run  ←→ tune  ↑↓ bw  d demod  gG gain  ⇧↕ vol  1-9 band  mM^m mem  kj zoom  hl/HL db  i image",
-            id="command-input",
-        )
+        yield TerminalInput(placeholder=PLACEHOLDER, id="command-input")
 
     def watch_console_state(self, state: ConsoleUIState) -> None:
         if state.autocomplete_visible and state.autocomplete_items:

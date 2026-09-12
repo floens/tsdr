@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import assert_never
+
 from rich.text import Text
 from textual import events
 from textual.timer import Timer
@@ -16,19 +18,18 @@ from tsdr.radio.dsp.rnnoise import rnnoise_available
 from tsdr.tui._mixin_base import MixinBase
 from tsdr.tui.console import ConsoleWidget, TerminalInput
 from tsdr.tui.inline_edit import InlineEditor
+from tsdr.tui.keybindings import (
+    DEMOD_CHORD_MODES,
+    Action,
+    Context,
+    build_lookup,
+    demod_chord_prompt,
+)
 from tsdr.tui.model import Edge, adjusted_db_max, adjusted_db_min
 from tsdr.tui.model.store import get_ui_store
 from tsdr.tui.widgets import SpectrumWidget
 
-_DEMOD_CHORD_MODES = {
-    "w": "WFM",
-    "n": "NFM",
-    "a": "AM",
-    "u": "USB",
-    "l": "LSB",
-    "c": "CW",
-    "o": "OFF",
-}
+_LOOKUP = build_lookup()
 
 
 class KeyboardMixin(MixinBase):
@@ -46,52 +47,10 @@ class KeyboardMixin(MixinBase):
             return
 
         cmd_input = self.query_one("#command-input", TerminalInput)
-        focused = cmd_input.active
+        context = Context.CONSOLE if cmd_input.active else Context.GLOBAL
 
-        if focused:
-            menu_open = get_ui_store().model.console.autocomplete_visible
-            if event.key == "grave_accent":
-                self._clear_preview()
-                self._blur_command_input()
-                event.prevent_default()
-                event.stop()
-            elif event.key == "tab":
-                if menu_open:
-                    self._cycle_preview(1)
-                else:
-                    self._open_autocomplete()
-                event.prevent_default()
-                event.stop()
-            elif event.key == "shift+tab":
-                if menu_open:
-                    self._cycle_preview(-1)
-                    event.prevent_default()
-                    event.stop()
-            elif event.key == "escape":
-                if menu_open:
-                    self._dismiss_autocomplete()
-                else:
-                    self._blur_command_input()
-                event.prevent_default()
-                event.stop()
-            elif event.key in ("up", "ctrl+p"):
-                cmd_input.history_up()
-                event.prevent_default()
-                event.stop()
-            elif event.key in ("down", "ctrl+n"):
-                cmd_input.history_down()
-                event.prevent_default()
-                event.stop()
-            elif event.key == "ctrl+r":
-                cmd_input.enter_search()
-                event.prevent_default()
-                event.stop()
-            elif event.key == "ctrl+l":
-                self._clear_console()
-                event.prevent_default()
-                event.stop()
-        else:
-            # Pending delete confirmation
+        # Pending confirmations consume every key, so they must precede the table lookup.
+        if context is Context.GLOBAL:
             if self._pending_delete is not None:
                 if event.key == "y":
                     self._confirm_pending_delete()
@@ -102,7 +61,7 @@ class KeyboardMixin(MixinBase):
                 return
 
             if self._pending_demod_timer is not None:
-                mode = _DEMOD_CHORD_MODES.get(event.key)
+                mode = DEMOD_CHORD_MODES.get(event.key)
                 self._clear_demod_chord()
                 if mode is not None:
                     self._apply_demod_chord(mode)
@@ -112,207 +71,179 @@ class KeyboardMixin(MixinBase):
                 event.stop()
                 return
 
-            # Unfocused mode: direct shortcuts
-            if event.key == "grave_accent":
-                self._focus_command_input()
+        action = _LOOKUP.get((context, event.key))
+        if action is not None:
+            if self._run_action(action):
                 event.prevent_default()
                 event.stop()
-            elif event.key == "left":
-                self._tune(-1)
-                event.prevent_default()
-                event.stop()
-            elif event.key == "right":
-                self._tune(1)
-                event.prevent_default()
-                event.stop()
-            elif event.key == "shift+left":
-                self._tune(-1, coarse=True)
-                event.prevent_default()
-                event.stop()
-            elif event.key == "shift+right":
-                self._tune(1, coarse=True)
-                event.prevent_default()
-                event.stop()
-            elif event.key in ("alt+left", "ctrl+left"):
-                self._tune(-1, fine=True)
-                event.prevent_default()
-                event.stop()
-            elif event.key in ("alt+right", "ctrl+right"):
-                self._tune(1, fine=True)
-                event.prevent_default()
-                event.stop()
-            elif event.key == "up":
-                self._adjust_channel_bandwidth(1)
-                event.prevent_default()
-                event.stop()
-            elif event.key == "down":
-                self._adjust_channel_bandwidth(-1)
-                event.prevent_default()
-                event.stop()
-            elif event.key in ("alt+up", "ctrl+up"):
-                self._adjust_channel_bandwidth(1, fine=True)
-                event.prevent_default()
-                event.stop()
-            elif event.key in ("alt+down", "ctrl+down"):
-                self._adjust_channel_bandwidth(-1, fine=True)
-                event.prevent_default()
-                event.stop()
-            elif event.key == "left_square_bracket":
-                self._jump_target(-1)
-                event.prevent_default()
-                event.stop()
-            elif event.key == "right_square_bracket":
-                self._jump_target(1)
-                event.prevent_default()
-                event.stop()
-            elif len(event.key) == 1 and event.key.isdigit():
-                digit = int(event.key)
+            return
+
+        if context is Context.CONSOLE:
+            return
+
+        match event.key.split("+"):
+            case [d] if len(d) == 1 and d.isdigit():
                 store = get_ui_store()
-                panel_id = next((pid for d, pid in store.model.layout.hotkeys if d == digit), None)
+                panel_id = next(
+                    (pid for hk, pid in store.model.layout.hotkeys if hk == int(d)), None
+                )
                 if panel_id is not None:
                     store.toggle_panel(panel_id)
-                event.prevent_default()
-                event.stop()
-            elif len(event.key) == 6 and event.key.startswith("ctrl+") and event.key[5].isdigit():
-                digit = int(event.key[5])
-                if digit == 0:
+            case ["ctrl", d] if len(d) == 1 and d.isdigit():
+                if d == "0":
                     self._swap_ab()
                 else:
-                    self._recall_band(digit)
-                event.prevent_default()
-                event.stop()
-            elif len(event.key) == 5 and event.key.startswith("alt+") and event.key[4].isdigit():
-                self._cycle_panel_edge(int(event.key[4]))
-                event.prevent_default()
-                event.stop()
-            elif event.key == "s":
+                    self._recall_band(int(d))
+            case ["alt", d] if len(d) == 1 and d.isdigit():
+                self._cycle_panel_edge(int(d))
+            case _:
+                return
+        event.prevent_default()
+        event.stop()
+
+    def _run_action(self, action: Action) -> bool:
+        """Return False to leave the key unconsumed."""
+        match action:
+            case Action.TUNE_DOWN:
+                self._tune(-1)
+            case Action.TUNE_UP:
+                self._tune(1)
+            case Action.TUNE_DOWN_COARSE:
+                self._tune(-1, coarse=True)
+            case Action.TUNE_UP_COARSE:
+                self._tune(1, coarse=True)
+            case Action.TUNE_DOWN_FINE:
+                self._tune(-1, fine=True)
+            case Action.TUNE_UP_FINE:
+                self._tune(1, fine=True)
+            case Action.TUNE_TARGET_PREV:
+                self._jump_target(-1)
+            case Action.TUNE_TARGET_NEXT:
+                self._jump_target(1)
+            case Action.TUNE_STEP_NEXT:
                 self._cycle_step(True)
-                event.prevent_default()
-                event.stop()
-            elif event.key == "S":
+            case Action.TUNE_STEP_PREV:
                 self._cycle_step(False)
-                event.prevent_default()
-                event.stop()
-            elif event.key == "g":
-                self._adjust_gain(-1)
-                event.prevent_default()
-                event.stop()
-            elif event.key == "G":
-                self._adjust_gain(1)
-                event.prevent_default()
-                event.stop()
-            elif event.key == "u":
-                self._adjust_squelch(-1)
-                event.prevent_default()
-                event.stop()
-            elif event.key == "U":
-                self._adjust_squelch(1)
-                event.prevent_default()
-                event.stop()
-            elif event.key == "ctrl+u":
-                self._disable_squelch()
-                event.prevent_default()
-                event.stop()
-            elif event.key == "ctrl+g":
-                self._toggle_agc()
-                event.prevent_default()
-                event.stop()
-            elif event.key == "shift+up":
-                self._adjust_volume(1)
-                event.prevent_default()
-                event.stop()
-            elif event.key == "shift+down":
-                self._adjust_volume(-1)
-                event.prevent_default()
-                event.stop()
-            elif event.key == "ctrl+s":
-                self._toggle_panel_store("stats")
-                event.prevent_default()
-                event.stop()
-            elif event.key == "ctrl+p":
-                self._toggle_panel_store("performance")
-                event.prevent_default()
-                event.stop()
-            elif event.key == "i":
-                store = get_ui_store()
-                new_mode = not store.model.image_mode
-                store.update(image_mode=new_mode)
-                self.show_status(f"Image mode: {'on' if new_mode else 'off'}")
-                event.prevent_default()
-                event.stop()
-            elif event.key == "k":
-                self._adjust_spectrum_span(1)
-                event.prevent_default()
-                event.stop()
-            elif event.key == "j":
-                self._adjust_spectrum_span(-1)
-                event.prevent_default()
-                event.stop()
-            elif event.key == "h":
-                store = get_ui_store()
-                m = store.model
-                store.update(db_min=adjusted_db_min(m.db_min, m.db_max, 1))
-                event.prevent_default()
-                event.stop()
-            elif event.key == "l":
-                store = get_ui_store()
-                m = store.model
-                store.update(db_min=adjusted_db_min(m.db_min, m.db_max, -1))
-                event.prevent_default()
-                event.stop()
-            elif event.key == "H":
-                store = get_ui_store()
-                m = store.model
-                store.update(db_max=adjusted_db_max(m.db_max, m.db_min, 1))
-                event.prevent_default()
-                event.stop()
-            elif event.key == "L":
-                store = get_ui_store()
-                m = store.model
-                store.update(db_max=adjusted_db_max(m.db_max, m.db_min, -1))
-                event.prevent_default()
-                event.stop()
-            elif event.key == "m":
-                self._quick_add_memory()
-                event.prevent_default()
-                event.stop()
-            elif event.key == "M":
-                self._quick_edit_memory()
-                event.prevent_default()
-                event.stop()
-            elif event.key == "ctrl+m":
-                self._quick_remove_memory()
-                event.prevent_default()
-                event.stop()
-            elif event.key == "space":
-                self._toggle_device_running()
-                event.prevent_default()
-                event.stop()
-            elif event.key == "d":
-                self._pending_demod_timer = self.set_timer(2.0, self._cancel_demod_chord)
-                self.show_status(
-                    "Demod: [b]w[/]fm [b]n[/]fm [b]a[/]m [b]u[/]sb [b]l[/]sb [b]c[/]w [b]o[/]ff"
-                )
-                event.prevent_default()
-                event.stop()
-            elif event.key == "n":
-                self._toggle_denoise()
-                event.prevent_default()
-                event.stop()
-            elif event.key == "c":
+            case Action.TUNE_MODE_TOGGLE:
                 self._toggle_center_tuning()
-                event.prevent_default()
-                event.stop()
-            elif event.key == "C":
+            case Action.BANDWIDTH_UP:
+                self._adjust_channel_bandwidth(1)
+            case Action.BANDWIDTH_DOWN:
+                self._adjust_channel_bandwidth(-1)
+            case Action.BANDWIDTH_UP_FINE:
+                self._adjust_channel_bandwidth(1, fine=True)
+            case Action.BANDWIDTH_DOWN_FINE:
+                self._adjust_channel_bandwidth(-1, fine=True)
+            case Action.GAIN_DOWN:
+                self._adjust_gain(-1)
+            case Action.GAIN_UP:
+                self._adjust_gain(1)
+            case Action.GAIN_AGC:
+                self._toggle_agc()
+            case Action.SQUELCH_DOWN:
+                self._adjust_squelch(-1)
+            case Action.SQUELCH_UP:
+                self._adjust_squelch(1)
+            case Action.SQUELCH_OFF:
+                self._disable_squelch()
+            case Action.VOLUME_UP:
+                self._adjust_volume(1)
+            case Action.VOLUME_DOWN:
+                self._adjust_volume(-1)
+            case Action.AUDIO_DENOISE:
+                self._toggle_denoise()
+            case Action.DEVICE_TOGGLE:
+                self._toggle_device_running()
+            case Action.DEMOD_CHORD:
+                self._start_demod_chord()
+            case Action.DISPLAY_IMAGE:
+                self._toggle_image_mode()
+            case Action.DISPLAY_SPAN_IN:
+                self._adjust_spectrum_span(1)
+            case Action.DISPLAY_SPAN_OUT:
+                self._adjust_spectrum_span(-1)
+            case Action.DISPLAY_FLOOR_UP:
+                self._adjust_db_floor(1)
+            case Action.DISPLAY_FLOOR_DOWN:
+                self._adjust_db_floor(-1)
+            case Action.DISPLAY_CEILING_UP:
+                self._adjust_db_ceiling(1)
+            case Action.DISPLAY_CEILING_DOWN:
+                self._adjust_db_ceiling(-1)
+            case Action.DISPLAY_CENTER_ON_DIAL:
                 self._center_view_on_dial()
-                event.prevent_default()
-                event.stop()
+            case Action.MEMORY_ADD:
+                self._quick_add_memory()
+            case Action.MEMORY_EDIT:
+                self._quick_edit_memory()
+            case Action.MEMORY_REMOVE:
+                self._quick_remove_memory()
+            case Action.CONSOLE_FOCUS:
+                self._focus_command_input()
+            case Action.CONSOLE_LEAVE:
+                self._console_leave()
+            case Action.CONSOLE_TAB:
+                self._console_tab()
+            case Action.CONSOLE_TAB_BACK:
+                return self._console_shift_tab()
+            case Action.CONSOLE_ESCAPE:
+                self._console_escape()
+            case Action.CONSOLE_HISTORY_PREV:
+                self.query_one("#command-input", TerminalInput).history_up()
+            case Action.CONSOLE_HISTORY_NEXT:
+                self.query_one("#command-input", TerminalInput).history_down()
+            case Action.CONSOLE_SEARCH:
+                self.query_one("#command-input", TerminalInput).enter_search()
+            case Action.CONSOLE_CLEAR:
+                self._clear_console()
+            case _:
+                assert_never(action)
+        return True
+
+    def _console_leave(self) -> None:
+        self._clear_preview()
+        self._blur_command_input()
+
+    def _console_tab(self) -> None:
+        if get_ui_store().model.console.autocomplete_visible:
+            self._cycle_preview(1)
+        else:
+            self._open_autocomplete()
+
+    def _console_shift_tab(self) -> bool:
+        if not get_ui_store().model.console.autocomplete_visible:
+            return False
+        self._cycle_preview(-1)
+        return True
+
+    def _console_escape(self) -> None:
+        if get_ui_store().model.console.autocomplete_visible:
+            self._dismiss_autocomplete()
+        else:
+            self._blur_command_input()
+
+    def _toggle_image_mode(self) -> None:
+        store = get_ui_store()
+        new_mode = not store.model.image_mode
+        store.update(image_mode=new_mode)
+        self.show_status(f"Image mode: {'on' if new_mode else 'off'}")
+
+    def _adjust_db_floor(self, direction: int) -> None:
+        store = get_ui_store()
+        m = store.model
+        store.update(db_min=adjusted_db_min(m.db_min, m.db_max, direction))
+
+    def _adjust_db_ceiling(self, direction: int) -> None:
+        store = get_ui_store()
+        m = store.model
+        store.update(db_max=adjusted_db_max(m.db_max, m.db_min, direction))
+
+    def _start_demod_chord(self) -> None:
+        self._pending_demod_timer = self.set_timer(2.0, self._cancel_demod_chord)
+        self.show_status(demod_chord_prompt())
 
     def _clear_console(self) -> None:
         self.query_one(ConsoleWidget).clear_history()
-
-    def _toggle_panel_store(self, panel: str) -> None:
-        get_ui_store().toggle_panel(panel)
 
     def _cycle_panel_edge(self, digit: int) -> None:
         store = get_ui_store()

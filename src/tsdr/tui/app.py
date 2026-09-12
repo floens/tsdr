@@ -139,7 +139,9 @@ class TSDRApp(
         self.set_timer(4.0, self._force_refresh_all)
 
     def _force_refresh_all(self) -> None:
-        self.screen.refresh()
+        # The startup timers can outlive the screen stack (quick exit, Pilot tests).
+        if self.screen_stack:
+            self.screen.refresh()
 
     def _restore_and_seed(self) -> None:
         restore_devices()

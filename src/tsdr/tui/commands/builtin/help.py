@@ -14,4 +14,4 @@ class HelpCommand(Command):
         commands = sorted(COMMANDS.keys())
         if not commands:
             return "No commands available"
-        return f"Available commands: {', '.join(commands)}"
+        return f"Available commands: {', '.join(commands)}\nType keys for keyboard shortcuts."

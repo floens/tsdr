@@ -157,7 +157,10 @@ panels' fixed heights.
 - **`compose()` yields nothing** — a placeholder Container would sit as an
   unkeyed sibling of the reconciler tree and steal layout space.
 - **The app owns the keyboard** — there are no focusable Textual `Input`s. All
-  keys route through `TSDRApp.on_key` (`tui/keyboard.py`). Inline text editing
+  keys route through `TSDRApp.on_key` (`tui/keyboard.py`), which dispatches via
+  the declarative binding table in `tui/keybindings.py`. That table also feeds
+  the `keys` command, with the console placeholder hand-written beside it; add
+  shortcuts there, never as if/elif branches. Inline text editing
   (spectrum memory labels, directory filter + favorite notes) uses `InlineEditor`
   (`tui/inline_edit.py`): calling `start()` registers it as
   `app.active_inline_editor`, so `on_key` dispatches every key to it until commit
