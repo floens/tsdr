@@ -1,7 +1,11 @@
+import atexit
 import itertools
 import logging
+import os
 import sys
 from base64 import standard_b64encode
+from collections import deque
+from collections.abc import Container
 from dataclasses import dataclass, field
 from multiprocessing.shared_memory import SharedMemory
 
@@ -17,6 +21,51 @@ from tsdr.tui.tty import cell_pixel_size, shm_payload_name
 
 _id_counter = itertools.count(1)
 _shm_seq = itertools.count(1)
+
+# POSIX frames handed to the terminal, oldest first, as (image id, name). The
+# terminal unlinks each one once it has read it; a frame it never reads (a
+# terminal that stopped reading, commands still queued at exit, tests) would
+# otherwise stay in shared memory, in RAM, for good.
+_unread_frames: deque[tuple[int, str]] = deque()
+# More frames than a terminal ever falls behind by (~1 s of a spectrum and a
+# waterfall at 30 fps); older ones are unlinked.
+_MAX_UNREAD_FRAMES = 64
+
+
+def _unlink_frame(name: str) -> None:
+    # The terminal unlinks each frame it reads, possibly between our open and
+    # our unlink: either way the frame is gone, which is all we want.
+    try:
+        shm = SharedMemory(name=name, track=False)
+    except FileNotFoundError:
+        return
+    try:
+        shm.unlink()
+    except FileNotFoundError:
+        pass
+    finally:
+        shm.close()
+
+
+def _note_sent_frame(image_id: int, name: str) -> None:
+    _unread_frames.append((image_id, name))
+    while len(_unread_frames) > _MAX_UNREAD_FRAMES:
+        _unlink_frame(_unread_frames.popleft()[1])
+
+
+def _unlink_unread_frames(image_ids: Container[int] | None = None) -> None:
+    """Unlink the frames of `image_ids` (all when None) the terminal hasn't read."""
+    keep = []
+    for i, name in _unread_frames:
+        if image_ids is None or i in image_ids:
+            _unlink_frame(name)
+        else:
+            keep.append((i, name))
+    _unread_frames.clear()
+    _unread_frames.extend(keep)
+
+
+atexit.register(_unlink_unread_frames)
 logger = logging.getLogger(__name__)
 
 # How this widget uploads pixels (see update_image: f=32, t=s). Human-readable
@@ -79,8 +128,7 @@ class KittyImageWidget(Widget):
     #    written inside the synchronized output block (BSU…ESU).
     #  - Image lifecycle: per-event logging (IMAGE_CREATE/UPDATE/PLACE/
     #    HIDE/REMOVE) shows no re-creation of deleted image IDs.
-    #  - SHM reuse: image IDs are monotonic with no reuse after delete (and on
-    #    Windows the shm name is unique per frame; see _write_shm).
+    #  - Image IDs are monotonic with no reuse after delete.
     #  - Separate placement + data delete: splitting into d=i,p=1 then d=I
     #    did not help.
     #  - q=0 responses: delete commands produce no terminal response per the
@@ -332,7 +380,7 @@ class KittyImageWidget(Widget):
 
         # Build transmit command (shared memory, kitty t=s — no base64 on the hot
         # path). a=T transmits *and* displays; re-transmitting the same id makes
-        # the terminal re-read the (overwritten) shared buffer and replace it.
+        # the terminal read the new shared buffer and replace the image.
         # S= is the exact byte count to read: a Windows mapping is rounded up to a
         # whole page (and our buffer may be over-allocated), so without it the
         # terminal reads the padded size and rejects the frame ("data len doesn't
@@ -346,6 +394,8 @@ class KittyImageWidget(Widget):
             f"z=0,C=1,q=0{extra};{b64_name}\x1b\\"
         )
         self._queue_cmd(cmd)
+        if sys.platform != "win32":
+            _note_sent_frame(entry.image_id, entry.shm_name)
         self._release_shm(entry)
         entry.needs_transmit = False
         entry.has_image = True
@@ -422,6 +472,7 @@ class KittyImageWidget(Widget):
         self._schedule_delete_retries(entry.image_id)
         if entry.pending_shm is not None:
             entry.pending_shm.close()
+        _unlink_unread_frames({entry.image_id})
 
     def render_lines(self, crop: Region) -> list[Strip]:
         self.flush_pending_deletes()
@@ -441,6 +492,7 @@ class KittyImageWidget(Widget):
         self._retired_shms = survivors
 
     def on_unmount(self) -> None:
+        _unlink_unread_frames({entry.image_id for entry in self._images.values()})
         for entry in self._images.values():
             self._queue_cmd(f"\x1b_Ga=d,d=I,i={entry.image_id},q=0\x1b\\")
             if entry.pending_shm is not None:
@@ -479,40 +531,30 @@ class KittyImageWidget(Widget):
         entry.pending_shm.buf[:n] = flat  # type: ignore[index]
 
     def _create_unique_shm(self, entry: _ImageEntry, size: int) -> SharedMemory:
-        """Create a fresh-named Windows mapping, skipping any name still in use.
+        """Create a fresh-named mapping, skipping any name still in use.
 
         A mapping leaked by a crashed prior tsdr can stay alive if the terminal
         still holds its handle; reusing that exact name would raise
         ERROR_ALREADY_EXISTS. Advance the counter until an unused name is found.
         """
         while True:
-            entry.shm_name = f"tsdr_{entry.image_id}_{next(_shm_seq)}"
+            entry.shm_name = f"tsdr_{os.getpid()}_{entry.image_id}_{next(_shm_seq)}"
             try:
                 return SharedMemory(create=True, name=entry.shm_name, size=size, track=False)
             except FileExistsError:
                 continue
 
     def _write_shm_recreate(self, entry: _ImageEntry, flat: np.ndarray) -> None:
-        """POSIX: recreate the named object each frame.
+        """POSIX: give each queued frame its own shared-memory object.
 
-        The terminal unlinks it after reading, so the name is gone by the next
-        frame; the object survives our close (done in ``_release_shm``) until the
-        terminal unlinks it. The except branch clears a stale object the terminal
-        never read.
+        Reusing a name can make the terminal open the next frame's object before
+        it is sized or filled, causing SIGBUS or mismatched image data. Unique
+        names preserve each frame until the terminal reads and unlinks it.
         """
         n = flat.nbytes
         if entry.pending_shm is not None:
             entry.pending_shm.close()
             entry.pending_shm = None
-        try:
-            shm = SharedMemory(create=True, name=entry.shm_name, size=n, track=False)
-        except FileExistsError:
-            try:
-                stale = SharedMemory(name=entry.shm_name, track=False)
-                stale.close()
-                stale.unlink()
-            except FileNotFoundError, OSError:
-                pass
-            shm = SharedMemory(create=True, name=entry.shm_name, size=n, track=False)
+        shm = self._create_unique_shm(entry, n)
         shm.buf[:n] = flat  # type: ignore[index]
         entry.pending_shm = shm

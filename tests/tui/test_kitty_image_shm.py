@@ -4,8 +4,8 @@ Both platforms transmit over shared memory (kitty t=s) for performance, but the
 producer side differs because the terminal unlinks on POSIX and only closes on
 Windows (kitty spec):
 
-* POSIX recreates the named object every frame (the terminal unlinks it after
-  reading, so the name is gone next frame) and closes our handle immediately.
+* POSIX creates a unique object for each frame and closes our handle immediately.
+  Queued frames remain intact until the terminal reads and unlinks each object.
 * Windows keeps one mapping alive and overwrites it in place; capacity grows
   geometrically so a steadily growing image reallocates O(log) times, and a
   superseded mapping is retired (closed a few frames later) to avoid racing the
@@ -17,9 +17,12 @@ See ``kitty_image._write_shm`` / ``_release_shm``.
 from __future__ import annotations
 
 import sys
+from collections import deque
+from multiprocessing.shared_memory import SharedMemory
 
 import numpy as np
 
+from tsdr.tui.widgets import kitty_image
 from tsdr.tui.widgets.kitty_image import KittyImageWidget, _ImageEntry
 
 
@@ -97,18 +100,51 @@ def test_posix_recreates_and_releases_each_frame() -> None:
         return
     widget = KittyImageWidget(id="img")
     entry = _entry()
+    reader = None
     try:
         widget._write_shm(entry, _flat(16))
         assert entry.pending_shm is not None
-        assert entry.shm_name == "tsdr_1"  # fixed name reused on POSIX
-
         # _release_shm closes our handle immediately (the terminal unlinks).
         widget._release_shm(entry)
         assert entry.pending_shm is None
+        reader = SharedMemory(name=entry.shm_name, track=False)
+        assert bytes(reader.buf) == _flat(16).tobytes()
     finally:
+        if reader is not None:
+            reader.close()
+            reader.unlink()
         if entry.pending_shm is not None:
             entry.pending_shm.close()
             entry.pending_shm.unlink()
+
+
+def test_posix_queued_frames_keep_distinct_buffers(monkeypatch) -> None:
+    """A slow terminal can read both frames after the producer has resized."""
+    if sys.platform == "win32":
+        return
+    widget = KittyImageWidget(id="img")
+    captured: list[str] = []
+    monkeypatch.setattr(widget, "_queue_cmd", captured.append)
+    frames = [np.full((32, 32, 4), 127, dtype=np.uint8), np.zeros((1, 1, 4), dtype=np.uint8)]
+    names: list[str] = []
+    try:
+        for frame in frames:
+            widget.update_image("k", frame)
+            names.append(widget._images["k"].shm_name)
+        assert len(set(names)) == 2
+        assert len(captured) == 2
+        for name, frame in zip(names, frames, strict=True):
+            reader = SharedMemory(name=name, track=False)
+            try:
+                assert reader.size == frame.nbytes
+                assert bytes(reader.buf) == frame.tobytes()
+            finally:
+                reader.close()
+    finally:
+        for name in set(names):
+            reader = SharedMemory(name=name, track=False)
+            reader.close()
+            reader.unlink()
 
 
 def test_update_image_transmits_t_s_shared_memory(monkeypatch) -> None:
@@ -131,3 +167,52 @@ def test_update_image_transmits_t_s_shared_memory(monkeypatch) -> None:
             entry.pending_shm.close()
             if sys.platform != "win32":
                 entry.pending_shm.unlink()
+        elif sys.platform != "win32":
+            reader = SharedMemory(name=entry.shm_name, track=False)
+            reader.close()
+            reader.unlink()
+
+
+def _exists(name: str) -> bool:
+    try:
+        SharedMemory(name=name, track=False).close()
+    except FileNotFoundError:
+        return False
+    return True
+
+
+def test_posix_unlinks_frames_the_terminal_never_reads(monkeypatch) -> None:
+    """Only the terminal's read unlinks a frame; frames it never reads (no
+    terminal here) are unlinked once they fall behind, and on unmount."""
+    if sys.platform == "win32":
+        return
+    monkeypatch.setattr(kitty_image, "_unread_frames", deque())
+    widget = KittyImageWidget(id="img")
+    monkeypatch.setattr(widget, "_queue_cmd", lambda cmd: None)
+    data = np.zeros((2, 2, 4), dtype=np.uint8)
+    names = []
+    for _ in range(kitty_image._MAX_UNREAD_FRAMES + 10):
+        widget.update_image("k", data)
+        names.append(widget._images["k"].shm_name)
+    assert [n for n in names if _exists(n)] == names[-kitty_image._MAX_UNREAD_FRAMES :]
+    widget.on_unmount()
+    assert not any(_exists(n) for n in names)
+
+
+def test_unlink_tolerates_the_terminal_unlinking_first(monkeypatch) -> None:
+    """The terminal can unlink a frame between our open and our unlink."""
+    if sys.platform == "win32":
+        return
+    shm = SharedMemory(create=True, size=16, track=False)
+    real_unlink = SharedMemory.unlink
+
+    def terminal_got_there_first(self: SharedMemory) -> None:
+        real_unlink(self)
+        real_unlink(self)  # ours, now of a name that is gone
+
+    monkeypatch.setattr(SharedMemory, "unlink", terminal_got_there_first)
+    try:
+        kitty_image._unlink_frame(shm.name)
+    finally:
+        shm.close()
+    assert not _exists(shm.name)
