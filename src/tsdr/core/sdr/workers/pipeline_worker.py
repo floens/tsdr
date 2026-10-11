@@ -54,20 +54,13 @@ class PipelineWorker:
         """Main pipeline loop."""
         device_id = self.device_context.device_id
         sample_queue = self.device_context.sample_queue
-        pipeline_control_queue = self.device_context.pipeline_control_queue
 
         assert self.device_context.pipelines, "Pipelines must be configured"
         assert self.pipeline_context is not None, "Pipeline context must be initialized in setup()"
 
         while context.should_continue():
             with span("pipeline_worker"):
-                try:
-                    new_config = pipeline_control_queue.get(block=False)
-                    if isinstance(new_config, SDRConfig):
-                        self.pipeline_context.config = new_config
-                    self._apply_config_to_stages(new_config)
-                except queue.Empty:
-                    pass
+                self._apply_pending_configs()
 
                 with span("queue_wait"):
                     try:
@@ -105,6 +98,26 @@ class PipelineWorker:
 
     def teardown(self, context: WorkerContext) -> None:
         pass
+
+    def _apply_pending_configs(self) -> None:
+        """Drain the control queue and apply the newest snapshot of each type.
+
+        Snapshots are complete, so intermediate ones from a burst carry nothing
+        the latest lacks; applying one per batch would trail the UI by the
+        whole backlog.
+        """
+        assert self.pipeline_context is not None
+        latest: dict[type, SDRConfig | DeviceConfig] = {}
+        try:
+            while True:
+                new_config = self.device_context.pipeline_control_queue.get(block=False)
+                latest[type(new_config)] = new_config
+        except queue.Empty:
+            pass
+        for new_config in latest.values():
+            if isinstance(new_config, SDRConfig):
+                self.pipeline_context.config = new_config
+            self._apply_config_to_stages(new_config)
 
     def _apply_config_to_stages(self, config: SDRConfig | DeviceConfig) -> None:
         """Apply configuration update to all pipeline stages."""

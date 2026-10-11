@@ -73,7 +73,15 @@ class KeyboardMixin(MixinBase):
 
         action = _LOOKUP.get((context, event.key))
         if action is not None:
-            if self._run_action(action):
+            # An engine error from a shortcut (e.g. an out-of-range tune) is the
+            # user's to see, as for commands and mouse gestures; escaping the
+            # handler would make Textual exit the app.
+            try:
+                handled = self._run_action(action)
+            except SDRException as e:
+                self._show_error(str(e))
+                handled = True
+            if handled:
                 event.prevent_default()
                 event.stop()
             return
@@ -81,7 +89,18 @@ class KeyboardMixin(MixinBase):
         if context is Context.CONSOLE:
             return
 
-        match event.key.split("+"):
+        try:
+            handled = self._run_key_family(event.key)
+        except SDRException as e:
+            self._show_error(str(e))
+            handled = True
+        if handled:
+            event.prevent_default()
+            event.stop()
+
+    def _run_key_family(self, key: str) -> bool:
+        """Parameterized digit keys; return False to leave the key unconsumed."""
+        match key.split("+"):
             case [d] if len(d) == 1 and d.isdigit():
                 store = get_ui_store()
                 panel_id = next(
@@ -97,9 +116,8 @@ class KeyboardMixin(MixinBase):
             case ["alt", d] if len(d) == 1 and d.isdigit():
                 self._cycle_panel_edge(int(d))
             case _:
-                return
-        event.prevent_default()
-        event.stop()
+                return False
+        return True
 
     def _run_action(self, action: Action) -> bool:
         """Return False to leave the key unconsumed."""

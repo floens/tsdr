@@ -331,3 +331,13 @@ def test_optional_only_runs_with_empty_argv() -> None:
     # calls self.help_text() which includes the prog name.
     result = cmd.execute([])
     assert "opt" in result
+
+
+def test_choice_completion_ignores_case() -> None:
+    cmd = PositionalAndFlagsCommand()
+    assert [c.value for c in cmd.get_completions([], "W")] == ["wfm"]
+
+
+def test_flag_choice_completion_ignores_case() -> None:
+    cmd = FlagsOnlyCommand()
+    assert [c.value for c in cmd.get_completions(["--agc"], "O")] == ["on", "off"]

@@ -215,6 +215,13 @@ class TuningMixin(MixinBase):
         prev = ts.previous
         if captured == prev:
             return
+        rng = device.device.capabilities.frequency_range
+        if rng is not None and not (rng[0] <= prev.frequency_hz <= rng[1]):
+            self._show_error(
+                f"A/B: {format_hz(prev.frequency_hz, interval=1.0, long_suffix=True)} "
+                f"out of device range"
+            )
+            return
         ts.previous = captured
 
         engine = get_engine()

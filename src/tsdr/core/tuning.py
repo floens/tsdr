@@ -82,6 +82,14 @@ def resolve_auto_step(mode: str, freq_hz: float) -> float:
     return 1_000_000
 
 
+def click_snap_step(step_hz: float | None, mode: str, freq_hz: float) -> float:
+    """Grid for a click on the spectrum: the mode's channel raster, or the
+    tuning step when that is finer. A coarse step (1 MHz, to cross a band by
+    key) would otherwise land every click on the same whole megahertz."""
+    auto = resolve_auto_step(mode, freq_hz)
+    return auto if step_hz is None else min(step_hz, auto)
+
+
 def snap_to_grid(current_hz: float, step_hz: float, direction: int) -> float:
     """Step-aligned move. First press off-grid tidies onto the grid."""
     return step_hz * (round(current_hz / step_hz) + direction)

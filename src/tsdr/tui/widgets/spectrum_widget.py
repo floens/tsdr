@@ -22,7 +22,7 @@ from tsdr.core.sdr.engine import get_engine
 from tsdr.core.sdr.exceptions import SDRException
 from tsdr.core.sdr.spectrum_view import full_view_range, resolve_view, view_range
 from tsdr.core.tracing import traced
-from tsdr.core.tuning import resolve_auto_step, save_previous_tune_state
+from tsdr.core.tuning import click_snap_step, save_previous_tune_state
 from tsdr.core.tuning_state import get_tuning_state
 from tsdr.core.units import axis_si_prefix
 from tsdr.tui.inline_edit import InlineEditor
@@ -705,14 +705,12 @@ class SpectrumWidget(ImageModeMixin, Widget):
                     event.stop()
                     return
 
-        # Snap to the user's current tuning step (auto-resolved if unset).
-        ts = get_tuning_state()
-        step = (
-            ts.step
-            if ts.step is not None
-            else resolve_auto_step(device.active_mode, device.config.tuned_frequency)
-        )
+        step = click_snap_step(get_tuning_state().step, device.active_mode, freq)
         freq = round(freq / step) * step
+        if freq == device.config.tuned_frequency:
+            # Keep the A/B slot: a click that lands on the dial is not a retune.
+            event.stop()
+            return
         save_previous_tune_state(device)
         try:
             engine.update_device_config(device.device_id, tuned_frequency=freq)

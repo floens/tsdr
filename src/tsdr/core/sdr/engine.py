@@ -163,6 +163,7 @@ class SDREngine:
             raise SDRException(f"Device {device_id} not found")
 
         context = self.devices[device_id]
+        self._reap_failed(device_id)
 
         if context.state != DeviceState.STOPPED:
             raise SDRException(f"Device {device_id} must be stopped before removal")
@@ -201,6 +202,7 @@ class SDREngine:
             raise SDRException(f"Device {device_id} not found")
 
         context = self.devices[device_id]
+        self._reap_failed(device_id)
         if context.state != DeviceState.STOPPED:
             raise SDRException(f"Device {device_id} must be stopped to reconfigure params")
         if type(params) is not type(context.params):
@@ -235,6 +237,7 @@ class SDREngine:
             raise SDRException(f"Device {device_id} not found")
 
         context = self.devices[device_id]
+        self._reap_failed(device_id)
 
         if context.state != DeviceState.STOPPED:
             raise SDRException(f"Device {device_id} is not stopped")
@@ -245,9 +248,24 @@ class SDREngine:
         if context.demod_profile and context.demod_profile.has_audio:
             self.start_audio_output(device_id)
 
+        # The I/O worker may already have failed to open the device.
         self.event_bus.publish(
-            DeviceStateChangedEvent(device_id=device_id, running=True, source_id="engine")
+            DeviceStateChangedEvent(
+                device_id=device_id,
+                running=context.state == DeviceState.RUNNING,
+                source_id="engine",
+            )
         )
+
+    def _reap_failed(self, device_id: str) -> None:
+        """Stop the leftover workers of a device whose I/O worker failed.
+
+        A failed device keeps its pipeline (and audio) workers until the next
+        lifecycle call; reaping here lets start/remove/reconfigure proceed
+        without a manual `stop`.
+        """
+        if self.devices[device_id].state == DeviceState.ERROR:
+            self.stop_device(device_id)
 
     def stop_device(self, device_id: str) -> None:
         """Stop a device.
@@ -784,7 +802,7 @@ class SDREngine:
         device_ids = list(self.devices.keys())
         for device_id in device_ids:
             context = self.devices[device_id]
-            if context.state == DeviceState.RUNNING:
+            if context.state != DeviceState.STOPPED:
                 logger.debug("engine_stopping_device device=%s", device_id)
                 try:
                     self.stop_device(device_id)

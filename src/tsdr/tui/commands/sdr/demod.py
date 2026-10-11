@@ -23,7 +23,8 @@ class SDRDemodCommand(Command):
         return "Enable/disable audio demodulation or protocol decoding"
 
     def configure(self, parser: CommandParser) -> None:
-        parser.add_argument("mode", choices=[*sorted(DEMODULATORS), "off"])
+        # Modes are case-insensitive (`demod wfm` and `demod WFM` both work).
+        parser.add_argument("mode", type=str.upper, choices=[*sorted(DEMODULATORS), "OFF"])
         parser.add_argument("--device", dest="device_id")
         parser.add_argument(
             "--deviation",

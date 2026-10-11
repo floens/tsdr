@@ -38,7 +38,7 @@ bandplan_top_level_invalid
 clock_sync_probe_failed
 clock_sync_probe_ok
 command
-control_queue_full
+config_queue_full
 dab_service_selected
 dab_slide_decode_failed
 demod_change
@@ -53,6 +53,7 @@ device_closed
 device_config_clamped
 device_config_update
 device_entry_invalid
+device_failed
 device_open
 device_read_failed
 device_read_unexpected_error

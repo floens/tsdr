@@ -3,6 +3,7 @@ from __future__ import annotations
 from tsdr.core.tuning import (
     STEP_LADDER,
     bandwidth_step,
+    click_snap_step,
     resolve_auto_step,
     snap_step_value,
     snap_to_grid,
@@ -88,3 +89,21 @@ def test_bandwidth_step_floor() -> None:
 def test_step_ladder_has_auto_first() -> None:
     assert STEP_LADDER[0] is None
     assert all(step is None or step > 0 for step in STEP_LADDER)
+
+
+def test_click_snaps_to_the_channel_raster_under_a_coarse_step() -> None:
+    # A 1 MHz keyboard step must not pull every click onto a whole megahertz.
+    step = click_snap_step(1_000_000, "NFM", 151_312_700)
+    assert step == 12_500
+    assert round(151_312_700 / step) * step == 151_312_500
+
+
+def test_click_keeps_a_finer_user_step() -> None:
+    assert click_snap_step(10, "NFM", 151_312_700) == 10
+
+
+def test_click_without_a_step_uses_the_auto_step_at_the_click() -> None:
+    assert click_snap_step(None, "WFM", 95_500_000) == 100_000
+    # No demodulator: the band at the clicked frequency picks the raster.
+    assert click_snap_step(None, "RAW", 120_000_000) == 25_000
+    assert click_snap_step(None, "RAW", 100_000_000) == 100_000

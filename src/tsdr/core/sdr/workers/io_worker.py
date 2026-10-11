@@ -7,6 +7,7 @@ from tsdr.core import clock_sync
 from tsdr.core.events.events import (
     DeviceCapabilitiesChangedEvent,
     DeviceErrorEvent,
+    DeviceStateChangedEvent,
     FFTUpdateEvent,
     JitterBufferUpdateEvent,
     SamplesDroppedEvent,
@@ -113,6 +114,14 @@ class IOWorker:
                     error=str(e),
                 )
             )
+            if self.device_context.mark_failed(str(e)):
+                context.emit_event(
+                    DeviceStateChangedEvent(
+                        source_id=context.worker_id,
+                        device_id=self.device_context.device_id,
+                        running=False,
+                    )
+                )
             raise
 
     def run(self, context: WorkerContext) -> None:

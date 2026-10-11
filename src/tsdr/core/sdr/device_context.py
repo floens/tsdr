@@ -2,7 +2,7 @@ import logging
 import queue
 import threading
 from collections import deque
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from enum import Enum
 from queue import Queue
 from typing import TYPE_CHECKING, Unpack
@@ -25,6 +25,42 @@ if TYPE_CHECKING:
     from tsdr.core.sdr.datatypes import DemodProfile, DemodStatus
     from tsdr.core.workers import WorkerHandle
     from tsdr.devices import DeviceParams, SDRDevice
+
+
+def _offer_config(
+    q: Queue,
+    config: DeviceConfig | SDRConfig,
+    newest: Mapping[type, DeviceConfig | SDRConfig],
+) -> None:
+    """Enqueue a config snapshot without ever losing the newest one.
+
+    Snapshots are complete, so consumers only need the latest of each type.
+    When a burst (held key, scroll wheel) overflows the bounded queue, collapse
+    the backlog to one snapshot per pending type instead of dropping the
+    incoming one, which would leave the worker on a stale config. The
+    snapshots put back are the newest known (`newest`), not the drained ones:
+    the worker drains this queue concurrently and may already hold a newer one
+    than those left here.
+    """
+    try:
+        q.put(config, block=False)
+        return
+    except queue.Full:
+        pass
+    drained: dict[type, DeviceConfig | SDRConfig] = {}
+    try:
+        while True:
+            pending = q.get(block=False)
+            drained[type(pending)] = pending
+    except queue.Empty:
+        pass
+    drained[type(config)] = config
+    for kind, snapshot in drained.items():
+        snapshot = newest.get(kind, snapshot)
+        try:
+            q.put(snapshot, block=False)
+        except queue.Full:
+            logger.warning("config_queue_full type=%s", kind.__name__)
 
 
 def _close_stage(stage: object) -> None:
@@ -74,6 +110,10 @@ class SDRDeviceContext:
 
         self._device_config = device_config
         self._config_lock = threading.Lock()
+        # Held from installing a config until the workers' queues have it, so
+        # concurrent producers (UI thread, I/O-worker capability callback)
+        # reach the workers in the order they installed their snapshots.
+        self._publish_lock = threading.RLock()
         self.get_sdr_config = get_sdr_config
 
         self.pipelines: dict[str, ProcessingPipeline] = {}
@@ -88,6 +128,10 @@ class SDRDeviceContext:
 
         self.state = DeviceState.STOPPED
         self.error_message: str | None = None
+        # Guards state transitions the I/O worker makes from its own thread.
+        self._state_lock = threading.Lock()
+        # The last engine-wide config sent to the pipeline worker.
+        self._global_config: SDRConfig | None = None
 
         # Runtime counters (written by I/O worker, read by stats stage)
         self.total_samples_read = 0
@@ -172,7 +216,9 @@ class SDRDeviceContext:
             raise RuntimeError(f"Cannot start device in state {self.state}")
 
         logger.info("device_starting device=%s type=%s", self.device_id, self.device_type)
-        self.state = DeviceState.STARTING
+        with self._state_lock:
+            self.state = DeviceState.STARTING
+            self.error_message = None
 
         logger.debug("io_worker_starting device=%s", self.device_id)
         io_worker_instance = IOWorker(device_context=self)
@@ -189,8 +235,25 @@ class SDRDeviceContext:
                 daemon=False,
             )
 
-        self.state = DeviceState.RUNNING
-        logger.info("device_started device=%s", self.device_id)
+        with self._state_lock:
+            # The I/O worker may already have failed to open the device.
+            if self.state == DeviceState.STARTING:
+                self.state = DeviceState.RUNNING
+        logger.info("device_started device=%s state=%s", self.device_id, self.state.value)
+
+    def mark_failed(self, error: str) -> bool:
+        """Record that the I/O worker could not run the device.
+
+        Called from the I/O worker thread. Returns False when a stop is already
+        under way, in which case the failure needs no reporting.
+        """
+        with self._state_lock:
+            if self.state not in (DeviceState.STARTING, DeviceState.RUNNING):
+                return False
+            self.state = DeviceState.ERROR
+            self.error_message = error
+        logger.warning("device_failed device=%s error=%r", self.device_id, error)
+        return True
 
     def stop(self, worker_runner, timeout: float = 5.0) -> None:
         """Stop workers; the I/O worker's teardown closes the device.
@@ -201,10 +264,10 @@ class SDRDeviceContext:
         to break pending I/O without freeing resources, then join.
         Resource cleanup is the I/O worker's job.
         """
-        if self.state == DeviceState.STOPPED:
-            return
-
-        self.state = DeviceState.STOPPING
+        with self._state_lock:
+            if self.state == DeviceState.STOPPED:
+                return
+            self.state = DeviceState.STOPPING
         logger.info("device_stopping device=%s", self.device_id)
 
         # Step 1: signal workers to stop iterating.
@@ -245,25 +308,21 @@ class SDRDeviceContext:
         Thread-safe: protects config reference swap with a lock.
         If pipelines config changed, re-materializes pipeline stages.
         """
-        with self._config_lock:
-            old_config = self._device_config
-            new_config = old_config.with_changes(**changes)
-            new_config.validate()
-            self._device_config = new_config
+        with self._publish_lock:
+            with self._config_lock:
+                old_config = self._device_config
+                new_config = old_config.with_changes(**changes)
+                new_config.validate()
+                self._device_config = new_config
 
-        # Re-materialize pipelines if the pipeline config changed
-        if new_config.pipelines is not old_config.pipelines:
-            self._materialize_pipelines()
+            # Re-materialize pipelines if the pipeline config changed
+            if new_config.pipelines is not old_config.pipelines:
+                self._materialize_pipelines()
 
-        if self.state != DeviceState.STOPPED:
-            try:
-                self.control_queue.put(new_config, block=False)
-            except queue.Full:
-                logger.warning("control_queue_full device=%s", self.device_id)
-            try:
-                self.pipeline_control_queue.put(new_config, block=False)
-            except queue.Full:
-                pass
+            if self.state != DeviceState.STOPPED:
+                newest = self._newest_snapshots()
+                _offer_config(self.control_queue, new_config, newest)
+                _offer_config(self.pipeline_control_queue, new_config, newest)
 
     def _materialize_pipelines(self) -> None:
         """Sync self.pipelines with self.config.pipelines.
@@ -325,11 +384,16 @@ class SDRDeviceContext:
 
     def notify_global_config_change(self, config: SDRConfig) -> None:
         """Notify pipeline worker of a global config change."""
-        if self.state != DeviceState.STOPPED:
-            try:
-                self.pipeline_control_queue.put(config, block=False)
-            except queue.Full:
-                pass
+        with self._publish_lock:
+            self._global_config = config
+            if self.state != DeviceState.STOPPED:
+                _offer_config(self.pipeline_control_queue, config, self._newest_snapshots())
+
+    def _newest_snapshots(self) -> dict[type, DeviceConfig | SDRConfig]:
+        newest: dict[type, DeviceConfig | SDRConfig] = {DeviceConfig: self.config}
+        if self._global_config is not None:
+            newest[SDRConfig] = self._global_config
+        return newest
 
     def __str__(self) -> str:
         return (

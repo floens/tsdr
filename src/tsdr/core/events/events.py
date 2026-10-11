@@ -143,7 +143,7 @@ class ConfigChangedEvent(Event):
 
 @dataclass(frozen=True)
 class DeviceStateChangedEvent(Event):
-    """Emitted when a device transitions between RUNNING and STOPPED."""
+    """Emitted when a device starts running, stops, or fails (see DeviceState.ERROR)."""
 
     device_id: str
     running: bool

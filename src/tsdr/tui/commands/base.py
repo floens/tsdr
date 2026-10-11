@@ -15,6 +15,12 @@ class Completion:
     description: str = ""
 
 
+def _choice_completions(choices, prefix: str) -> list[Completion]:
+    """Choices matching `prefix`, ignoring case (`demod w` offers `WFM`)."""
+    folded = prefix.casefold()
+    return [Completion(str(c)) for c in choices if str(c).casefold().startswith(folded)]
+
+
 class CommandExit(Exception):
     """Raised by CommandParser instead of sys.exit."""
 
@@ -122,9 +128,7 @@ class Command(ABC):
             for action in parser._actions:
                 if flag in action.option_strings and action.nargs != 0:
                     if action.choices:
-                        return [
-                            Completion(str(c)) for c in action.choices if str(c).startswith(prefix)
-                        ]
+                        return _choice_completions(action.choices, prefix)
                     return self.complete(tokens, prefix, flag=flag, subcommand=subcommand)
 
         # Complete flag names when prefix starts with -
@@ -154,7 +158,7 @@ class Command(ABC):
         if consumed < len(positional_actions):
             current = positional_actions[consumed]
             if current.choices:
-                return [Completion(str(c)) for c in current.choices if str(c).startswith(prefix)]
+                return _choice_completions(current.choices, prefix)
             return self.complete(tokens, prefix, subcommand=subcommand)
 
         # All positionals consumed - suggest unused flags (fish-style)

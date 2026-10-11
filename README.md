@@ -171,6 +171,8 @@ Tuning:
 - `Alt+←` / `Ctrl+←`, `Alt+→` / `Ctrl+→`: tune one fine step.
 - `[` / `]`: jump to the previous / next tuning target (memory or band).
 - `s` / `S`: cycle the tuning step size forward / backward.
+- Click the spectrum to tune there. The click snaps to the mode's channel raster
+  (12.5 kHz for NFM, 100 kHz for WFM), or to the tuning step when that is finer.
 - `c`: toggle center / free tuning (center: hardware follows every dial move;
   free: DSP offset until the band edge; entering center recenters).
 
