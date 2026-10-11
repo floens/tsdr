@@ -34,6 +34,14 @@ CONFIG_APPLY_MIN_INTERVAL = 0.050
 # or fill_fraction moves by at least this much.
 JITTER_FILL_DELTA = 0.05
 
+# Throughput check: a device delivering under THROUGHPUT_MIN_FRACTION of its
+# sample rate over a window is losing samples (e.g. a network PlutoSDR asked
+# for more than its link carries; its driver reports no overflow). The first
+# window after start or a rate change is skipped as transient.
+THROUGHPUT_WINDOW_SECONDS = 10.0
+THROUGHPUT_MIN_FRACTION = 0.97
+THROUGHPUT_REPORT_INTERVAL_SECONDS = 60.0
+
 
 class IOWorker:
     """I/O worker for reading from SDR hardware.
@@ -55,6 +63,11 @@ class IOWorker:
         self._last_capabilities: DeviceCapabilities | None = None
 
         self._last_view: tuple[float, float] | None = None
+
+        self._rate_window_start: float | None = None
+        self._rate_window_samples = 0
+        self._rate_window_warm = False
+        self._last_throughput_report: float | None = None
 
     def setup(self, context: WorkerContext) -> None:
         device = self.device_context.device
@@ -151,6 +164,7 @@ class IOWorker:
 
                         if new_config.sample_rate != config.sample_rate:
                             device.set_sample_rate(new_config.sample_rate)
+                            self._reset_throughput_window()
 
                         # AGC toggle must come before rf_gain
                         if new_config.auto_gain != config.auto_gain:
@@ -275,10 +289,61 @@ class IOWorker:
                         )
 
                 self.device_context.total_samples_read += batch.sample_count
+                self._check_throughput(
+                    context, time.perf_counter(), batch.sample_count, device.actual_sample_rate
+                )
 
                 self._drain_spectrum_frames(context)
                 self._maybe_publish_jitter_state(context)
                 self._maybe_publish_capabilities(context)
+
+    def _reset_throughput_window(self) -> None:
+        self._rate_window_start = None
+        self._rate_window_samples = 0
+        self._rate_window_warm = False
+
+    def _check_throughput(
+        self, context: WorkerContext, now: float, samples: int, expected_rate: float
+    ) -> None:
+        """Report a device that delivers well below its sample rate."""
+        if self._rate_window_start is None:
+            self._rate_window_start = now
+            return
+        self._rate_window_samples += samples
+        elapsed = now - self._rate_window_start
+        if elapsed < THROUGHPUT_WINDOW_SECONDS:
+            return
+        delivered = self._rate_window_samples / elapsed
+        self._rate_window_start = now
+        self._rate_window_samples = 0
+        if not self._rate_window_warm:
+            self._rate_window_warm = True
+            return
+        if expected_rate <= 0 or delivered >= THROUGHPUT_MIN_FRACTION * expected_rate:
+            return
+        device_id = self.device_context.device_id
+        logger.warning(
+            "device_throughput_low device=%s expected_sps=%.0f delivered_sps=%.0f",
+            device_id,
+            expected_rate,
+            delivered,
+        )
+        if (
+            self._last_throughput_report is not None
+            and now - self._last_throughput_report < THROUGHPUT_REPORT_INTERVAL_SECONDS
+        ):
+            return
+        self._last_throughput_report = now
+        context.emit_event(
+            DeviceErrorEvent(
+                source_id=context.worker_id,
+                device_id=device_id,
+                error=(
+                    f"Delivering {delivered / 1e6:.2f} of {expected_rate / 1e6:.2f} MS/s; "
+                    f"samples are being lost. Lower the sample rate."
+                ),
+            )
+        )
 
     def _maybe_apply_spectrum_view(self, config: DeviceConfig) -> None:
         source = as_spectrum_source(self.device_context.device)
