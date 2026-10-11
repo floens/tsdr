@@ -9,6 +9,7 @@ active side panels sit inside their dock above that zone.
 from __future__ import annotations
 
 import asyncio
+import gc
 
 from textual.css.query import NoMatches
 
@@ -35,6 +36,20 @@ def test_app_mounts_and_renders_on_resize() -> None:
             await pilot.pause()
             await pilot.resize_terminal(100, 32)
             await pilot.pause()
+
+    _run(go)
+
+
+def test_mounting_the_app_freezes_nothing() -> None:
+    """Widgets come and go (and are cyclic): frozen at mount, they could never
+    be collected. Only tsdr's main() freezes, before the app exists."""
+
+    async def go() -> None:
+        before = gc.get_freeze_count()
+        app = TSDRApp(startup_commands=[])
+        async with app.run_test(size=(SCREEN_W, SCREEN_H)) as pilot:
+            await pilot.pause(0.2)
+            assert gc.get_freeze_count() == before
 
     _run(go)
 

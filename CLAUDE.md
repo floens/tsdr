@@ -34,6 +34,7 @@ src/tsdr/
     ├── console/      - Console widget and terminal input
     ├── doctor/       - `tsdr doctor` terminal/env capability diagnostic (interactive + --check)
     ├── tty.py        - APC-aware XTermParser patch + TTYWindowSpec/tty_window_spec (TTY pixel geometry)
+    ├── strip_cycles.py - Patch: Textual strips must not cache themselves (cyclic garbage stalls device reads)
     └── widgets/      - Textual widgets (incl. KittyImageWidget + KittyHostMixin)
 ```
 

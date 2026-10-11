@@ -5,6 +5,7 @@ import traceback
 from textual.app import App, ComposeResult
 
 import tsdr.tui.commands  # noqa: F401  # trigger command self-registration
+import tsdr.tui.strip_cycles  # noqa: F401  # stop Textual strips caching themselves
 import tsdr.tui.tty  # noqa: F401  # install APC-aware XTermParser
 from tsdr.core.band_stack import init_band_stack
 from tsdr.core.bandplans import get_bandplan_store, init_bandplan_store

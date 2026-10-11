@@ -366,9 +366,7 @@ class TunerWidget(Vertical):
             self._gain_line += " [black on yellow]BT[/black on yellow]"
         self._volume = engine.config.audio_volume
         self._denoise = engine.config.denoise
-        self.query_one("#tuner-device", Static).update(
-            f"{self._sr_line}\n{self._gain_line}\n{self._vol_line()}"
-        )
+        self._show_device_line()
 
         profile = device.demod_profile
         self._demod_profile = profile
@@ -422,9 +420,15 @@ class TunerWidget(Vertical):
             clip_prefix = f"[red bold]CLIP {clip:.0f}%[/red bold] "
         else:
             clip_prefix = ""
-        self.query_one("#tuner-device", Static).update(
-            f"{self._sr_line}\n{clip_prefix}{self._gain_line}\n{self._vol_line()}"
-        )
+        self._show_device_line(clip_prefix)
+
+    def _show_device_line(self, clip_prefix: str = "") -> None:
+        text = f"{self._sr_line}\n{clip_prefix}{self._gain_line}\n{self._vol_line()}"
+        static = self.query_one("#tuner-device", Static)
+        # Stats arrive many times a second, almost always with the same text,
+        # and Static.update re-runs the screen's layout on every call.
+        if static.content != text:
+            static.update(text)
 
     def update_status(self, event: DemodStatusEvent) -> None:
         profile = self._demod_profile
