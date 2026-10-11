@@ -24,6 +24,7 @@ from tsdr.radio.decoders.acars.frame import AcarsFramer
 from tsdr.radio.decoders.acars.msk import MSKDemod
 from tsdr.radio.demodulators import NYQUIST_MARGIN, Demodulator
 from tsdr.radio.dsp import DCBlocker, StreamingDecimFilter, StreamingFilter, firwin
+from tsdr.radio.dsp.decimator import MultistageDecimator, smooth_decimation
 
 
 class ACARSDecoder(Demodulator):
@@ -41,17 +42,13 @@ class ACARSDecoder(Demodulator):
 
     def _build(self) -> None:
         sr = self.sample_rate
-        # Decimate to a ~24 kHz intermediate (leaving offset headroom); a clean
-        # multiple of 12 kHz collapses to interm_decim=1.
-        interm_decim = max(1, round(sr / INTERMEDIATE_RATE))
+        # Decimate in stages to a ~24 kHz intermediate (leaving offset headroom);
+        # an input at or below it is used as is.
+        interm_decim = smooth_decimation(sr / INTERMEDIATE_RATE)
         self.intermediate_rate = sr / interm_decim
 
         self._decim1 = (
-            StreamingDecimFilter(
-                firwin(64, self.intermediate_rate * 0.45, fs=sr, window=("kaiser", 6.0)),
-                decimation=interm_decim,
-                dtype=np.complex64,
-            )
+            MultistageDecimator(sr, interm_decim, self.intermediate_rate * 0.45)
             if interm_decim > 1
             else None
         )

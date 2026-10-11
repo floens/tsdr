@@ -66,7 +66,8 @@ def test_zero_offset_passthrough() -> None:
 
 def test_offset_change_resets_phase() -> None:
     stage = FrequencyShiftStage()
-    stage.process(_tone_batch(6000.0, center=100e6), _ctx(100e6 + 6000.0))
+    # 6.1 kHz ends mid-cycle (6 kHz would be exactly 512 cycles, phase 0).
+    stage.process(_tone_batch(6100.0, center=100e6), _ctx(100e6 + 6100.0))
     assert stage.phase_accumulator != 0.0
     stage.process(_tone_batch(5000.0, center=100e6), _ctx(100e6 + 5000.0))
     fresh = FrequencyShiftStage()

@@ -11,6 +11,12 @@ from tsdr.core.tracing import span
 from tsdr.radio.decoders.rds import RDSData, RDSDecoder
 from tsdr.radio.demodulators import Demodulator
 from tsdr.radio.dsp import FMDiscriminator, StreamingDecimFilter, StreamingFilter, firwin
+from tsdr.radio.dsp.decimator import MultistageDecimator, smooth_decimation
+
+# Channel-selection FIR at the intermediate rate: Kaiser for ~70 dB stopband,
+# an ~11 kHz transition at 250 kS/s.
+_CHANNEL_TAPS = 97
+_CHANNEL_KAISER_BETA = 6.8
 
 
 @nb.njit(cache=True, fastmath=True)
@@ -133,20 +139,35 @@ class WidebandFMDemodulator(Demodulator):
     def _setup_channel_filter(self) -> None:
         """Setup channel filter for isolating the FM station.
 
-        Decimates from input sample rate to ~250 kHz intermediate rate.
-        Uses fused filter+decimate kernel for ~10x speedup over filter-then-slice.
+        A multistage decimator brings the input to an intermediate rate of
+        240-300 kHz without folding anything into the band; it passes
+        everything up to the intermediate Nyquist, so an FIR at that rate then
+        selects the channel (`channel_bandwidth`).
         """
-        target_intermediate = 250_000
-        self.channel_decimation = max(1, round(self.sample_rate / target_intermediate))
+        self.channel_decimation = smooth_decimation(self.sample_rate / 240_000)
         self.intermediate_rate = self.sample_rate / self.channel_decimation
-
-        cutoff = self.channel_bandwidth / 2
-        self._channel_filter = StreamingDecimFilter(
-            firwin(64, cutoff, fs=self.sample_rate),
-            decimation=self.channel_decimation,
+        self._decimator = MultistageDecimator(
+            self.sample_rate,
+            self.channel_decimation,
+            0.45 * self.intermediate_rate,
             dtype=np.complex64,
             expected_input_size=200_000,
         )
+        self._channel_filter = self._build_channel_filter(self.channel_bandwidth)
+
+    def _build_channel_filter(self, bandwidth: float) -> StreamingFilter:
+        cutoff = min(bandwidth / 2, 0.45 * self.intermediate_rate)
+        taps = firwin(
+            _CHANNEL_TAPS,
+            cutoff,
+            fs=self.intermediate_rate,
+            window=("kaiser", _CHANNEL_KAISER_BETA),
+        )
+        return StreamingFilter(taps, [1.0], dtype=np.complex64)
+
+    def _isolate_channel(self, iq_samples: np.ndarray) -> np.ndarray:
+        """The station alone, at the intermediate rate."""
+        return self._channel_filter.process(self._decimator.process(iq_samples))
 
     def set_channel_bandwidth(self, bandwidth: float) -> None:
         """Update channel bandwidth at runtime.
@@ -155,13 +176,7 @@ class WidebandFMDemodulator(Demodulator):
             bandwidth: New channel bandwidth in Hz
         """
         self.channel_bandwidth = bandwidth
-        cutoff = bandwidth / 2
-        self._channel_filter = StreamingDecimFilter(
-            firwin(64, cutoff, fs=self.sample_rate),
-            decimation=self.channel_decimation,
-            dtype=np.complex64,
-            expected_input_size=200_000,
-        )
+        self._channel_filter = self._build_channel_filter(bandwidth)
 
     def set_sample_rate(self, rate: float) -> None:
         # Order mirrors __init__: channel filter sets intermediate_rate
@@ -269,12 +284,9 @@ class WidebandFMDemodulator(Demodulator):
         if len(iq_samples) == 0:
             return
 
-        # Channel filter + decimate to intermediate rate (~240 kHz)
+        # Decimate to the intermediate rate (~240 kHz) and select the channel
         with span("channel_filter"):
-            if self.channel_decimation > 1:
-                iq_filtered = self._channel_filter.process(iq_samples)
-            else:
-                iq_filtered = iq_samples
+            iq_filtered = self._isolate_channel(iq_samples)
 
         # FM discriminator: conjugate-product method (single-pass Numba kernel)
         with span("phase_calc"):
@@ -429,6 +441,7 @@ class WidebandFMDemodulator(Demodulator):
         """
         super().reset()
         self._fm_discrim.reset()
+        self._decimator.reset()
         self._channel_filter.reset()
         self._deemph_lr.reset()
         self._deemph_lmr.reset()

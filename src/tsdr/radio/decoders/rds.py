@@ -14,6 +14,7 @@ import numpy as np
 
 from tsdr.radio.dsp import CostasLoop, MuellerMuller, StreamingFilter, firwin
 from tsdr.radio.dsp._kernels import _freq_shift_f32_to_c64
+from tsdr.radio.dsp.decimator import MultistageDecimator, smooth_decimation
 
 # RDS constants
 RDS_SUBCARRIER_FREQ = 57000.0  # Hz
@@ -168,7 +169,7 @@ class RDSDecoder:
 
         # Stage 1: Decimate to ~10 kHz (~8 sps). Lower sps makes M&M
         # converge reliably regardless of initial timing phase (like SDR++).
-        self._decimation = max(1, round(sample_rate / 10000))
+        self._decimation = smooth_decimation(sample_rate / 10000)
         self._decimated_rate = sample_rate / self._decimation
         decimated_rate = self._decimated_rate
 
@@ -176,13 +177,9 @@ class RDSDecoder:
         # via its linear interpolation + mu accumulator.
         self._sps = decimated_rate / RDS_SYMBOL_RATE
 
-        # Anti-alias LPF before decimation: wide cutoff (4 kHz), just enough
-        # to prevent aliasing at the decimated rate (~10 kHz Nyquist = 5 kHz).
-        self._antialias = StreamingFilter(
-            firwin(51, 4000, fs=sample_rate),
-            [1.0],
-            dtype=np.complex64,
-        )
+        # Decimate in stages, keeping +-4 kHz free of folded signals: the
+        # stereo L-R subcarrier sits 4-34 kHz below the shifted RDS carrier.
+        self._decimator = MultistageDecimator(sample_rate, self._decimation, 4000.0)
 
         # Sharp matched filter after decimation: tight cutoff at RDS bandwidth
         # with Nuttall window for high stopband attenuation (~-98 dB).
@@ -199,9 +196,6 @@ class RDSDecoder:
         self._carrier_phase = 0.0
         # Pre-allocated output buffer for freq shift (grows if needed)
         self._freq_shift_buf = np.empty(200_000, dtype=np.complex64)
-
-        # Decimation phase tracking (streaming continuity)
-        self._decim_phase = 0
 
         # AGC: IIR power tracker for envelope compression
         # Fast tc compresses BPSK envelope, improving M&M timing recovery.
@@ -277,12 +271,8 @@ class RDSDecoder:
         # 1. Frequency shift 57 kHz to baseband
         iq = self._freq_shift(audio)
 
-        # 2. Anti-alias filter + decimate to ~10 kHz
-        iq = self._antialias.process(iq)
-        n_before = len(iq)
-        iq = iq[self._decim_phase :: self._decimation]
-        n_used = n_before - self._decim_phase
-        self._decim_phase = (self._decimation - n_used % self._decimation) % self._decimation
+        # 2. Decimate to ~10 kHz
+        iq = self._decimator.process(iq)
 
         # 3. Sharp matched filter at decimated rate
         iq = self._sharp.process(iq)
@@ -903,9 +893,8 @@ class RDSDecoder:
     def reset(self) -> None:
         """Reset decoder state."""
         self._carrier_phase = 0.0
-        self._antialias.reset()
+        self._decimator.reset()
         self._sharp.reset()
-        self._decim_phase = 0
         self._agc.reset()
         self._sync_watchdog_bits = 0
         self._sync_nudge_count = 0

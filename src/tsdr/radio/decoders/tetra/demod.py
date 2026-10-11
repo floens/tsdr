@@ -9,8 +9,8 @@ Mueller-Muller component-wise sign decision. Differential demod cancels the rota
 import numpy as np
 
 from tsdr.radio.decoders.tetra._kernels import fir_decim_c64_into
-from tsdr.radio.dsp import firwin
 from tsdr.radio.dsp._kernels import apply_freq_shift_c64
+from tsdr.radio.dsp.decimator import MultistageDecimator, smooth_decimation
 from tsdr.radio.dsp.mm import MuellerMuller
 
 # Default scratch size in seconds of IQ. Anything larger grows lazily in
@@ -119,34 +119,25 @@ class TetraDemod:
 
     def __init__(self, sample_rate: float):
         self.sample_rate = sample_rate
-        self._decim = max(1, round(sample_rate / TARGET_RATE))
+        self._decim = smooth_decimation(sample_rate / TARGET_RATE)
         self._dec_rate = sample_rate / self._decim
         self._sps = self._dec_rate / SYMBOL_RATE
 
-        # Anti-alias LPF + decim (fused via fir_decim_c64_into) and RRC
-        # matched filter (M=1 through the same kernel). Each filter owns a
-        # tap-flipped view, streaming history, and preallocated scratch.
+        # RRC matched filter (M=1 through fir_decim_c64_into): tap-flipped view,
+        # streaming history, and preallocated scratch.
         max_chunk = int(sample_rate * _DEFAULT_SCRATCH_SECONDS)
         max_dec_chunk = max_chunk // max(1, self._decim) + 2
 
-        self._lpf_taps: np.ndarray | None
-        if self._decim > 1:
-            cutoff = 0.8 / self._decim  # normalized to Nyquist
-            n_taps = self._decim * 10 + 1
-            self._lpf_taps = firwin(n_taps, cutoff).astype(np.float32)
-            self._lpf_flipped = _flip_taps(self._lpf_taps)
-            self._lpf_zi = np.zeros(n_taps - 1, dtype=np.complex64)
-            self._lpf_padded_scratch = np.empty(max_chunk + n_taps - 1, dtype=np.complex64)
-            self._lpf_y_scratch = np.empty(max_dec_chunk, dtype=np.complex64)
-        else:
-            # decim=1: no LPF pass needed. Empty arrays keep the attributes
-            # single-typed for mypy; they're never read when _lpf_taps is None.
-            self._lpf_taps = None
-            self._lpf_flipped = np.empty(0, dtype=np.float32)
-            self._lpf_zi = np.empty(0, dtype=np.complex64)
-            self._lpf_padded_scratch = np.empty(0, dtype=np.complex64)
-            self._lpf_y_scratch = np.empty(0, dtype=np.complex64)
-        self._lpf_phase = 0
+        # Decimate in stages; the passband (the old single filter's cutoff,
+        # 0.4 x the decimated rate) leaves room for the frequency offset that is
+        # corrected after decimation.
+        self._lpf: MultistageDecimator | None = (
+            MultistageDecimator(
+                sample_rate, self._decim, 0.4 * self._dec_rate, expected_input_size=max_chunk
+            )
+            if self._decim > 1
+            else None
+        )
 
         self._rrc = rrc_taps(self._sps, alpha=0.35)
         self._rrc_flipped = _flip_taps(self._rrc)
@@ -208,16 +199,7 @@ class TetraDemod:
         Amortized cost: each caller that feeds a larger chunk than seen before
         pays a one-time allocation; steady-state streaming hits the no-op path.
         """
-        if self._lpf_taps is not None:
-            need_lpf_padded = n_in + len(self._lpf_taps) - 1
-            if self._lpf_padded_scratch.shape[0] < need_lpf_padded:
-                self._lpf_padded_scratch = np.empty(need_lpf_padded, dtype=np.complex64)
-            need_lpf_y = n_in // self._decim + 2
-            if self._lpf_y_scratch.shape[0] < need_lpf_y:
-                self._lpf_y_scratch = np.empty(need_lpf_y, dtype=np.complex64)
-            n_after_decim = need_lpf_y
-        else:
-            n_after_decim = n_in
+        n_after_decim = n_in // self._decim + 2 if self._lpf is not None else n_in
         need_rrc_padded = n_after_decim + len(self._rrc) - 1
         if self._rrc_padded_scratch.shape[0] < need_rrc_padded:
             self._rrc_padded_scratch = np.empty(need_rrc_padded, dtype=np.complex64)
@@ -234,17 +216,8 @@ class TetraDemod:
         self._grow_scratch_for(len(iq))
         x = iq.astype(np.complex64, copy=False)
 
-        if self._lpf_taps is not None:
-            n_out, self._lpf_phase = fir_decim_c64_into(
-                x,
-                self._lpf_flipped,
-                self._decim,
-                self._lpf_zi,
-                self._lpf_phase,
-                self._lpf_padded_scratch,
-                self._lpf_y_scratch,
-            )
-            x = self._lpf_y_scratch[:n_out]
+        if self._lpf is not None:
+            x = self._lpf.process(x)
 
         # Freq shift at the decimated rate: M-times fewer samples to mix.
         x = self._apply_freq_shift(x)
@@ -319,9 +292,8 @@ class TetraDemod:
         return points
 
     def reset(self) -> None:
-        if self._lpf_taps is not None:
-            self._lpf_zi[:] = 0
-        self._lpf_phase = 0
+        if self._lpf is not None:
+            self._lpf.reset()
         self._rrc_zi[:] = 0
         self._mm.reset()
         self._prev_sym = np.complex64(0)

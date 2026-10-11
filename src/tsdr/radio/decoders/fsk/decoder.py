@@ -28,7 +28,8 @@ from tsdr.radio.decoders.fsk.profile import (
     FSKProfile,
 )
 from tsdr.radio.demodulators import Demodulator
-from tsdr.radio.dsp import FSKFrontEnd, StreamingDecimFilter, estimate_fsk_shift, firwin
+from tsdr.radio.dsp import FSKFrontEnd, estimate_fsk_shift
+from tsdr.radio.dsp.decimator import MultistageDecimator, smooth_decimation
 
 logger = logging.getLogger(__name__)
 
@@ -80,16 +81,13 @@ class FSKDecoder(Demodulator):
         self._alphabet = cast('Literal["ccir476", "ita2"]', alpha)
         self._data_bits = p.data_bits
 
-        self._decim = max(1, round(sample_rate / p.internal_rate))
+        self._decim = smooth_decimation(sample_rate / p.internal_rate)
         self._internal_rate = sample_rate / self._decim
-        if self._decim > 1:
-            ntaps = max(31, (self._decim * 8) | 1)
-            taps = firwin(ntaps, self._internal_rate * 0.45, fs=sample_rate)
-            self._decimator: StreamingDecimFilter | None = StreamingDecimFilter(
-                taps, self._decim, dtype=np.complex64
-            )
-        else:
-            self._decimator = None
+        self._decimator: MultistageDecimator | None = (
+            MultistageDecimator(sample_rate, self._decim, self._internal_rate * 0.45)
+            if self._decim > 1
+            else None
+        )
 
         # None on an axis means auto-acquire it; a value pins it.
         if self.AUTO_ACQUIRE:

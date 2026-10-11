@@ -6,7 +6,7 @@ import numpy as np
 
 from tsdr.core.events.events import DecodedMessage
 from tsdr.core.sdr.datatypes import AudioBatch, DemodProfile, DemodStatus
-from tsdr.radio.dsp import StreamingDecimFilter, firwin
+from tsdr.radio.dsp.decimator import MultistageDecimator, smooth_decimation
 
 # Fraction of Nyquist below which a post-decimation channel filter's cutoff
 # must sit to keep the FIR transition band inside the passband.
@@ -21,7 +21,7 @@ class ChannelFrontend:
     then applies its own channel filter at `decimated_rate`.
     """
 
-    decimator: StreamingDecimFilter
+    decimator: MultistageDecimator
     decimation: int
     decimated_rate: float
     channel_bandwidth: float
@@ -32,27 +32,26 @@ def design_channel_frontend(
     audio_rate: float,
     channel_bandwidth: float,
     *,
-    aa_taps: int = 64,
     expected_input_size: int = 200_000,
 ) -> ChannelFrontend:
     """Size the front-end every audio demod (AM/NFM/CW/SSB/SSTV) runs before its
-    own channel filter: a broad anti-alias FIR that decimates the wideband IQ
-    down to ~`audio_rate`, plus `channel_bandwidth` clamped to the decimated
-    Nyquist.
+    own channel filter: a multistage decimator from the wideband IQ down to
+    ~`audio_rate` that keeps 0.45 x the decimated rate either side of the
+    channel free of folded signals, plus `channel_bandwidth` clamped to the
+    decimated Nyquist.
 
-    The anti-alias cutoff sits just below the *decimated* Nyquist, so it stays
-    valid when the input is already at or below `audio_rate` (narrowband network
-    channels deliver ~12 kHz): the decimation clamps to 1 and the cutoff is 0.45*rate,
-    inside (0, Nyquist). Basing it on `audio_rate` breaks whenever
-    `sample_rate < audio_rate` -- which is why four hand-copied versions of this
-    crashed on 12 kHz narrowband inputs while only SSTV had patched around it.
+    The decimation is the largest factor of 2, 3, 5 and 7 that keeps the
+    decimated rate at or above `audio_rate` (or 1 when the input is already at
+    or below it: narrowband network channels deliver ~12 kHz), so the cascade
+    can split it into cheap stages; the decimated rate lands between
+    `audio_rate` and ~1.2 x it.
     """
-    decimation = max(1, int(sample_rate // audio_rate))
+    decimation = smooth_decimation(sample_rate / audio_rate)
     decimated_rate = sample_rate / decimation
-    aa_cutoff = decimated_rate * 0.45
-    decimator = StreamingDecimFilter(
-        firwin(aa_taps, aa_cutoff, fs=sample_rate, window=("kaiser", 6.0)),
-        decimation=decimation,
+    decimator = MultistageDecimator(
+        sample_rate,
+        decimation,
+        decimated_rate * 0.45,
         dtype=np.complex64,
         expected_input_size=expected_input_size,
     )
@@ -88,7 +87,7 @@ class Demodulator(ABC):
 
     def _install_channel_frontend(
         self, sample_rate: float, audio_rate: float, channel_bandwidth: float
-    ) -> StreamingDecimFilter:
+    ) -> MultistageDecimator:
         """Build the shared IQ front-end, storing `channel_decimation`,
         `decimated_rate`, and the Nyquist-clamped `channel_bandwidth`; return the
         raw-IQ decimator. The caller holds it as `_decim` rather than the base

@@ -326,6 +326,8 @@ A sample file is a hard prerequisite — do not write decoder code until it exis
 
 All hot-path DSP primitives live in `_kernels.py` as `@nb.njit(cache=True)` functions. Use `fastmath=True` only when the algorithm tolerates relaxed floating-point semantics (filters, discriminators -- not CRC/sync).
 
+**Vectorization:** index inner loops from 0 over a slice (`seg = buf[base : base + k]`, then `seg[j]`). With `buf[base + j]` numba can't prove the index is non-negative, and the wraparound check it adds to every load stops LLVM from vectorizing the loop (14x slower in the decimating FIR).
+
 **When to use numba:**
 - Inherently scalar algorithms with loop-carried state: PLL, FM discriminator, CRC, symbol timing recovery (Mueller-Muller), carrier tracking (Costas loop)
 - Fused single-pass kernels that eliminate multiple numpy intermediate arrays on small-to-medium data (< ~4K elements): IQ conversion, frequency shifting, IQ metrics
@@ -346,7 +348,9 @@ All have a `process(x) -> y` method and a `reset()` method, with state persistin
 
 - **`StreamingFilter`**: Wraps `_lfilter_fir_f32` (FIR, Direct Form II Transposed) or `_lfilter_iir` / `_lfilter_iir_f32` (IIR). Best for non-decimating filters -- no buffer copy overhead, state updated in-place. Use `dtype=np.float32` for IIR filters that don't need float64 precision (de-emphasis, AGC).
 
-- **`StreamingDecimFilter`**: Wraps `fir_decim_f32_into` / `fir_decim_c64_into` (FIR, Direct Form I with pre-allocated scratch buffers). Best for decimating filters (`m > 1`) -- computes only the decimated outputs. Pre-allocates padded scratch and output buffers to avoid per-call allocation. **Do not use with `m=1`** -- the padded buffer copy overhead makes it slower than `StreamingFilter` for the non-decimating case.
+- **`StreamingDecimFilter`**: Wraps `fir_decim_f32_into` / `fir_decim_c64_split_into` (FIR, Direct Form I with pre-allocated scratch buffers). Best for decimating filters (`m > 1`) -- computes only the decimated outputs. Pre-allocates padded scratch and output buffers to avoid per-call allocation. **Do not use with `m=1`** -- the padded buffer copy overhead makes it slower than `StreamingFilter` for the non-decimating case.
+
+- **`MultistageDecimator`** (`radio/dsp/decimator.py`): decimation by a large factor (capture rate to audio rate) as a cascade of `StreamingDecimFilter` stages, planned for the fewest multiply-accumulates (Crochiere and Rabiner), each stopping only what would fold into the final passband (at least 80 dB). Use it instead of a single `StreamingDecimFilter` whenever the factor is more than about 10: one short filter cannot stop signals near multiples of the output rate, which then fold onto the channel. Choose the factor with `smooth_decimation` so it splits into small stages. It is not a channel filter: it passes everything up to the output Nyquist (the passband only sets where aliases are kept out), so follow it with an FIR at the output rate that cuts at the channel width.
 
 - **`StreamingPolyphaseResampler`**: Rational resampling (up/down) via polyphase decomposition.
 

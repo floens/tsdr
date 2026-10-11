@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from tsdr.radio.dsp import FMChannelizer, FMDiscriminator, StreamingFilter, firwin
+from tsdr.radio.dsp import FMChannelizer
 
 _FS = 240_000.0
 _DEV = 4800.0
@@ -14,20 +14,34 @@ def _iq(n: int, seed: int) -> np.ndarray:
     return ((rng.standard_normal(n) + 1j * rng.standard_normal(n)) * 0.3).astype(np.complex64)
 
 
-def test_matches_manual_frontend() -> None:
-    """FMChannelizer is exactly anti-alias + strided decimate + discriminate -- the
-    front-end FLEX inlined before migration (guards that the migration is a no-op)."""
-    iq = _iq(20_000, 0)
-    out = FMChannelizer(_FS, _DEV, target_rate=_TARGET).process(iq)
+def test_rejects_signals_that_would_fold_onto_the_channel() -> None:
+    """A tone one decimated rate away used to fold onto the channel through the
+    single full-rate 101-tap filter; the multistage decimator stops it."""
+    fs = 2.4e6
+    ch = FMChannelizer(fs, _DEV, target_rate=_TARGET)
+    t = np.arange(240_000) / fs
 
-    decim = max(1, round(_FS / _TARGET))
-    rate = _FS / decim
-    cutoff = min(rate * 0.45, _DEV * 2)
-    aa = StreamingFilter(firwin(101, cutoff, fs=_FS), [1.0], dtype=np.complex64)
-    fm = FMDiscriminator(rate, _DEV)
-    ref = fm.process(aa.process(iq)[::decim])
+    def power(offset: float) -> float:
+        dec = FMChannelizer(fs, _DEV, target_rate=_TARGET)._decimator
+        y = dec.process(np.exp(2j * np.pi * offset * t).astype(np.complex64))
+        return float(np.mean(np.abs(y[len(y) // 2 :]) ** 2))
 
-    assert np.array_equal(out, ref)
+    assert 10 * np.log10(power(ch.audio_rate + 1_000) / power(1_000)) < -80.0
+
+
+def test_selects_the_channel_inside_the_decimated_band() -> None:
+    """The decimator passes everything up to its output Nyquist. A station
+    15 kHz from a DMR channel (5832 Hz half-width, 48 kS/s, decimation 1)
+    reached the discriminator at full strength (66 dB down before)."""
+    fs = 48_000.0
+    t = np.arange(48_000) / fs
+
+    def power(offset: float) -> float:
+        ch = FMChannelizer(fs, 1944.0, target_rate=48_000.0, channel_cutoff=5832.0)
+        y = ch._select(np.exp(2j * np.pi * offset * t).astype(np.complex64))
+        return float(np.mean(np.abs(y[len(y) // 2 :]) ** 2))
+
+    assert 10 * np.log10(power(15_000) / power(1_000)) < -60.0
 
 
 def test_chunk_invariance() -> None:

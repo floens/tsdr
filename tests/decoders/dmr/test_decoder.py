@@ -99,9 +99,7 @@ class TestStage2SymbolRecovery:
 
     def _run_pipeline(self, dmr_iq):
         decoder = DMRDecoder(sample_rate=SAMPLE_RATE)
-        filtered = decoder._antialias.process(dmr_iq)
-        decimated = filtered[decoder._decim_phase :: decoder._decimation]
-        fm = decoder._fm.process(decimated)
+        fm = decoder._channelizer.process(dmr_iq)
         return decoder._mm.process(fm)
 
     def test_symbol_rate(self, dmr_iq):

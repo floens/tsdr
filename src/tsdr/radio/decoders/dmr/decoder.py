@@ -32,7 +32,7 @@ from tsdr.radio.decoders.dmr.constants import (
 )
 from tsdr.radio.decoders.dmr.fec import decode_cach, decode_slot_type, extract_voice_frames
 from tsdr.radio.demodulators import Demodulator
-from tsdr.radio.dsp import FMDiscriminator, MuellerMuller, StreamingFilter, firwin
+from tsdr.radio.dsp import FMChannelizer, MuellerMuller
 from tsdr.radio.vocoder.ambe import AmbePlus2Decoder
 
 logger = logging.getLogger(__name__)
@@ -160,22 +160,13 @@ class DMRDecoder(Demodulator):
         super().__init__()
         self.sample_rate = sample_rate
 
-        # Decimation to ~48 kHz (10 samples/symbol)
-        self._decimation = max(1, round(sample_rate / _TARGET_RATE))
-        self._decimated_rate = sample_rate / self._decimation
-        self._sps = self._decimated_rate / SYMBOL_RATE
-
-        # Anti-alias filter
-        cutoff = min(self._decimated_rate * 0.45, DEVIATION * 3)
-        self._antialias = StreamingFilter(
-            firwin(101, cutoff, fs=sample_rate),
-            [1.0],
-            dtype=np.complex64,
+        # Decimate to ~48 kHz (10 samples/symbol) and FM-demodulate; output
+        # normalized: +/-1.0 = +/-DEVIATION Hz.
+        self._channelizer = FMChannelizer(
+            sample_rate, DEVIATION, target_rate=_TARGET_RATE, channel_cutoff=DEVIATION * 3
         )
-        self._decim_phase = 0
-
-        # FM discriminator (output normalized: +/-1.0 = +/-DEVIATION Hz)
-        self._fm = FMDiscriminator(self._decimated_rate, DEVIATION)
+        self._decimated_rate = self._channelizer.audio_rate
+        self._sps = self._decimated_rate / SYMBOL_RATE
 
         # Mueller-Muller symbol timing recovery
         self._mm = MuellerMuller(self._sps, gain=0.01)
@@ -238,13 +229,7 @@ class DMRDecoder(Demodulator):
         self._last_snapshot_ts: float = 0.0
 
     def demodulate(self, iq_samples: np.ndarray, capture_utc_s: float) -> None:
-        filtered = self._antialias.process(iq_samples)
-        n_before = len(filtered)
-        decimated = filtered[self._decim_phase :: self._decimation]
-        n_used = n_before - self._decim_phase
-        self._decim_phase = (self._decimation - n_used % self._decimation) % self._decimation
-
-        fm = self._fm.process(decimated)
+        fm = self._channelizer.process(iq_samples)
 
         # Transition constellation: plot each FM sample
         # against the sample one symbol period earlier. Shows a 4x4 grid
@@ -676,7 +661,7 @@ class DMRDecoder(Demodulator):
         )
 
     def reset(self) -> None:
-        self._fm.reset()
+        self._channelizer.reset()
         self._mm.reset()
         self._fm_tail = np.array([], dtype=np.float64)
         self._sync_buf[:] = 0
@@ -714,5 +699,3 @@ class DMRDecoder(Demodulator):
         self._dominant_cc = None
         self._dominant_cc_count = 0
         self._pending_messages.clear()
-        self._antialias.reset()
-        self._decim_phase = 0

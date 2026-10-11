@@ -10,8 +10,8 @@ import zstandard as zstd
 from tsdr.core.events.events import RecordingFinishedEvent
 from tsdr.core.sdr.pipeline.pipeline import PipelineContext
 from tsdr.core.sdr.samples_batch import SampleFormat, SamplesBatch
-from tsdr.radio.dsp import StreamingDecimFilter, firwin
 from tsdr.radio.dsp._kernels import StreamingPolyphaseResampler
+from tsdr.radio.dsp.decimator import MultistageDecimator
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +46,7 @@ class RecordStage:
         self._max_samples = max_samples
         self._sample_format = sample_format
 
-        self._decim: StreamingDecimFilter | None = None
+        self._decim: MultistageDecimator | None = None
         self._poly: StreamingPolyphaseResampler | None = None
 
         self._file: IO[bytes] | None = None
@@ -91,9 +91,7 @@ class RecordStage:
         if up == down:
             self._resample = None
         elif up == 1 and down > 1:
-            cutoff = (device_rate / down) * 0.45
-            taps = firwin(_RESAMPLE_TAPS, cutoff, fs=device_rate).astype(np.float32)
-            self._decim = StreamingDecimFilter(taps, down, dtype=np.complex64)
+            self._decim = MultistageDecimator(device_rate, down, (device_rate / down) * 0.45)
         else:
             self._poly = StreamingPolyphaseResampler(up, down, n_taps=_RESAMPLE_TAPS)
 
