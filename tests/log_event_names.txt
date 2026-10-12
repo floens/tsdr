@@ -5,6 +5,7 @@ app_run_unhandled_exception
 app_shutting_down_engine
 app_stopping_event_adapter
 app_unmounting
+audio_backlog_trimmed
 audio_default_changed
 audio_default_query_failed
 audio_devices_query_failed

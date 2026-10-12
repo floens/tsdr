@@ -21,6 +21,12 @@ from tsdr.core.sdr.workers import audio_worker as audio_worker_module
 from tsdr.core.sdr.workers.audio_worker import AudioOutputWorker, _coerce_speaker_spec
 
 
+@pytest.fixture(autouse=True)
+def _client_queue_backend(monkeypatch: pytest.MonkeyPatch) -> None:
+    """These tests model CoreAudio's client-side deque, whatever the host OS."""
+    monkeypatch.setattr(audio_worker_module, "_CLIENT_QUEUE_BACKEND", True)
+
+
 def _make_worker(output_device: str | None = None) -> AudioOutputWorker:
     w = AudioOutputWorker(source_id="rtl0", audio_queue=queue.Queue(), output_device=output_device)
     # Stand in a fake player with a real deque; no real audio thread.
