@@ -60,6 +60,7 @@ device_started
 device_starting
 device_stopped
 device_stopping
+device_throughput_low
 directory_entry_skipped
 directory_fetch_failed
 directory_fetched
@@ -183,11 +184,19 @@ signal_exit_failed
 signal_received
 soapy_found_system_path
 soapy_gains
+soapy_get_frequency_range_failed
 soapy_get_gain_range_failed
+soapy_get_sample_rate_range_failed
 soapy_get_setting_info_failed
 soapy_get_stream_formats_failed
 soapy_list_gains_failed
+soapy_native_read_stream_lookup_failed
+soapy_native_reader_overrun
+soapy_native_reader_started
+soapy_native_reader_stuck
+soapy_native_reader_unavailable
 soapy_opened
+soapy_overflow
 soapy_set_auto_gain
 soapy_set_auto_gain_failed
 soapy_set_bias_tee

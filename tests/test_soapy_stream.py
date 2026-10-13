@@ -11,6 +11,7 @@ import pytest
 
 from tsdr.core.sdr.exceptions import DeviceError
 from tsdr.core.sdr.samples_batch import SampleFormat, SamplesBatch
+from tsdr.devices import soapy
 from tsdr.devices.soapy import _HAS_SOAPY, SoapySDRDevice
 
 pytestmark = pytest.mark.skipif(not _HAS_SOAPY, reason="SoapySDR bindings not installed")
@@ -109,3 +110,161 @@ def test_auto_gain_guarded_by_has_gain_mode():
     dev2 = _device(has_agc=True)
     dev2.set_auto_gain(True)
     assert ("setGainMode", True) in dev2._device.calls
+
+
+class FakeRange:
+    def __init__(self, lo: float, hi: float, step: float = 0.0):
+        self._lo, self._hi, self._step = lo, hi, step
+
+    def minimum(self) -> float:
+        return self._lo
+
+    def maximum(self) -> float:
+        return self._hi
+
+    def step(self) -> float:
+        return self._step
+
+
+class FakeOpenableDevice(FakeDevice):
+    """Adds the calls SoapySDRDevice.open() makes, with per-driver capabilities."""
+
+    def __init__(self, *, freq_ranges, rate_ranges, gain_range, hw="fake", **kw):
+        super().__init__(**kw)
+        self._freq_ranges = freq_ranges
+        self._rate_ranges = rate_ranges
+        self._gain_range = gain_range
+        self._hw = hw
+
+    def setupStream(self, direction, fmt):  # noqa: N802 (SoapySDR API name)
+        return object()
+
+    def activateStream(self, stream):  # noqa: N802 (SoapySDR API name)
+        pass
+
+    def getSettingInfo(self):  # noqa: N802 (SoapySDR API name)
+        return []
+
+    def getHardwareKey(self):  # noqa: N802 (SoapySDR API name)
+        return self._hw
+
+    def getGainRange(self, direction, channel):  # noqa: N802 (SoapySDR API name)
+        return self._gain_range
+
+    def getFrequencyRange(self, direction, channel):  # noqa: N802 (SoapySDR API name)
+        if isinstance(self._freq_ranges, Exception):
+            raise self._freq_ranges
+        return self._freq_ranges
+
+    def getSampleRateRange(self, direction, channel):  # noqa: N802 (SoapySDR API name)
+        if isinstance(self._rate_ranges, Exception):
+            raise self._rate_ranges
+        return self._rate_ranges
+
+
+def _open_with(monkeypatch, fake: FakeOpenableDevice) -> SoapySDRDevice:
+    monkeypatch.setattr(soapy._SoapySDR, "Device", lambda args: fake)
+    dev = SoapySDRDevice(driver="x", serial="", antenna="", device_args="")
+    dev.open()
+    return dev
+
+
+def test_open_compiles_the_native_reader_before_the_stream_starts(monkeypatch):
+    """A driver may stall if its first read comes late (SoapyAirspy stops for
+    good when nothing reads ~0.2 s after a rate change), so the reader's ~0.5 s
+    compile must not wait for the first read."""
+    order: list = []
+    fake = FakeOpenableDevice(
+        freq_ranges=[FakeRange(24e6, 1.8e9)],
+        rate_ranges=[FakeRange(10e6, 10e6)],
+        gain_range=FakeRange(0.0, 45.0, 1.0),
+    )
+    fake.activateStream = lambda stream: order.append("activate")  # type: ignore[method-assign]
+    monkeypatch.setattr(soapy, "_native_read_stream", lambda: order.append("compile"))
+    _open_with(monkeypatch, fake)
+    assert order == ["compile", "activate"]
+
+
+def test_a_reader_that_fails_to_compile_falls_back_to_python_reads(monkeypatch, caplog):
+    def fail(read_stream):
+        raise soapy.NumbaError("no")
+
+    monkeypatch.setattr(soapy, "compile_read_loop", fail)
+    soapy._native_read_stream.cache_clear()
+    try:
+        with caplog.at_level("WARNING"):
+            assert soapy._native_read_stream() is None
+    finally:
+        soapy._native_read_stream.cache_clear()
+    assert any("compile_failed" in r.getMessage() for r in caplog.records)
+
+
+def test_open_reports_discrete_sample_rates_and_band(monkeypatch):
+    """Airspy R2: two fixed rates, 24 MHz-1.8 GHz, 0-45 dB gain."""
+    fake = FakeOpenableDevice(
+        freq_ranges=[FakeRange(24e6, 1.8e9)],
+        rate_ranges=[FakeRange(10e6, 10e6), FakeRange(2.5e6, 2.5e6)],
+        gain_range=FakeRange(0.0, 45.0, 1.0),
+        hw="AIRSPY",
+    )
+    caps = _open_with(monkeypatch, fake).capabilities
+    assert caps.frequency_range == (24e6, 1.8e9)
+    assert caps.sample_rates == (2.5e6, 10e6)
+    assert caps.gain_range == (0.0, 45.0)
+    assert caps.gain_step == 1.0
+
+
+def test_open_leaves_continuous_sample_rates_unconstrained(monkeypatch):
+    """PlutoSDR: any rate in 65.1 kS/s-61.44 MS/s, so no discrete list."""
+    fake = FakeOpenableDevice(
+        freq_ranges=[FakeRange(70e6, 6e9)],
+        rate_ranges=[FakeRange(65105.0, 61.44e6)],
+        gain_range=FakeRange(-1.0, 73.0, 0.5),
+        hw="PlutoSDR",
+    )
+    caps = _open_with(monkeypatch, fake).capabilities
+    assert caps.frequency_range == (70e6, 6e9)
+    assert caps.sample_rates is None
+    assert caps.gain_range == (-1.0, 73.0)
+    assert caps.gain_step == 0.5
+
+
+def test_open_spans_disjoint_frequency_ranges(monkeypatch):
+    fake = FakeOpenableDevice(
+        freq_ranges=[FakeRange(52e6, 1.1e9), FakeRange(1.25e9, 2.2e9)],
+        rate_ranges=[FakeRange(1e6, 3.2e6)],
+        gain_range=FakeRange(0.0, 50.0),
+    )
+    caps = _open_with(monkeypatch, fake).capabilities
+    assert caps.frequency_range == (52e6, 2.2e9)
+    assert caps.gain_step == 1.0  # driver reports no step
+
+
+def test_open_tolerates_drivers_without_range_queries(monkeypatch):
+    fake = FakeOpenableDevice(
+        freq_ranges=RuntimeError("not supported"),
+        rate_ranges=RuntimeError("not supported"),
+        gain_range=FakeRange(0.0, 30.0),
+    )
+    caps = _open_with(monkeypatch, fake).capabilities
+    assert caps.frequency_range is None
+    assert caps.sample_rates is None
+
+
+def test_read_error_names_the_soapy_code():
+    dev = _device(fill=lambda chunk, n: None)
+    dev._device.readStream = lambda *a, **k: FakeSR(-1)
+    with pytest.raises(DeviceError, match="TIMEOUT"):
+        dev.read_samples(1024 * 8)
+
+
+def test_overflow_is_counted_and_the_read_completes(caplog):
+    """SOAPY_SDR_OVERFLOW means the radio dropped samples; count it, keep reading."""
+    results = iter([soapy._SoapySDR.SOAPY_SDR_OVERFLOW, 1024])
+    dev = _device(fill=lambda chunk, n: None)
+    dev._device.readStream = lambda *a, **k: FakeSR(next(results))
+    with caplog.at_level("WARNING"):
+        raw = dev.read_samples(1024 * 8)
+    assert len(raw) == 1024 * 8
+    assert dev.overflow_count == 1
+    assert any("soapy_overflow" in r.getMessage() for r in caplog.records)

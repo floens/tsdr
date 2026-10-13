@@ -6,18 +6,28 @@ pipx / uv won't see system site-packages, so we probe well-known locations
 when the regular import fails.
 """
 
+import ctypes.util
 import logging
 import platform
 import sys
+import time
 from dataclasses import dataclass
+from functools import cache
 from pathlib import Path
 from typing import Any
 
 import numpy as np
+from numba.core.errors import NumbaError
 
 from tsdr.core.sdr.exceptions import DeviceError
 from tsdr.core.sdr.samples_batch import SampleFormat
 from tsdr.devices.base import DeviceCapabilities, DeviceIdentity, DeviceParams
+from tsdr.devices.soapy_reader import (
+    NativeStreamReader,
+    StreamError,
+    bind_read_stream,
+    compile_read_loop,
+)
 
 logger = logging.getLogger(__name__)
 _soapy_logger = logging.getLogger("SoapySDR")
@@ -111,6 +121,46 @@ _STREAM_FORMAT_PREFERENCE: tuple[tuple[str, SampleFormat, Any, int], ...] = (
 )
 
 
+_OVERFLOW_LOG_INTERVAL_S = 5.0
+# Native reader: samples it buffers, and how long a read may wait for data.
+_RING_SECONDS = 0.5
+_READ_IDLE_TIMEOUT_S = 2.0
+_READER_STOP_TIMEOUT_S = 5.0
+# Device, stream and reader whose loop never left the driver: freeing them
+# would pull the device (or the ring it writes) out from under it.
+_abandoned_streams: list[tuple[Any, Any, NativeStreamReader]] = []
+
+
+@cache
+def _native_read_stream() -> Any | None:
+    """SoapySDR's C `readStream`, its read loop compiled, or None to read in
+    Python instead.
+
+    Looked up through the Python extension, whose links name the exact
+    library the bindings use. Compiled here, before any stream starts:
+    compiling takes ~0.5 s, and some drivers stall if the first read comes
+    that late (see compile_read_loop).
+    """
+    candidates = [getattr(getattr(_SoapySDR, "_SoapySDR", None), "__file__", None)]
+    candidates.append(ctypes.util.find_library("SoapySDR"))
+    for path in candidates:
+        if not path:
+            continue
+        try:
+            read_stream = bind_read_stream(path)
+        except (OSError, AttributeError) as e:
+            logger.debug("soapy_native_read_stream_lookup_failed path=%s error=%r", path, e)
+            continue
+        try:
+            compile_read_loop(read_stream)
+        except NumbaError as e:
+            logger.warning("soapy_native_reader_unavailable reason=compile_failed error=%r", e)
+            return None
+        return read_stream
+    logger.warning("soapy_native_reader_unavailable reason=no_read_stream_symbol")
+    return None
+
+
 @dataclass(frozen=True)
 class SoapySDRParams(DeviceParams):
     """SoapySDR device parameters."""
@@ -145,6 +195,21 @@ class SoapySDRDevice:
         self._stream = None
         self._is_open = False
         self._sample_rate: float = 0.0
+        # Driver-side overflows (samples the radio dropped before we read them),
+        # logged as an aggregate so a link that can't sustain the rate shows up.
+        self.overflow_count = 0
+        self._overflows_logged = 0
+        self._overflow_log_at = 0.0
+        # Reads run on a native thread when the bindings expose C handles
+        # (see soapy_reader); the counters below track what it has reported.
+        self._reader: NativeStreamReader | None = None
+        self._reader_overflows = 0
+        self._reader_dropped = 0
+        self.dropped_count = 0
+        self._dropped_logged = 0
+        self._dropped_log_at = 0.0
+        self._interrupted = False
+        self._frequency: float | None = None
         self._sample_format: SampleFormat = SampleFormat.COMPLEX64
         self._read_dtype: Any = np.complex64
         self._read_components: int = 1
@@ -217,6 +282,7 @@ class SoapySDRDevice:
                 "Install via system package manager (e.g. brew install soapysdr)"
             )
         args = self._build_args()
+        self._interrupted = False
         try:
             self._device = _SoapySDR.Device(args)
         except RuntimeError as e:
@@ -228,6 +294,7 @@ class SoapySDRDevice:
 
         soapy_format = self._select_stream_format()
         self._stream = self._device.setupStream(_SoapySDR.SOAPY_SDR_RX, soapy_format)
+        _native_read_stream()  # compiles the native reader before the stream starts
         self._device.activateStream(self._stream)
         self._is_open = True
 
@@ -239,9 +306,12 @@ class SoapySDRDevice:
             supports_bias_tee = False
 
         gain_range = self._capabilities.gain_range
+        gain_step = self._capabilities.gain_step
         try:
             r = self._device.getGainRange(_SoapySDR.SOAPY_SDR_RX, 0)
             gain_range = (float(r.minimum()), float(r.maximum()))
+            if r.step() > 0:
+                gain_step = float(r.step())
         except (RuntimeError, AttributeError) as e:
             logger.debug("soapy_get_gain_range_failed error=%r", e)
 
@@ -258,29 +328,76 @@ class SoapySDRDevice:
         hw = self._device.getHardwareKey()
         logger.debug("soapy_gains hw=%s gains=%s has_agc=%s", hw, ",".join(gains), has_agc)
         self._identity = DeviceIdentity(type_label=hw or "Soapy", serial=self._serial or None)
+        frequency_range = self._probe_frequency_range()
+        sample_rates = self._probe_sample_rates()
         self._capabilities = DeviceCapabilities(
-            frequency_range=None,
+            frequency_range=frequency_range,
             frequency_controllable=True,
-            sample_rates=None,
+            sample_rates=sample_rates,
             gain_supported=True,
             gain_range=gain_range,
-            gain_step=1.0,
+            gain_step=gain_step,
             gain_unit="dB",
             bias_tee_supported=supports_bias_tee,
         )
-        logger.info("soapy_opened hw=%s driver=%s", hw, self._driver or "auto")
+        logger.info(
+            "soapy_opened hw=%s driver=%s frequency_range=%s sample_rates=%s gain_range=%s",
+            hw,
+            self._driver or "auto",
+            frequency_range,
+            sample_rates,
+            gain_range,
+        )
+
+    def _probe_frequency_range(self) -> tuple[float, float] | None:
+        """Overall tunable span; disjoint driver ranges are merged end to end."""
+        assert self._device is not None
+        try:
+            ranges = list(self._device.getFrequencyRange(_SoapySDR.SOAPY_SDR_RX, 0))
+        except (RuntimeError, AttributeError) as e:
+            logger.debug("soapy_get_frequency_range_failed error=%r", e)
+            return None
+        if not ranges:
+            return None
+        return (
+            min(float(r.minimum()) for r in ranges),
+            max(float(r.maximum()) for r in ranges),
+        )
+
+    def _probe_sample_rates(self) -> tuple[float, ...] | None:
+        """Discrete supported rates, or None when the driver accepts a continuous range.
+
+        Drivers with fixed rates (e.g. Airspy: 2.5 / 10 MS/s) report one
+        zero-width range per rate; listing them lets the engine snap the
+        configured rate to a supported one and offer them as completions.
+        """
+        assert self._device is not None
+        try:
+            ranges = list(self._device.getSampleRateRange(_SoapySDR.SOAPY_SDR_RX, 0))
+        except (RuntimeError, AttributeError) as e:
+            logger.debug("soapy_get_sample_rate_range_failed error=%r", e)
+            return None
+        if not ranges or any(r.maximum() > r.minimum() for r in ranges):
+            return None
+        return tuple(sorted({float(r.minimum()) for r in ranges}))
 
     def interrupt(self) -> None:
-        # Soapy reads have a 2s timeout, so they unblock on their own.
-        pass
+        # A native-reader read polls this; a direct Soapy read has a 2 s
+        # timeout, so it unblocks on its own.
+        self._interrupted = True
 
     def close(self) -> None:
         if self._device and self._stream:
-            try:
-                self._device.deactivateStream(self._stream)
-                self._device.closeStream(self._stream)
-            except RuntimeError as e:
-                logger.debug("soapy_stream_close_failed error=%r", e)
+            if self._stop_reader():
+                try:
+                    self._device.deactivateStream(self._stream)
+                    self._device.closeStream(self._stream)
+                except RuntimeError as e:
+                    logger.debug("soapy_stream_close_failed error=%r", e)
+            else:
+                assert self._reader is not None
+                _abandoned_streams.append((self._device, self._stream, self._reader))
+                self._reader = None
             self._stream = None
         self._device = None
         self._is_open = False
@@ -288,10 +405,111 @@ class SoapySDRDevice:
     def read_samples(self, count: int) -> bytes:
         if not self._device or not self._stream:
             raise DeviceError("Device not open")
+        total_samples = count // self._sample_format.bytes_per_sample
+        reader = self._reader
+        if reader is not None and reader.stopping:
+            # A stop that timed out: no new reader on this stream until the
+            # old loop has left the driver.
+            if reader.alive:
+                raise DeviceError("SoapySDR native reader is still inside the driver")
+            self._reader = reader = None
+        reader = reader or self._start_reader()
+        if reader is None:
+            return self._read_in_this_thread(total_samples)
+        try:
+            return reader.read(
+                total_samples,
+                idle_timeout_s=_READ_IDLE_TIMEOUT_S,
+                interrupted=lambda: self._interrupted,
+            )
+        except StreamError as e:
+            self._stop_reader()
+            raise DeviceError(
+                f"SoapySDR readStream error: {_SoapySDR.errToStr(e.code)} ({e.code})"
+            ) from None
+        finally:
+            self._collect_reader_counts(reader)
 
+    def _start_reader(self) -> NativeStreamReader | None:
+        """Start the native reader, or None to read in this thread instead."""
+        assert self._device is not None
+        read_stream = _native_read_stream()
+        if read_stream is None:
+            return None
+        try:
+            handles = int(self._device.this), int(self._stream)
+        except AttributeError, TypeError:
+            # Not SWIG objects (another binding, or a test double).
+            return None
+        rate = self._sample_rate or float(self._device.getSampleRate(_SoapySDR.SOAPY_SDR_RX, 0))
+        self._reader = NativeStreamReader(
+            read_stream,
+            *handles,
+            sample_bytes=self._sample_format.bytes_per_sample,
+            sample_rate=rate,
+            ring_seconds=_RING_SECONDS,
+        )
+        if self._frequency is not None:
+            self._reader.mark(self._frequency)
+        self._reader_overflows = 0
+        self._reader_dropped = 0
+        logger.info(
+            "soapy_native_reader_started sample_rate=%.0f ring_samples=%d",
+            rate,
+            self._reader.capacity,
+        )
+        return self._reader
+
+    def _stop_reader(self) -> bool:
+        """Stop the native reader. False when its loop is still inside the
+        driver: it then stays this stream's reader, so nothing reconfigures,
+        reads, or frees the stream under it."""
+        reader = self._reader
+        if reader is None:
+            return True
+        if not reader.stop(_READER_STOP_TIMEOUT_S):
+            logger.error("soapy_native_reader_stuck timeout_s=%.1f", _READER_STOP_TIMEOUT_S)
+            return False
+        self._reader = None
+        return True
+
+    @property
+    def read_backlog_samples(self) -> int:
+        """Samples the native reader holds beyond what has been read."""
+        return self._reader.backlog if self._reader is not None else 0
+
+    @property
+    def read_center_frequency(self) -> float | None:
+        """The center frequency of the samples the last read returned."""
+        return self._reader.tag if self._reader is not None else None
+
+    def _collect_reader_counts(self, reader: NativeStreamReader) -> None:
+        if reader.overflows != self._reader_overflows:
+            self.overflow_count += reader.overflows - self._reader_overflows
+            self._reader_overflows = reader.overflows
+            self._maybe_log_overflows()
+        if reader.dropped != self._reader_dropped:
+            self.dropped_count += reader.dropped - self._reader_dropped
+            self._reader_dropped = reader.dropped
+            self._maybe_log_dropped()
+
+    def _maybe_log_dropped(self) -> None:
+        now = time.monotonic()
+        if now - self._dropped_log_at < _OVERFLOW_LOG_INTERVAL_S:
+            return
+        logger.warning(
+            "soapy_native_reader_overrun dropped=%d total=%d sample_rate=%.0f",
+            self.dropped_count - self._dropped_logged,
+            self.dropped_count,
+            self._sample_rate,
+        )
+        self._dropped_logged = self.dropped_count
+        self._dropped_log_at = now
+
+    def _read_in_this_thread(self, total_samples: int) -> bytes:
+        assert self._device is not None
         # complex64 → 1 element/sample; CU8/CS8 → 2 one-byte components/sample.
         components = self._read_components
-        total_samples = count // self._sample_format.bytes_per_sample
         buf = np.empty(total_samples * components, dtype=self._read_dtype)
         offset = 0
 
@@ -302,10 +520,15 @@ class SoapySDRDevice:
             chunk = buf[offset * components : (offset + remaining) * components]
             sr = self._device.readStream(self._stream, [chunk], remaining, timeoutUs=2_000_000)
             status = sr.ret
-            if status == -4:  # SOAPY_SDR_OVERFLOW, skip and retry
+            if status == _SoapySDR.SOAPY_SDR_OVERFLOW:
+                # Samples were lost in the driver; the stream continues.
+                self.overflow_count += 1
+                self._maybe_log_overflows()
                 continue
             if status < 0:
-                raise DeviceError(f"SoapySDR readStream error: {status}")
+                raise DeviceError(
+                    f"SoapySDR readStream error: {_SoapySDR.errToStr(status)} ({status})"
+                )
             if status == 0:
                 raise DeviceError("SoapySDR readStream returned 0 samples")
             offset += status
@@ -313,12 +536,34 @@ class SoapySDRDevice:
         result: bytes = buf.tobytes()  # type: ignore[assignment]
         return result
 
+    def _maybe_log_overflows(self) -> None:
+        now = time.monotonic()
+        if now - self._overflow_log_at < _OVERFLOW_LOG_INTERVAL_S:
+            return
+        logger.warning(
+            "soapy_overflow new=%d total=%d sample_rate=%.0f",
+            self.overflow_count - self._overflows_logged,
+            self.overflow_count,
+            self._sample_rate,
+        )
+        self._overflows_logged = self.overflow_count
+        self._overflow_log_at = now
+
     def set_frequency(self, freq: float) -> None:
         if self._device:
             self._device.setFrequency(_SoapySDR.SOAPY_SDR_RX, 0, freq)
+            self._frequency = freq
+            # What the ring holds was captured at the old frequency: reads
+            # stop at the change and report each side's frequency.
+            if self._reader is not None:
+                self._reader.mark(freq)
 
     def set_sample_rate(self, rate: float) -> None:
         if self._device:
+            # Samples in the ring were taken at the old rate; the next read
+            # starts a reader sized for the new one.
+            if not self._stop_reader():
+                raise DeviceError("Sample rate unchanged: the native reader is stuck in the driver")
             self._device.setSampleRate(_SoapySDR.SOAPY_SDR_RX, 0, rate)
             self._sample_rate = float(self._device.getSampleRate(_SoapySDR.SOAPY_SDR_RX, 0))
 

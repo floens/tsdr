@@ -202,6 +202,25 @@ def as_spectrum_source(device: object) -> SpectrumSource | None:
 
 
 @runtime_checkable
+class BuffersCapture(Protocol):
+    """Optional capability: the device buffers captured samples ahead of
+    `read_samples` (e.g. a native reader's ring). A batch's first sample is
+    then older than its length alone says, and after a retune the device can
+    still return samples taken at the old frequency."""
+
+    @property
+    def read_backlog_samples(self) -> int:
+        """Samples captured but not yet returned by read_samples."""
+        ...
+
+    @property
+    def read_center_frequency(self) -> float | None:
+        """The center frequency the last returned samples were taken at
+        (None when unknown: then the configured one)."""
+        ...
+
+
+@runtime_checkable
 class HasJitterBuffer(Protocol):
     """Optional capability: device exposes its jitter buffer for state reads.
 
