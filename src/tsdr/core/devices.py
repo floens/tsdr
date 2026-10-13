@@ -35,6 +35,11 @@ class PersistedDevice(BaseModel):
 
     tuned_frequency: float | None = None
     tuning_mode: str | None = None
+    lo_offset: str | None = None
+    lo_offset_hz: float | None = None
+    analog_filter: str | None = None
+    analog_filter_hz: float | None = None
+    analog_filter_fraction: float | None = None
     center_frequency: float | None = None
     sample_rate: float | None = None
     rf_gain: float | None = None

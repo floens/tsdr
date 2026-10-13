@@ -19,11 +19,12 @@ from tsdr.core.events.events import (
 from tsdr.core.landmarks import next_target
 from tsdr.core.memories import get_memory_store
 from tsdr.core.preferences import save_tuning_state
-from tsdr.core.sdr.config import TuningMode
+from tsdr.core.sdr.config import LoOffset, TuningMode
 from tsdr.core.sdr.device_context import SDRDeviceContext
 from tsdr.core.sdr.engine import get_engine
 from tsdr.core.sdr.exceptions import SDRException
 from tsdr.core.sdr.spectrum_view import adjusted_span
+from tsdr.core.sdr.tune_policy import effective_lo_side
 from tsdr.core.tuning import (
     STEP_LADDER,
     bandwidth_step,
@@ -142,6 +143,30 @@ class TuningMixin(MixinBase):
             return
         get_engine().update_device_config(device.device_id, tuning_mode=new_mode)
         self.show_status(f"Tuning: {new_mode}")
+
+    def _toggle_lo_offset(self, side: LoOffset) -> None:
+        """`o`/`O`: put the LO on that side of the dial; the same key again turns it off."""
+        device = self._focused()
+        if device is None:
+            return
+        caps = device.device.capabilities
+        if not caps.frequency_controllable or caps.provides_spectrum:
+            self._show_error("LO offset not available for this device")
+            return
+        new: LoOffset = "off" if effective_lo_side(device.config.lo_offset, caps) == side else side
+        get_engine().update_device_config(device.device_id, lo_offset=new)
+        config = device.config
+        offset = config.center_frequency - config.tuned_frequency
+        if new == "off":
+            self.show_status("LO offset: off")
+        elif offset:
+            where = "below" if offset < 0 else "above"
+            size = format_hz(abs(offset), decimals=1, long_suffix=True)
+            self.show_status(f"LO offset: {size} {where} the dial")
+        elif device.demod_profile is None:
+            self.show_status(f"LO offset: {new} the dial while demodulating")
+        else:
+            self.show_status(f"LO offset: {new} the dial (no room at this sample rate)")
 
     def _center_view_on_dial(self) -> None:
         device = self._focused()

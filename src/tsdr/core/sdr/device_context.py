@@ -2,13 +2,13 @@ import logging
 import queue
 import threading
 from collections import deque
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from enum import Enum
 from queue import Queue
 from typing import TYPE_CHECKING, Unpack
 
 from tsdr.core.events.events import DecodedMessage
-from tsdr.core.sdr.config import DeviceConfig, DeviceConfigChanges, SDRConfig
+from tsdr.core.sdr.config import DeviceConfig, DeviceConfigChanges, PipelineConfig, SDRConfig
 from tsdr.core.sdr.pipeline.pipeline import ProcessingPipeline
 from tsdr.core.sdr.pipeline.stage_factory import create_stage, stage_type_of
 from tsdr.core.sdr.pipeline.stages.demodulator_stage import DemodulatorStage
@@ -25,6 +25,14 @@ if TYPE_CHECKING:
     from tsdr.core.sdr.datatypes import DemodProfile, DemodStatus
     from tsdr.core.workers import WorkerHandle
     from tsdr.devices import DeviceParams, SDRDevice
+
+
+def active_mode_of(pipelines: Mapping[str, PipelineConfig]) -> str:
+    """Demodulation mode named by `pipelines`, or "RAW" without one."""
+    for pc in pipelines.values():
+        if pc.audio_spec is not None:
+            return pc.audio_spec.mode
+    return "RAW"
 
 
 def _close_stage(stage: object) -> None:
@@ -92,6 +100,9 @@ class SDRDeviceContext:
         # Runtime counters (written by I/O worker, read by stats stage)
         self.total_samples_read = 0
         self.dropped_samples = 0
+        # The radio's analog filter width as last read back by the I/O worker
+        # (None = unknown or not settable).
+        self.analog_bandwidth_hz: float | None = None
         self.queue_high_water_mark = 0
         self.total_queue_drops = 0
 
@@ -139,10 +150,7 @@ class SDRDeviceContext:
     @property
     def active_mode(self) -> str:
         """Active demodulation mode name derived from config."""
-        for pc in self.config.pipelines.values():
-            if pc.audio_spec is not None:
-                return pc.audio_spec.mode
-        return "RAW"
+        return active_mode_of(self.config.pipelines)
 
     def append_decoder_history(self, protocol: str, messages: tuple[DecodedMessage, ...]) -> None:
         """Retain sealed decoder messages; a protocol change resets the buffer.

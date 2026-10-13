@@ -126,6 +126,10 @@ class KeyboardMixin(MixinBase):
                 self._cycle_step(False)
             case Action.TUNE_MODE_TOGGLE:
                 self._toggle_center_tuning()
+            case Action.LO_OFFSET_BELOW:
+                self._toggle_lo_offset("below")
+            case Action.LO_OFFSET_ABOVE:
+                self._toggle_lo_offset("above")
             case Action.BANDWIDTH_UP:
                 self._adjust_channel_bandwidth(1)
             case Action.BANDWIDTH_DOWN:

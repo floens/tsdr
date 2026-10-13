@@ -22,6 +22,8 @@ def _widget(**fields) -> StatsWidget:
     w._frequency_controllable = False
     w._controller_center_frequency = None
     w._controller_gain = None
+    w._lo = None
+    w._analog_bandwidth = None
     w._wire_bytes_per_sec = 0.0
     w._device_state = None
     w._requested_sample_rate = None
@@ -62,6 +64,20 @@ def _event(**over) -> StatsUpdateEvent:
     }
     base.update(over)
     return StatsUpdateEvent(**base)
+
+
+def test_lo_row_shows_hardware_center_and_offset() -> None:
+    assert not any("LO:" in ln for ln in _widget()._device_lines())
+    lines = _widget(_lo=(162.5e6, -50e3))._device_lines()
+    lo = [ln for ln in lines if "LO:" in ln]
+    assert len(lo) == 1 and "162.5 MHz" in lo[0] and "(-50 kHz)" in lo[0]
+
+
+def test_filter_row_shows_analog_bandwidth() -> None:
+    assert not any("Filter:" in ln for ln in _widget()._device_lines())
+    lines = _widget(_analog_bandwidth=1.6e6)._device_lines()
+    row = [ln for ln in lines if "Filter:" in ln]
+    assert len(row) == 1 and "1.6 MHz" in row[0]
 
 
 def test_no_queue_section() -> None:

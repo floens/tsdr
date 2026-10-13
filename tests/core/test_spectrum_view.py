@@ -120,3 +120,37 @@ def test_track_dial_view_follows_tuned_not_center():
         spectrum_span=200e3,
     )
     assert resolve_view(config, None) == (100.5e6, 200e3)
+
+
+def test_center_mode_lo_offset_crops_band_around_dial():
+    # LO 50 kHz below the dial: the band is cropped by 2x the offset so the
+    # dial stays at the center of the full view.
+    config = DeviceConfig(tuned_frequency=100e6, center_frequency=100e6 - 50e3, sample_rate=1e6)
+    assert full_view_range(config, None) == (100e6 - 450e3, 100e6 + 450e3)
+    assert resolve_view(config, None) == (100e6, 900e3)
+
+
+def test_free_mode_shows_whole_capture_despite_offset():
+    config = DeviceConfig(
+        tuned_frequency=100e6,
+        center_frequency=100e6 - 50e3,
+        tuning_mode="free",
+        sample_rate=1e6,
+    )
+    assert full_view_range(config, None) == (100e6 - 550e3, 100e6 + 450e3)
+
+
+def test_fixed_capture_is_not_cropped_in_center_mode():
+    # An IQ file can't move its capture; the dial roams inside it.
+    caps = DeviceCapabilities(
+        frequency_range=None,
+        frequency_controllable=False,
+        sample_rates=None,
+        gain_supported=False,
+        gain_range=(0.0, 0.0),
+        gain_step=1.0,
+        gain_unit="dB",
+        bias_tee_supported=False,
+    )
+    config = DeviceConfig(tuned_frequency=100.2e6, center_frequency=100e6, sample_rate=1e6)
+    assert full_view_range(config, caps) == (99.5e6, 100.5e6)

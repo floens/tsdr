@@ -58,6 +58,17 @@ class DeviceCapabilities:
     # from `frequency_range` instead of `center_frequency ± sample_rate/2`.
     provides_spectrum: bool = False
 
+    # Direct-conversion (zero-IF) receiver: LO leakage, DC offset, 1/f noise
+    # and second-order intermod sit at the capture center, so the tuning
+    # policy keeps the LO beside a demodulated channel by default.
+    zero_if: bool = False
+
+    # The driver can set the analog filter ahead of the ADC (AnalogFilterControl).
+    analog_filter_supported: bool = False
+    # The driver leaves that filter where it is when the sample rate changes
+    # (the Pluto stays at 18 MHz), so tsdr tracks the rate by default.
+    static_analog_filter: bool = False
+
     # Populated when another client controls the hardware (shared SpyServer).
     controller_center_frequency: float | None = None
     controller_gain: int | None = None
@@ -185,6 +196,32 @@ class SpectrumSource(Protocol):
     def spectrum_view_status(self) -> SpectrumViewStatus | None:
         """Last requested view + last delivered frame geometry, for stats/debug."""
         ...
+
+
+@runtime_checkable
+class AnalogFilterControl(Protocol):
+    """Optional capability: the analog filter ahead of the ADC can be set.
+
+    Pairs with `DeviceCapabilities.analog_filter_supported`.
+    """
+
+    def analog_bandwidth(self) -> float:
+        """The filter's current width in Hz (0 when the driver doesn't say)."""
+        ...
+
+    def set_analog_bandwidth(self, hz: float) -> float:
+        """Request a width; returns the width the driver set (0 when unknown)."""
+        ...
+
+
+def as_analog_filter(device: object) -> AnalogFilterControl | None:
+    """The device as an AnalogFilterControl when its driver supports one."""
+    if not isinstance(device, AnalogFilterControl):
+        return None
+    caps = getattr(device, "capabilities", None)
+    if caps is None or not caps.analog_filter_supported:
+        return None
+    return device
 
 
 def as_spectrum_source(device: object) -> SpectrumSource | None:

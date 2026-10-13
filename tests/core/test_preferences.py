@@ -68,3 +68,18 @@ def test_tuning_mode_absent_defaults_to_center():
     config = _build_device_config(PersistedDevice(id="d", type="mock", center_frequency=1e6))
     assert config is not None
     assert config.tuning_mode == "center"
+
+
+def test_lo_offset_round_trips():
+    persisted = PersistedDevice(id="d", type="mock", lo_offset="above", lo_offset_hz=30e3)
+    config = _build_device_config(persisted)
+    assert config is not None
+    assert config.lo_offset == "above"
+    assert config.lo_offset_hz == 30e3
+
+
+def test_lo_offset_absent_defaults_to_auto():
+    config = _build_device_config(PersistedDevice(id="d", type="mock", center_frequency=1e6))
+    assert config is not None
+    assert config.lo_offset == "auto"
+    assert config.lo_offset_hz is None

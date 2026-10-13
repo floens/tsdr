@@ -129,6 +129,10 @@ shift stage, and the hardware retunes only when the channel no longer fits the c
 retune allow free tuning within their fixed window; devices that provide their own spectrum tune a server-side channel
 and always follow the dial.
 
+While a demodulator runs, the policy keeps the capture center beside the channel rather than on it (the LO offset): a
+zero-IF receiver's LO leakage, DC offset and second-order intermod land at the capture center. In center mode the view
+is cropped symmetric about the dial so the dial stays at the center of the screen.
+
 The display renders user intent: the view and overlays follow configuration immediately, and data catches up. Consumers
 compensate for hardware lag with the data at hand instead of waiting for it: the frequency shift stage derives its
 offset per batch, and the display anchors stale frames to the capture they came from.
@@ -153,6 +157,9 @@ Each worker owns a thread. The worker abstraction revolves around this. Workers 
 #### I/O Worker
 
 The IO worker gets samples from and sets config on the SDR hardware, and has exclusive access to it.
+
+It also sets the radio's analog (anti-alias) filter after every sample-rate change on drivers that leave the filter
+where it is, so strong signals outside the captured band stay off the converter.
 
 #### Pipeline Worker
 

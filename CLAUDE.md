@@ -263,6 +263,30 @@ bars hold their old positions under the already-moved axis — zoomed and
 full-band alike — and the always-on `FrequencyShiftStage` keeps audio on
 station.
 
+While a demodulator runs, the policy puts the hardware center beside the dial
+instead of on it (`DeviceConfig.lo_offset`: auto/below/above/off;
+`lo_offset_hz`: None = one channel width, at least 50 kHz), keeping a zero-IF
+receiver's LO leakage, DC offset and near-DC intermod out of the channel.
+`auto` means below on `capabilities.zero_if` radios, off otherwise. No
+demodulator, or a channel too wide to sit beside the LO (DAB, ADS-B), means
+no offset; at the edge of the device's range the LO mirrors to the dial's
+other side. In center mode `full_view_range` crops the band symmetric about
+the dial. Free mode applies the offset when it recenters, when `o`/`O`
+(`config --lo-offset`) change it, and when a new demodulator would find the
+LO inside its channel.
+
+## Analog filter
+
+`DeviceConfig.analog_filter` (auto/track/fixed/off), `analog_filter_hz` and
+`analog_filter_fraction` set the filter ahead of the ADC through the optional
+`AnalogFilterControl` (`devices/base.py`; Soapy only). The I/O worker applies
+`core/sdr/analog_filter.target_bandwidth` at open and on every config apply
+(so after every sample-rate change), and hands the driver back the width it
+had at open when tsdr stops managing it. `auto` tracks the rate only on
+`capabilities.static_analog_filter` drivers (SoapyPlutoSDR, which otherwise
+leaves the AD9361 at 18 MHz); drivers that retune their own filter are left
+alone. `SDRDeviceContext.analog_bandwidth_hz` holds the read-back width.
+
 ## Spectrum View (zoom/pan)
 
 The view is client state: `spectrum_center` / `spectrum_span` on `DeviceConfig`

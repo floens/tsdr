@@ -11,7 +11,12 @@ import pytest
 
 from tsdr.core.sdr.exceptions import DeviceError
 from tsdr.core.sdr.samples_batch import SampleFormat, SamplesBatch
-from tsdr.devices.soapy import _HAS_SOAPY, SoapySDRDevice
+from tsdr.devices.soapy import (
+    _HAS_SOAPY,
+    SoapySDRDevice,
+    _has_static_analog_filter,
+    _is_zero_if,
+)
 
 pytestmark = pytest.mark.skipif(not _HAS_SOAPY, reason="SoapySDR bindings not installed")
 
@@ -109,3 +114,69 @@ def test_auto_gain_guarded_by_has_gain_mode():
     dev2 = _device(has_agc=True)
     dev2.set_auto_gain(True)
     assert ("setGainMode", True) in dev2._device.calls
+
+
+@pytest.mark.parametrize(
+    ("driver_key", "hardware_key", "expected"),
+    [
+        ("PlutoSDR", "PlutoSDR", True),
+        ("HackRF", "HackRF One", True),
+        ("lime", "LimeSDR-USB", True),
+        ("uhd", "B200", True),
+        ("bladeRF", "bladeRF 2.0", True),
+        ("Airspy", "AirSpy", False),
+        ("airspyhf", "AirspyHF", False),
+        ("RTLSDR", "Generic RTL2832U", False),
+    ],
+)
+def test_zero_if_detection(driver_key: str, hardware_key: str, expected: bool) -> None:
+    assert _is_zero_if(driver_key, hardware_key, "") is expected
+
+
+@pytest.mark.parametrize(
+    ("driver_key", "hardware_key", "expected"),
+    [
+        ("PlutoSDR", "ADALM-PLUTO", True),
+        ("HackRF", "HackRF One", False),
+        ("Airspy", "Airspy", False),
+        ("RTLSDR", "Generic RTL2832U", False),
+    ],
+)
+def test_static_analog_filter_detection(driver_key: str, hardware_key: str, expected: bool) -> None:
+    assert _has_static_analog_filter(driver_key, hardware_key, "") is expected
+
+
+class FakeRange:
+    def __init__(self, lo: float, hi: float):
+        self._lo, self._hi = lo, hi
+
+    def minimum(self) -> float:
+        return self._lo
+
+    def maximum(self) -> float:
+        return self._hi
+
+
+class FakeFilterDevice(FakeDevice):
+    def __init__(self, ranges):
+        super().__init__()
+        self._ranges = ranges
+        self.bandwidth = 18e6
+
+    def getBandwidthRange(self, direction, channel):  # noqa: N802 (SoapySDR API name)
+        return self._ranges
+
+    def getBandwidth(self, direction, channel):  # noqa: N802 (SoapySDR API name)
+        return self.bandwidth
+
+    def setBandwidth(self, direction, channel, bw):  # noqa: N802 (SoapySDR API name)
+        self.bandwidth = bw
+
+
+def test_analog_filter_probe_and_set() -> None:
+    dev = SoapySDRDevice(driver="plutosdr", serial="", antenna="", device_args="")
+    dev._device = FakeFilterDevice([FakeRange(0.2e6, 0.2e6), FakeRange(10e6, 10e6)])
+    assert dev._probe_analog_filter() is True
+    assert dev.set_analog_bandwidth(1.6e6) == 1.6e6
+    dev._device = FakeFilterDevice([])  # the Airspy reports no range
+    assert dev._probe_analog_filter() is False

@@ -1,3 +1,4 @@
+analog_filter_restore_failed
 app_cleanup_complete
 app_engine_shutdown_failed
 app_run_starting
@@ -94,7 +95,9 @@ hardware_config_update_failed
 hardware_enable_agc
 hardware_init_failed
 hardware_initialized
+hardware_restore_analog_filter
 hardware_sample_format
+hardware_set_analog_filter
 hardware_set_bias_tee
 hardware_set_frequency
 hardware_set_gain
@@ -183,6 +186,7 @@ signal_exit_failed
 signal_received
 soapy_found_system_path
 soapy_gains
+soapy_get_bandwidth_range_failed
 soapy_get_gain_range_failed
 soapy_get_setting_info_failed
 soapy_get_stream_formats_failed

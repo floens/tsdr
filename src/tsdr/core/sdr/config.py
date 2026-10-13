@@ -14,12 +14,22 @@ from tsdr.core.demod_spec import DemodSpec
 from tsdr.core.sdr.samples_batch import SampleFormat
 
 TuningMode = Literal["center", "free"]
+# Where the LO sits relative to the dial while demodulating; auto = below
+# on zero-IF radios, off otherwise.
+LoOffset = Literal["auto", "below", "above", "off"]
+# The radio's analog (anti-alias) filter: track = a fraction of the sample
+# rate, fixed = analog_filter_hz, off = the driver's own setting; auto =
+# track on radios whose driver leaves the filter alone, off otherwise.
+AnalogFilter = Literal["auto", "track", "fixed", "off"]
 FFTWindow = Literal["hanning", "hamming", "blackman", "bartlett", "rectangular"]
 
 # Floor for the spectrum view span, sized so the deepest server-provided
 # frame (~1.8 kHz span) stretches at most 2x; for IQ devices it is purely a
 # display crop.
 MIN_SPECTRUM_SPAN_HZ = 1_000.0
+
+# Analog filter width as a fraction of the sample rate when tracking it.
+DEFAULT_ANALOG_FILTER_FRACTION = 0.8
 
 
 class StageType(Enum):
@@ -66,6 +76,11 @@ class DeviceConfigChanges(TypedDict, total=False):
     tuned_frequency: float
     center_frequency: float
     tuning_mode: TuningMode
+    lo_offset: LoOffset
+    lo_offset_hz: float | None
+    analog_filter: AnalogFilter
+    analog_filter_hz: float | None
+    analog_filter_fraction: float
     sample_rate: float
     rf_gain: float
     auto_gain: bool
@@ -107,6 +122,14 @@ class DeviceConfig:
     center_frequency: float = 100.0e6  # Hz, hardware capture center (derived from the dial)
     # center: hardware follows every dial move; free: DSP offset until the band edge
     tuning_mode: TuningMode = "center"
+    # LO side while demodulating, and its distance from the dial (None = sized
+    # from the demodulator's channel); see tune_policy.lo_offset_for.
+    lo_offset: LoOffset = "auto"
+    lo_offset_hz: float | None = None
+    # See analog_filter.target_bandwidth.
+    analog_filter: AnalogFilter = "auto"
+    analog_filter_hz: float | None = None
+    analog_filter_fraction: float = DEFAULT_ANALOG_FILTER_FRACTION
     sample_rate: float = 2.4e6  # Samples/sec
     rf_gain: float = 30.0  # dB
     auto_gain: bool = False  # Disable AGC for consistent gain control
@@ -162,6 +185,22 @@ class DeviceConfig:
             raise ValueError(f"tuned_frequency must be positive, got {self.tuned_frequency}")
         if self.tuning_mode not in get_args(TuningMode):
             raise ValueError(f"tuning_mode must be 'center' or 'free', got {self.tuning_mode}")
+        if self.lo_offset not in get_args(LoOffset):
+            raise ValueError(f"lo_offset must be one of {get_args(LoOffset)}, got {self.lo_offset}")
+        if self.lo_offset_hz is not None and self.lo_offset_hz <= 0:
+            raise ValueError(f"lo_offset_hz must be positive, got {self.lo_offset_hz}")
+        if self.analog_filter not in get_args(AnalogFilter):
+            raise ValueError(
+                f"analog_filter must be one of {get_args(AnalogFilter)}, got {self.analog_filter}"
+            )
+        if self.analog_filter == "fixed" and self.analog_filter_hz is None:
+            raise ValueError("analog_filter 'fixed' needs analog_filter_hz")
+        if self.analog_filter_hz is not None and self.analog_filter_hz <= 0:
+            raise ValueError(f"analog_filter_hz must be positive, got {self.analog_filter_hz}")
+        if not 0.1 <= self.analog_filter_fraction <= 2.0:
+            raise ValueError(
+                f"analog_filter_fraction must be 0.1-2.0, got {self.analog_filter_fraction}"
+            )
         if self.queue_size <= 0:
             raise ValueError(f"queue_size must be positive, got {self.queue_size}")
         if self.buffer_samples is not None and self.buffer_samples <= 0:

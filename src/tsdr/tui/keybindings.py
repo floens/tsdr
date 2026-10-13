@@ -43,6 +43,8 @@ class Action(StrEnum):
     TUNE_STEP_NEXT = "tune.step-next"
     TUNE_STEP_PREV = "tune.step-prev"
     TUNE_MODE_TOGGLE = "tune.mode-toggle"
+    LO_OFFSET_BELOW = "tune.lo-below"
+    LO_OFFSET_ABOVE = "tune.lo-above"
     BANDWIDTH_UP = "bandwidth.up"
     BANDWIDTH_DOWN = "bandwidth.down"
     BANDWIDTH_UP_FINE = "bandwidth.up-fine"
@@ -151,6 +153,8 @@ BINDINGS: tuple[Binding, ...] = (
         (Action.TUNE_STEP_NEXT, ("s",), "Cycle the tuning step size forward"),
         (Action.TUNE_STEP_PREV, ("S",), "Cycle the tuning step size backward"),
         (Action.TUNE_MODE_TOGGLE, ("c",), "Toggle center and free tuning"),
+        (Action.LO_OFFSET_BELOW, ("o",), "Put the LO below the dial (again: no offset)"),
+        (Action.LO_OFFSET_ABOVE, ("O",), "Put the LO above the dial (again: no offset)"),
         (None, ("Ctrl+1-9",), "Recall a band-stack slot"),
         (None, ("Ctrl+0",), "Swap the A/B band stack"),
     ),

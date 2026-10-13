@@ -17,11 +17,17 @@ def full_view_range(config: DeviceConfig, caps: DeviceCapabilities | None) -> tu
 
     For spectrum-providing devices that is the device's band from
     capabilities: their `sample_rate` is the narrowband audio channel, not
-    the displayable span.
+    the displayable span. In center mode an LO offset puts the capture beside
+    the dial; the band is cropped symmetric about the dial so it stays centered.
     """
     if caps is not None and caps.provides_spectrum and caps.frequency_range is not None:
         return caps.frequency_range
     half = config.sample_rate / 2
+    if config.tuning_mode == "center" and (caps is None or caps.frequency_controllable):
+        lo_offset = abs(config.tuned_frequency - config.center_frequency)
+        if 0 < lo_offset < half:
+            half -= lo_offset
+            return (config.tuned_frequency - half, config.tuned_frequency + half)
     return (config.center_frequency - half, config.center_frequency + half)
 
 

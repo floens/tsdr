@@ -38,6 +38,12 @@ def _format_field(name: str, value: Any) -> str:
     """Render a single config field. Generic by default; specialized only
     where the unit is well-known so it's easy to add new fields without
     touching this file."""
+    if name == "lo_offset_hz":
+        return "[yellow]auto[/]" if value is None else f"[yellow]{value / 1000:.1f} kHz[/]"
+    if name == "analog_filter_hz" and isinstance(value, (int, float)):
+        return f"[yellow]{value / 1e6:.3f} MHz[/]"
+    if name == "analog_filter_fraction" and isinstance(value, (int, float)):
+        return f"[yellow]{value:.2f} x sample rate[/]"
     if value is None:
         return "[dim]None[/]"
     if isinstance(value, bool):
@@ -120,6 +126,28 @@ class SDRConfigCommand(Command):
             choices=["center", "free"],
             help="Tuning mode: center retunes hardware on every dial move, "
             "free offsets in DSP until the band edge",
+        )
+        parser.add_argument(
+            "--lo-offset",
+            choices=["auto", "below", "above", "off"],
+            help="Where the LO sits while demodulating: below or above the dial, off, "
+            "or auto (below on zero-IF radios such as the Pluto, off otherwise)",
+        )
+        parser.add_argument(
+            "--lo-offset-size",
+            help="LO distance from the dial with SI suffix (e.g. 50k), or 'auto' "
+            "(one channel width, at least 50 kHz)",
+        )
+        parser.add_argument(
+            "--analog-filter",
+            help="The radio's analog filter: track (a fraction of the sample rate), off "
+            "(the driver's own setting), a width with SI suffix (e.g. 1.5M), or auto "
+            "(track on radios whose driver leaves the filter alone, such as the Pluto)",
+        )
+        parser.add_argument(
+            "--analog-filter-fraction",
+            type=float,
+            help="Analog filter width as a fraction of the sample rate when tracking",
         )
         parser.add_argument(
             "--bandwidth", help="Channel bandwidth with SI suffix (e.g. 200k, 1.5M)"
@@ -213,6 +241,20 @@ class SDRConfigCommand(Command):
             changes["spectrum_center"] = None if args.view == "dial" else float(parse_hz(args.view))
         if args.tuning is not None:
             changes["tuning_mode"] = args.tuning
+        if args.lo_offset is not None:
+            changes["lo_offset"] = args.lo_offset
+        if args.lo_offset_size is not None:
+            changes["lo_offset_hz"] = (
+                None if args.lo_offset_size == "auto" else float(parse_hz(args.lo_offset_size))
+            )
+        if args.analog_filter is not None:
+            if args.analog_filter in ("auto", "track", "off"):
+                changes["analog_filter"] = args.analog_filter
+            else:
+                changes["analog_filter"] = "fixed"
+                changes["analog_filter_hz"] = float(parse_hz(args.analog_filter))
+        if args.analog_filter_fraction is not None:
+            changes["analog_filter_fraction"] = args.analog_filter_fraction
         if args.bandwidth is not None:
             changes["channel_bandwidth"] = float(parse_hz(args.bandwidth))
         if args.fps is not None:
@@ -258,6 +300,17 @@ class SDRConfigCommand(Command):
                 summary["network-buffer"] = f"[yellow]{value:.2f} s[/]"
             elif key == "tuning_mode":
                 summary["tuning"] = f"[yellow]{value}[/]"
+            elif key == "lo_offset":
+                summary["lo-offset"] = f"[yellow]{value}[/]"
+            elif key == "lo_offset_hz":
+                summary["lo-offset-size"] = _format_field(key, value)
+            elif key == "analog_filter":
+                if value != "fixed":
+                    summary["analog-filter"] = f"[yellow]{value}[/]"
+            elif key == "analog_filter_hz":
+                summary["analog-filter"] = _format_field(key, value)
+            elif key == "analog_filter_fraction":
+                summary["analog-filter-fraction"] = _format_field(key, value)
             else:
                 summary[key] = str(value)
 

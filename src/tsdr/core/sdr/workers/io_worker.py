@@ -11,12 +11,19 @@ from tsdr.core.events.events import (
     JitterBufferUpdateEvent,
     SamplesDroppedEvent,
 )
+from tsdr.core.sdr.analog_filter import target_bandwidth
 from tsdr.core.sdr.exceptions import DeviceError
 from tsdr.core.sdr.samples_batch import SampleFormat, SamplesBatch
 from tsdr.core.sdr.spectrum_view import resolve_view
 from tsdr.core.tracing import span
 from tsdr.core.workers import WorkerContext
-from tsdr.devices.base import DeviceCapabilities, HasJitterBuffer, as_spectrum_source
+from tsdr.devices.base import (
+    DeviceCapabilities,
+    HasJitterBuffer,
+    SDRDevice,
+    as_analog_filter,
+    as_spectrum_source,
+)
 
 if TYPE_CHECKING:
     from tsdr.core.sdr.config import DeviceConfig
@@ -56,6 +63,11 @@ class IOWorker:
 
         self._last_view: tuple[float, float] | None = None
 
+        # The driver's own filter width at open, and tsdr's last request
+        # (None = the driver's own setting).
+        self._filter_at_open = 0.0
+        self._filter_requested: float | None = None
+
     def setup(self, context: WorkerContext) -> None:
         device = self.device_context.device
         config = self.device_context.config
@@ -78,6 +90,12 @@ class IOWorker:
                 "hardware_set_sample_rate device=%s value_hz=%d", device_id, int(config.sample_rate)
             )
             device.set_sample_rate(config.sample_rate)
+
+            control = as_analog_filter(device)
+            if control is not None:
+                self._filter_at_open = control.analog_bandwidth()
+                self.device_context.analog_bandwidth_hz = self._filter_at_open or None
+            self._apply_analog_filter(device, config)
 
             if config.auto_gain:
                 logger.info("hardware_enable_agc device=%s", device_id)
@@ -151,6 +169,8 @@ class IOWorker:
 
                         if new_config.sample_rate != config.sample_rate:
                             device.set_sample_rate(new_config.sample_rate)
+
+                        self._apply_analog_filter(device, new_config)
 
                         # AGC toggle must come before rf_gain
                         if new_config.auto_gain != config.auto_gain:
@@ -280,6 +300,54 @@ class IOWorker:
                 self._maybe_publish_jitter_state(context)
                 self._maybe_publish_capabilities(context)
 
+    def _apply_analog_filter(self, device: SDRDevice, config: DeviceConfig) -> None:
+        """Set the analog filter for `config`; hand the driver back its own
+        width when tsdr stops managing it. Runs after any sample-rate change."""
+        control = as_analog_filter(device)
+        if control is None:
+            return
+        want = target_bandwidth(
+            setting=config.analog_filter,
+            width_hz=config.analog_filter_hz,
+            fraction=config.analog_filter_fraction,
+            sample_rate=config.sample_rate,
+            caps=device.capabilities,
+        )
+        if want == self._filter_requested:
+            return
+        request = want if want is not None else self._filter_at_open
+        if request:
+            actual = control.set_analog_bandwidth(request)
+            self.device_context.analog_bandwidth_hz = actual or None
+            logger.info(
+                "hardware_set_analog_filter device=%s requested_hz=%d actual_hz=%d",
+                self.device_context.device_id,
+                int(request),
+                int(actual),
+            )
+        # Only once the driver took it, so a request it rejected is retried.
+        self._filter_requested = want
+
+    def _restore_analog_filter(self) -> None:
+        """Leave the filter as tsdr found it: the driver may keep it across
+        sessions (the Pluto does), and the next program may not set its own."""
+        control = as_analog_filter(self.device_context.device)
+        if control is None or self._filter_requested is None or not self._filter_at_open:
+            return
+        self._filter_requested = None
+        try:
+            control.set_analog_bandwidth(self._filter_at_open)
+        except Exception as e:  # noqa: BLE001 - driver errors are undocumented; closing goes on
+            logger.warning(
+                "analog_filter_restore_failed device=%s error=%r", self.device_context.device_id, e
+            )
+            return
+        logger.info(
+            "hardware_restore_analog_filter device=%s hz=%d",
+            self.device_context.device_id,
+            int(self._filter_at_open),
+        )
+
     def _maybe_apply_spectrum_view(self, config: DeviceConfig) -> None:
         source = as_spectrum_source(self.device_context.device)
         if source is None:
@@ -364,6 +432,7 @@ class IOWorker:
         )
 
     def teardown(self, context: WorkerContext) -> None:
+        self._restore_analog_filter()
         try:
             self.device_context.device.close()
             logger.info("device_closed device=%s", self.device_context.device_id)

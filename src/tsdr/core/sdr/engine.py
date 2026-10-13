@@ -34,9 +34,9 @@ from tsdr.core.sdr.config import (
     SDRConfig,
     StageType,
 )
-from tsdr.core.sdr.device_context import DeviceState, SDRDeviceContext
+from tsdr.core.sdr.device_context import DeviceState, SDRDeviceContext, active_mode_of
 from tsdr.core.sdr.exceptions import ConfigurationError, SDRException
-from tsdr.core.sdr.tune_policy import derive_center_frequency
+from tsdr.core.sdr.tune_policy import derive_center_frequency, lo_offset_for
 from tsdr.core.sdr.workers.audio_worker import AudioOutputWorker, list_audio_devices
 from tsdr.core.tracing import span, traced
 from tsdr.core.units import find_nearest
@@ -44,6 +44,7 @@ from tsdr.core.workers import WorkerRunner
 from tsdr.devices import DeviceParams, create_device
 from tsdr.devices.base import DeviceCapabilities
 from tsdr.radio.registry import DEMODULATOR_CLASSES
+from tsdr.radio.registry import demod_profile as build_profile
 
 logger = logging.getLogger(__name__)
 
@@ -309,11 +310,20 @@ class SDREngine:
             changes["spectrum_center"] = None
 
         # sample_rate/channel_bandwidth are fit-test inputs: the channel can
-        # leave the captured band without any dial move.
+        # leave the captured band without any dial move. A demodulator change
+        # (pipelines) and the LO offset settings move the LO beside the dial.
         if (
             any(
                 key in changes
-                for key in ("tuned_frequency", "tuning_mode", "sample_rate", "channel_bandwidth")
+                for key in (
+                    "tuned_frequency",
+                    "tuning_mode",
+                    "sample_rate",
+                    "channel_bandwidth",
+                    "pipelines",
+                    "lo_offset",
+                    "lo_offset_hz",
+                )
             )
             and "center_frequency" not in changes
         ):
@@ -355,25 +365,48 @@ class SDREngine:
     ) -> float:
         """Hardware center for the (possibly changing) tuned frequency."""
         config = context.config
-        if changes.get("channel_bandwidth") is not None:
-            # The pending bandwidth, not the current profile's: recalls set
-            # bandwidth and tune in one update.
-            bw = float(changes["channel_bandwidth"])
+        # The pending demodulator and bandwidth, not the current ones: recalls
+        # set bandwidth and tune in one update, and a demod switch changes both.
+        # The profile's width is the pending setting for audio modes and a
+        # decoder's own fixed width (ADS-B, DAB) whatever the setting says.
+        mode = active_mode_of(changes.get("pipelines", config.pipelines))
+        profile = (
+            None
+            if mode == "RAW"
+            else build_profile(mode, changes.get("channel_bandwidth", config.channel_bandwidth))
+        )
+        if profile is not None:
+            bw = float(profile.channel_bandwidth)
         else:
-            profile = context.demod_profile
-            bw = (
-                profile.channel_bandwidth
-                if profile is not None
-                else (config.channel_bandwidth or 0.0)
-            )
+            bw = float(changes.get("channel_bandwidth") or config.channel_bandwidth or 0.0)
+        tuned = changes.get("tuned_frequency", config.tuned_frequency)
+        center = changes.get("center_frequency", config.center_frequency)
+        sample_rate = changes.get("sample_rate", config.sample_rate)
+        lo_offset = lo_offset_for(
+            setting=changes.get("lo_offset", config.lo_offset),
+            size_hz=changes.get("lo_offset_hz", config.lo_offset_hz),
+            channel_bandwidth=bw if profile is not None else None,
+            sample_rate=sample_rate,
+            caps=caps,
+        )
+        # Free mode keeps a fitting center, except when asked to move the LO
+        # or when the LO would sit within the offset of the dial (a new
+        # demodulator, or a dial move onto the LO).
+        recenter = (
+            "lo_offset" in changes
+            or "lo_offset_hz" in changes
+            or abs(tuned - center) < abs(lo_offset)
+        )
         return derive_center_frequency(
-            tuned=changes.get("tuned_frequency", config.tuned_frequency),
-            center=changes.get("center_frequency", config.center_frequency),
-            sample_rate=changes.get("sample_rate", config.sample_rate),
+            tuned=tuned,
+            center=center,
+            sample_rate=sample_rate,
             channel_bandwidth=bw,
             caps=caps,
             running=context.state == DeviceState.RUNNING,
             mode=changes.get("tuning_mode", config.tuning_mode),
+            lo_offset=lo_offset,
+            recenter=recenter,
         )
 
     def update_global_config(self, **changes: Unpack[GlobalConfigChanges]) -> None:

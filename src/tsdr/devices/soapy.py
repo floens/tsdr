@@ -101,6 +101,25 @@ def import_soapysdr() -> Any:
 _SoapySDR = import_soapysdr()
 _HAS_SOAPY = _SoapySDR is not None
 
+# Driver or hardware key fragments of direct-conversion (zero-IF) radios.
+_ZERO_IF_KEYS = ("pluto", "hackrf", "lime", "uhd", "bladerf")
+
+
+def _is_zero_if(*keys: str) -> bool:
+    folded = " ".join(keys).casefold()
+    return any(k in folded for k in _ZERO_IF_KEYS)
+
+
+# Drivers that leave the analog filter where it is when the sample rate
+# changes (SoapyPlutoSDR keeps the AD9361 at 18 MHz from 0.3 to 20 MS/s).
+_STATIC_ANALOG_FILTER_KEYS = ("pluto",)
+
+
+def _has_static_analog_filter(*keys: str) -> bool:
+    folded = " ".join(keys).casefold()
+    return any(k in folded for k in _STATIC_ANALOG_FILTER_KEYS)
+
+
 # Stream-format preference, best-first (CF32 lossless; integer formats fallback).
 # Fields: SOAPY_SDR_* string, SampleFormat, numpy read dtype, components per IQ
 # sample (1 = complex64, 2 = interleaved 8-bit).
@@ -256,8 +275,10 @@ class SoapySDRDevice:
             logger.debug("soapy_list_gains_failed error=%r", e)
 
         hw = self._device.getHardwareKey()
+        driver_key = self._device.getDriverKey()
         logger.debug("soapy_gains hw=%s gains=%s has_agc=%s", hw, ",".join(gains), has_agc)
         self._identity = DeviceIdentity(type_label=hw or "Soapy", serial=self._serial or None)
+        analog_filter = self._probe_analog_filter()
         self._capabilities = DeviceCapabilities(
             frequency_range=None,
             frequency_controllable=True,
@@ -267,8 +288,32 @@ class SoapySDRDevice:
             gain_step=1.0,
             gain_unit="dB",
             bias_tee_supported=supports_bias_tee,
+            zero_if=_is_zero_if(driver_key, hw, self._driver),
+            analog_filter_supported=analog_filter,
+            static_analog_filter=analog_filter
+            and _has_static_analog_filter(driver_key, hw, self._driver),
         )
-        logger.info("soapy_opened hw=%s driver=%s", hw, self._driver or "auto")
+        logger.info(
+            "soapy_opened hw=%s driver=%s driver_key=%s zero_if=%s analog_filter=%s "
+            "static_analog_filter=%s",
+            hw,
+            self._driver or "auto",
+            driver_key,
+            self._capabilities.zero_if,
+            analog_filter,
+            self._capabilities.static_analog_filter,
+        )
+
+    def _probe_analog_filter(self) -> bool:
+        """True when the driver reports a settable analog filter (the Airspy
+        reports no range and ignores setBandwidth)."""
+        assert self._device is not None
+        try:
+            ranges = self._device.getBandwidthRange(_SoapySDR.SOAPY_SDR_RX, 0)
+        except (RuntimeError, AttributeError) as e:
+            logger.debug("soapy_get_bandwidth_range_failed error=%r", e)
+            return False
+        return any(r.maximum() > 0 for r in ranges)
 
     def interrupt(self) -> None:
         # Soapy reads have a 2s timeout, so they unblock on their own.
@@ -348,6 +393,17 @@ class SoapySDRDevice:
     @property
     def capabilities(self) -> DeviceCapabilities:
         return self._capabilities
+
+    def analog_bandwidth(self) -> float:
+        if not self._device:
+            return 0.0
+        return float(self._device.getBandwidth(_SoapySDR.SOAPY_SDR_RX, 0))
+
+    def set_analog_bandwidth(self, hz: float) -> float:
+        if not self._device:
+            return 0.0
+        self._device.setBandwidth(_SoapySDR.SOAPY_SDR_RX, 0, hz)
+        return self.analog_bandwidth()
 
     def set_bias_tee(self, enable: bool) -> None:
         if self._device and self._capabilities.bias_tee_supported:
