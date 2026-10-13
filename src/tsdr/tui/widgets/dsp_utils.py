@@ -99,6 +99,8 @@ def project_spectrum(
 
     Bins outside the event's freq range are filled with -inf so they clip to 0
     after normalization: bars disappear where we have no captured data.
+    With more bins than outputs, each output averages the bins it covers, as
+    decimate_spectrum does for the full band.
     """
     if e_fmin == v_fmin and e_fmax == v_fmax:
         return decimate_spectrum(spectrum, target)
@@ -108,6 +110,19 @@ def project_spectrum(
     v_span = v_fmax - v_fmin
     n = len(spectrum)
     if e_span <= 0 or v_span <= 0 or n == 0:
+        return out
+
+    if v_span / e_span * n > target:
+        # One bin per output would show single-bin noise: several dB of jitter
+        # between neighbors, and a trace riding on the noise peaks.
+        edges = np.floor((v_fmin + np.arange(target + 1) / target * v_span - e_fmin) / e_span * n)
+        edges = np.clip(edges, 0, n).astype(np.intp)
+        lo, hi = edges[:-1], edges[1:]
+        covered = hi > lo
+        if covered.any():
+            lo, hi = lo[covered], hi[covered]
+            sums = np.add.reduceat(spectrum[: hi[-1]], lo, dtype=np.float64)
+            out[covered] = sums / (hi - lo)
         return out
 
     v_freqs = v_fmin + (np.arange(target) + 0.5) / target * v_span

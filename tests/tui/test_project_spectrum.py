@@ -18,13 +18,32 @@ def test_identity_range_decimates():
     assert np.all(np.isfinite(out))
 
 
-def test_shifted_view_maps_bins():
-    spectrum = np.arange(100, dtype=np.float32)
-    # View is the upper half of the event range; bins sample at their centers,
-    # so output bin 0 covers view freq 52.5 -> source bin 52.
+def test_shifted_view_averages_each_outputs_bins():
+    spectrum = np.arange(100, dtype=np.float32) ** 2
+    # View is the upper half of the event range: 5 source bins per output,
+    # so output bin 0 is the mean of source bins 50-54.
     out = project_spectrum(spectrum, 0.0, 100.0, 50.0, 100.0, 10)
-    assert np.all(out >= 50.0)
-    assert out[0] == spectrum[52]
+    assert out[0] == spectrum[50:55].mean()
+    assert out[-1] == spectrum[95:100].mean()
+
+
+def test_cropped_full_view_is_as_smooth_as_the_full_band():
+    """An LO offset crops the full view a little. Taking one bin per column
+    there made the trace several dB noisier and lifted it onto the noise peaks."""
+    rng = np.random.default_rng(0)
+    spectrum = (10 * np.log10(rng.exponential(size=32768))).astype(np.float32)
+    full = project_spectrum(spectrum, 0.0, 10e6, 0.0, 10e6, 400)
+    cropped = project_spectrum(spectrum, 0.0, 10e6, 50e3, 10e6 - 50e3, 400)
+    assert np.std(np.diff(cropped)) < 2 * np.std(np.diff(full))
+    assert np.max(cropped) < np.max(full) + 2.0
+
+
+def test_averaged_view_blanks_columns_past_the_event():
+    spectrum = np.arange(100, dtype=np.float32)
+    out = project_spectrum(spectrum, 0.0, 100.0, 90.0, 110.0, 4)
+    assert out[0] == spectrum[90:95].mean()
+    assert out[1] == spectrum[95:100].mean()
+    assert np.all(np.isneginf(out[2:]))
 
 
 def test_zoomed_view_stretches():
