@@ -70,6 +70,7 @@ class SectionPanel(VerticalScroll, PanelWidget):
     taller than its box scrolls. Subclasses implement ``build_sections``.
     """
 
+    can_focus = False  # scrolls by mouse; the app owns the keyboard
     dock_edge: reactive[Edge | None] = reactive(None)
 
     def compose(self) -> ComposeResult:

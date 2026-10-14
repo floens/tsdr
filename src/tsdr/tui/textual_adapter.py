@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import time
 from typing import TYPE_CHECKING
@@ -214,6 +215,14 @@ class TextualEventAdapter:
 
     def _on_config_changed(self, event: Event) -> None:
         if not isinstance(event, ConfigChangedEvent):
+            return
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            # Published off the app's loop (the pipeline worker: an AGC gain
+            # step, a SEARCH jump), where a Textual timer cannot start. These
+            # come a few a second at most; the UI re-reads the config.
+            self.app.post_message(ConfigChanged(event))
             return
         elapsed = time.perf_counter() - self._last_config_post_ts
         if elapsed >= CONFIG_REFRESH_MIN_INTERVAL:

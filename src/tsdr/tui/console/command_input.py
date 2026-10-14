@@ -157,6 +157,7 @@ class CommandInputMixin(MixinBase):
     def _focus_command_input(self) -> None:
         cmd_input = self.query_one("#command-input", TerminalInput)
         cmd_input.active = True
+        cmd_input.focus()  # keys reach it only while it holds Textual's focus
         self.query_one(ConsoleWidget).add_class("focused")
 
     def _blur_command_input(self) -> None:
